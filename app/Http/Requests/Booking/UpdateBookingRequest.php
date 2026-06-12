@@ -19,7 +19,7 @@ class UpdateBookingRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'booking_color' => ['nullable', 'string', 'max:20', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'booking_color' => ['required', 'string', 'max:20', 'regex:/^#[0-9A-Fa-f]{6}$/'],
             'customer_name' => ['required', 'string', 'max:255'],
             'customer_phone' => ['nullable', 'string', 'max:50'],
             'customer_email' => ['nullable', 'email', 'max:255'],

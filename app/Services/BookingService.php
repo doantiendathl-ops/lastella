@@ -6,6 +6,9 @@ use App\Enums\AssignmentStatus;
 use App\Enums\BookingStatus;
 use App\Enums\StayStatus;
 use App\Models\Booking;
+use App\Models\BookingRequirement;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -13,12 +16,58 @@ use Illuminate\Support\Str;
 
 class BookingService
 {
+    public function paginate(array $filters = []): LengthAwarePaginator
+    {
+        $query = Booking::query()->with('salesUser');
+
+        $this->applyLikeFilter($query, $filters, 'booking_code');
+        $this->applyLikeFilter($query, $filters, 'customer_name');
+        $this->applyLikeFilter($query, $filters, 'customer_phone');
+
+        foreach (['status', 'booking_type', 'sales_user_id'] as $column) {
+            if (filled($filters[$column] ?? null)) {
+                $query->where($column, $filters[$column]);
+            }
+        }
+
+        if (filled($filters['checkin_from'] ?? null)) {
+            $query->where('checkin_at', '>=', $filters['checkin_from']);
+        }
+
+        if (filled($filters['checkin_to'] ?? null)) {
+            $query->where('checkin_at', '<=', $filters['checkin_to']);
+        }
+
+        if (filled($filters['checkout_from'] ?? null)) {
+            $query->where('checkout_at', '>=', $filters['checkout_from']);
+        }
+
+        if (filled($filters['checkout_to'] ?? null)) {
+            $query->where('checkout_at', '<=', $filters['checkout_to']);
+        }
+
+        $sort = in_array($filters['sort'] ?? null, [
+            'booking_code',
+            'customer_name',
+            'customer_phone',
+            'booking_type',
+            'checkin_at',
+            'checkout_at',
+            'status',
+            'created_at',
+        ], true) ? $filters['sort'] : 'created_at';
+        $direction = ($filters['direction'] ?? 'desc') === 'asc' ? 'asc' : 'desc';
+        $perPage = min(max((int) ($filters['per_page'] ?? 15), 5), 100);
+
+        return $query->orderBy($sort, $direction)->paginate($perPage)->withQueryString();
+    }
+
     public function createBooking(array $data): Booking
     {
         return DB::transaction(function () use ($data): Booking {
             $requirements = Arr::pull($data, 'requirements', []);
             $data['booking_code'] = $data['booking_code'] ?? $this->generateBookingCode();
-            $data['status'] = $data['status'] ?? BookingStatus::PendingAssignment;
+            $data['status'] = $data['status'] ?? ($requirements === [] ? BookingStatus::Draft : BookingStatus::PendingAssignment);
             $data['created_by'] = $data['created_by'] ?? Auth::id();
             $data['updated_by'] = $data['updated_by'] ?? Auth::id();
 
@@ -31,6 +80,30 @@ class BookingService
 
             return $booking->load(['bookingRequirements.roomType']);
         });
+    }
+
+    public function addRequirement(Booking $booking, array $data): BookingRequirement
+    {
+        /** @var BookingRequirement $requirement */
+        $requirement = $booking->bookingRequirements()->create($data);
+        $this->updateBookingAssignmentStatus($booking);
+
+        return $requirement->load('roomType');
+    }
+
+    public function updateRequirement(BookingRequirement $requirement, array $data): BookingRequirement
+    {
+        $requirement->update($data);
+        $this->updateBookingAssignmentStatus($requirement->booking);
+
+        return $requirement->refresh()->load('roomType');
+    }
+
+    public function deleteRequirement(BookingRequirement $requirement): void
+    {
+        $booking = $requirement->booking;
+        $requirement->delete();
+        $this->updateBookingAssignmentStatus($booking);
     }
 
     public function updateBooking(Booking $booking, array $data): Booking
@@ -181,5 +254,12 @@ class BookingService
         } while (Booking::where('booking_code', $code)->exists());
 
         return $code;
+    }
+
+    private function applyLikeFilter(Builder $query, array $filters, string $column): void
+    {
+        if (filled($filters[$column] ?? null)) {
+            $query->where($column, 'like', '%'.$filters[$column].'%');
+        }
     }
 }

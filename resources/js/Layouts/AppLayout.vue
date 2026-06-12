@@ -2,6 +2,7 @@
 import { Link, usePage } from '@inertiajs/vue3';
 import {
     BedDouble,
+    CalendarCheck,
     ClipboardList,
     DollarSign,
     Gauge,
@@ -24,6 +25,7 @@ const can = (permission) => permissions.value.has(permission);
 
 const navItems = computed(() => [
     { label: 'Dashboard', href: '/dashboard', icon: Gauge, show: true },
+    { label: 'Bookings', href: '/admin/bookings', icon: CalendarCheck, show: can('booking.create') || can('booking.update') || can('booking.cancel') || can('report.view') },
     { label: 'Users', href: '/users', icon: Users, show: can('users.manage') },
     { label: 'Roles', href: '/roles', icon: Shield, show: can('roles.manage') },
     { label: 'Permissions', href: '/permissions', icon: KeyRound, show: can('roles.manage') },

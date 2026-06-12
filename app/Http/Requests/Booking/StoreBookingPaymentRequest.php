@@ -18,8 +18,8 @@ class StoreBookingPaymentRequest extends FormRequest
         return [
             'payment_type' => ['required', Rule::in(array_map(fn (PaymentType $type): string => $type->value, PaymentType::cases()))],
             'amount' => ['required', 'numeric', 'min:0.01'],
-            'payment_method' => ['nullable', 'string', 'max:60'],
-            'payment_at' => ['nullable', 'date'],
+            'payment_method' => ['required', 'string', 'max:60'],
+            'payment_at' => ['required', 'date'],
             'note' => ['nullable', 'string'],
         ];
     }

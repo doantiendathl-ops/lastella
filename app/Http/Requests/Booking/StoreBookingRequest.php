@@ -18,7 +18,7 @@ class StoreBookingRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'booking_color' => ['nullable', 'string', 'max:20', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'booking_color' => ['required', 'string', 'max:20', 'regex:/^#[0-9A-Fa-f]{6}$/'],
             'customer_name' => ['required', 'string', 'max:255'],
             'customer_phone' => ['nullable', 'string', 'max:50'],
             'customer_email' => ['nullable', 'email', 'max:255'],
@@ -32,14 +32,14 @@ class StoreBookingRequest extends FormRequest
             'sales_user_id' => ['nullable', 'integer', 'exists:users,id'],
             'note' => ['nullable', 'string'],
             'internal_note' => ['nullable', 'string'],
-            'requirements' => ['required', 'array', 'min:1'],
-            'requirements.*.room_type_id' => ['required', 'integer', 'exists:room_types,id'],
-            'requirements.*.quantity' => ['required', 'integer', 'min:1'],
-            'requirements.*.adults' => ['required', 'integer', 'min:0'],
-            'requirements.*.children_under_6' => ['required', 'integer', 'min:0'],
-            'requirements.*.children_over_6' => ['required', 'integer', 'min:0'],
-            'requirements.*.room_price' => ['required', 'numeric', 'min:0'],
-            'requirements.*.price_source' => ['required', Rule::in($this->enumValues(PriceSource::cases()))],
+            'requirements' => ['sometimes', 'array', 'min:1'],
+            'requirements.*.room_type_id' => ['required_with:requirements', 'integer', 'exists:room_types,id'],
+            'requirements.*.quantity' => ['required_with:requirements', 'integer', 'min:1'],
+            'requirements.*.adults' => ['required_with:requirements', 'integer', 'min:0'],
+            'requirements.*.children_under_6' => ['required_with:requirements', 'integer', 'min:0'],
+            'requirements.*.children_over_6' => ['required_with:requirements', 'integer', 'min:0'],
+            'requirements.*.room_price' => ['required_with:requirements', 'numeric', 'min:0'],
+            'requirements.*.price_source' => ['required_with:requirements', Rule::in($this->enumValues(PriceSource::cases()))],
             'requirements.*.note' => ['nullable', 'string'],
         ];
     }

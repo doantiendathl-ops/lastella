@@ -1,6 +1,11 @@
 <?php
 
 use App\Http\Controllers\Admin\AuditLogController;
+use App\Http\Controllers\Admin\Booking\BookingController;
+use App\Http\Controllers\Admin\Booking\BookingPaymentController;
+use App\Http\Controllers\Admin\Booking\BookingRequirementController;
+use App\Http\Controllers\Admin\Booking\RoomAssignmentController;
+use App\Http\Controllers\Admin\Booking\StayController;
 use App\Http\Controllers\Admin\FloorController;
 use App\Http\Controllers\Admin\PermissionController;
 use App\Http\Controllers\Admin\RoleController;
@@ -32,4 +37,17 @@ Route::middleware('auth')->group(function (): void {
     Route::resource('room-rates', RoomRateController::class)->except(['show'])->parameters(['room-rates' => 'roomRate']);
     Route::resource('settings', SettingController::class)->except(['show']);
     Route::get('audit-logs', [AuditLogController::class, 'index'])->name('audit-logs.index');
+
+    Route::prefix('admin')->name('admin.')->group(function (): void {
+        Route::resource('bookings', BookingController::class)->except(['destroy']);
+        Route::post('bookings/{booking}/cancel', [BookingController::class, 'cancel'])->name('bookings.cancel');
+        Route::post('bookings/{booking}/requirements', [BookingRequirementController::class, 'store'])->name('bookings.requirements.store');
+        Route::put('bookings/{booking}/requirements/{requirement}', [BookingRequirementController::class, 'update'])->name('bookings.requirements.update');
+        Route::delete('bookings/{booking}/requirements/{requirement}', [BookingRequirementController::class, 'destroy'])->name('bookings.requirements.destroy');
+        Route::post('bookings/{booking}/payments', [BookingPaymentController::class, 'store'])->name('bookings.payments.store');
+        Route::post('bookings/{booking}/assignments', [RoomAssignmentController::class, 'store'])->name('bookings.assignments.store');
+        Route::post('bookings/{booking}/assignments/{assignment}/release', [RoomAssignmentController::class, 'release'])->name('bookings.assignments.release');
+        Route::post('bookings/{booking}/stays/{stay}/check-in', [StayController::class, 'checkIn'])->name('bookings.stays.check-in');
+        Route::post('bookings/{booking}/stays/{stay}/check-out', [StayController::class, 'checkOut'])->name('bookings.stays.check-out');
+    });
 });
