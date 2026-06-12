@@ -41,4 +41,19 @@ class User extends Authenticatable
     {
         return $this->hasMany(AuditLog::class);
     }
+
+    public function salesBookings(): HasMany
+    {
+        return $this->hasMany(Booking::class, 'sales_user_id');
+    }
+
+    public function createdBookings(): HasMany
+    {
+        return $this->hasMany(Booking::class, 'created_by');
+    }
+
+    public function confirmedBookingPayments(): HasMany
+    {
+        return $this->hasMany(BookingPayment::class, 'confirmed_by');
+    }
 }
