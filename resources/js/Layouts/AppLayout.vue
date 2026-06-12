@@ -1,0 +1,102 @@
+<script setup>
+import { Link, usePage } from '@inertiajs/vue3';
+import {
+    BedDouble,
+    ClipboardList,
+    DollarSign,
+    Gauge,
+    KeyRound,
+    Layers,
+    LogOut,
+    Settings,
+    Shield,
+    Tags,
+    Users,
+} from 'lucide-vue-next';
+import { computed } from 'vue';
+
+const page = usePage();
+
+const user = computed(() => page.props.auth.user);
+const permissions = computed(() => new Set(user.value?.permissions ?? []));
+
+const can = (permission) => permissions.value.has(permission);
+
+const navItems = computed(() => [
+    { label: 'Dashboard', href: '/dashboard', icon: Gauge, show: true },
+    { label: 'Users', href: '/users', icon: Users, show: can('users.manage') },
+    { label: 'Roles', href: '/roles', icon: Shield, show: can('roles.manage') },
+    { label: 'Permissions', href: '/permissions', icon: KeyRound, show: can('roles.manage') },
+    { label: 'Floors', href: '/floors', icon: Layers, show: can('rooms.manage') },
+    { label: 'Room Types', href: '/room-types', icon: Tags, show: can('room_types.manage') },
+    { label: 'Rooms', href: '/rooms', icon: BedDouble, show: can('rooms.manage') },
+    { label: 'Room Rates', href: '/room-rates', icon: DollarSign, show: can('rates.manage') },
+    { label: 'Settings', href: '/settings', icon: Settings, show: can('settings.manage') },
+    { label: 'Audit Logs', href: '/audit-logs', icon: ClipboardList, show: can('report.view') },
+].filter((item) => item.show));
+
+const currentPath = computed(() => new URL(page.url, window.location.origin).pathname);
+</script>
+
+<template>
+    <div class="min-h-screen bg-gray-50 text-ink">
+        <aside class="fixed inset-y-0 left-0 hidden w-64 border-r border-gray-200 bg-white lg:block">
+            <div class="flex h-16 items-center border-b border-gray-200 px-6">
+                <div>
+                    <div class="text-base font-semibold">Lastella PMS</div>
+                    <div class="text-xs uppercase tracking-wide text-steel">Core System</div>
+                </div>
+            </div>
+
+            <nav class="space-y-1 px-3 py-4">
+                <Link
+                    v-for="item in navItems"
+                    :key="item.href"
+                    :href="item.href"
+                    class="flex items-center gap-3 px-3 py-2 text-sm font-medium transition"
+                    :class="currentPath.startsWith(item.href) ? 'bg-linen text-pine' : 'text-steel hover:bg-gray-50 hover:text-ink'"
+                >
+                    <component :is="item.icon" class="h-4 w-4" />
+                    <span>{{ item.label }}</span>
+                </Link>
+            </nav>
+        </aside>
+
+        <div class="lg:pl-64">
+            <header class="sticky top-0 z-20 border-b border-gray-200 bg-white">
+                <div class="flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
+                    <div class="min-w-0">
+                        <slot name="header" />
+                    </div>
+
+                    <div class="flex items-center gap-4">
+                        <div class="hidden text-right sm:block">
+                            <div class="text-sm font-medium">{{ user?.name }}</div>
+                            <div class="text-xs text-steel">{{ user?.email }}</div>
+                        </div>
+                        <Link
+                            href="/logout"
+                            method="post"
+                            as="button"
+                            class="inline-flex h-9 w-9 items-center justify-center border border-gray-200 bg-white text-steel transition hover:border-coral hover:text-coral"
+                            title="Log out"
+                        >
+                            <LogOut class="h-4 w-4" />
+                        </Link>
+                    </div>
+                </div>
+            </header>
+
+            <main class="px-4 py-6 sm:px-6 lg:px-8">
+                <div v-if="page.props.flash.success" class="mb-4 border-l-4 border-pine bg-white px-4 py-3 text-sm text-pine shadow-sm">
+                    {{ page.props.flash.success }}
+                </div>
+                <div v-if="page.props.flash.error" class="mb-4 border-l-4 border-coral bg-white px-4 py-3 text-sm text-coral shadow-sm">
+                    {{ page.props.flash.error }}
+                </div>
+
+                <slot />
+            </main>
+        </div>
+    </div>
+</template>

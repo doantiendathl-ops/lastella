@@ -1,0 +1,15 @@
+/vendor
+/node_modules
+/public/build
+/public/hot
+/storage/*.key
+/.env
+/.env.*
+!/.env.example
+/bootstrap/cache/*.php
+/storage/logs/*.log
+/storage/framework/cache/data
+/storage/framework/views/*.php
+.phpunit.result.cache
+npm-debug.log
+yarn-error.log
