@@ -31,25 +31,25 @@ class RoomRateController extends Controller
             'valid_to' => $rate->valid_to?->toDateString(),
             'overnight_price' => $rate->overnight_price,
             'hourly_price' => $rate->hourly_price,
-            'status' => $rate->status?->value,
+            'status' => $rate->status?->label(),
         ]);
 
         return Inertia::render('Admin/CrudIndex', [
-            'title' => 'Room Rates',
+            'title' => 'Giá phòng',
             'baseUrl' => '/room-rates',
             'items' => $items,
             'filters' => $request->validated(),
             'columns' => [
-                ['key' => 'room_type', 'label' => 'Room Type'],
-                ['key' => 'valid_from', 'label' => 'Valid From', 'sortable' => true],
-                ['key' => 'valid_to', 'label' => 'Valid To', 'sortable' => true],
-                ['key' => 'overnight_price', 'label' => 'Overnight', 'sortable' => true],
-                ['key' => 'hourly_price', 'label' => 'Hourly'],
-                ['key' => 'status', 'label' => 'Status', 'sortable' => true],
+                ['key' => 'room_type', 'label' => 'Loại phòng'],
+                ['key' => 'valid_from', 'label' => 'Hiệu lực từ', 'sortable' => true],
+                ['key' => 'valid_to', 'label' => 'Hiệu lực đến', 'sortable' => true],
+                ['key' => 'overnight_price', 'label' => 'Qua đêm', 'sortable' => true],
+                ['key' => 'hourly_price', 'label' => 'Theo giờ'],
+                ['key' => 'status', 'label' => 'Trạng thái', 'sortable' => true],
             ],
             'filterFields' => [
-                ['name' => 'room_type_id', 'label' => 'Room Type', 'type' => 'select', 'options' => $this->roomTypeOptions()],
-                ['name' => 'status', 'label' => 'Status', 'type' => 'select', 'options' => RateStatus::options()],
+                ['name' => 'room_type_id', 'label' => 'Loại phòng', 'type' => 'select', 'options' => $this->roomTypeOptions()],
+                ['name' => 'status', 'label' => 'Trạng thái', 'type' => 'select', 'options' => RateStatus::options()],
             ],
             'canCreate' => true,
         ]);
@@ -59,7 +59,7 @@ class RoomRateController extends Controller
     {
         $this->authorize('create', RoomRate::class);
 
-        return Inertia::render('Admin/CrudForm', $this->formProps('Create Room Rate', '/room-rates', 'post'));
+        return Inertia::render('Admin/CrudForm', $this->formProps('Tạo giá phòng', '/room-rates', 'post'));
     }
 
     public function store(StoreRoomRateRequest $request): RedirectResponse
@@ -67,14 +67,14 @@ class RoomRateController extends Controller
         $this->authorize('create', RoomRate::class);
         $this->roomRates->create($request->validated());
 
-        return redirect('/room-rates')->with('success', 'Room rate created.');
+        return redirect('/room-rates')->with('success', 'Đã tạo giá phòng.');
     }
 
     public function edit(RoomRate $roomRate): Response
     {
         $this->authorize('update', $roomRate);
 
-        return Inertia::render('Admin/CrudForm', $this->formProps('Edit Room Rate', "/room-rates/{$roomRate->id}", 'put', [
+        return Inertia::render('Admin/CrudForm', $this->formProps('Sửa giá phòng', "/room-rates/{$roomRate->id}", 'put', [
             'room_type_id' => $roomRate->room_type_id,
             'valid_from' => $roomRate->valid_from?->toDateString(),
             'valid_to' => $roomRate->valid_to?->toDateString(),
@@ -93,7 +93,7 @@ class RoomRateController extends Controller
         $this->authorize('update', $roomRate);
         $this->roomRates->update($roomRate, $request->validated());
 
-        return redirect('/room-rates')->with('success', 'Room rate updated.');
+        return redirect('/room-rates')->with('success', 'Đã cập nhật giá phòng.');
     }
 
     public function destroy(RoomRate $roomRate): RedirectResponse
@@ -101,7 +101,7 @@ class RoomRateController extends Controller
         $this->authorize('delete', $roomRate);
         $this->roomRates->delete($roomRate);
 
-        return redirect('/room-rates')->with('success', 'Room rate deleted.');
+        return redirect('/room-rates')->with('success', 'Đã xóa giá phòng.');
     }
 
     private function formProps(string $title, string $action, string $method, array $values = []): array
@@ -113,16 +113,16 @@ class RoomRateController extends Controller
             'cancelUrl' => '/room-rates',
             'values' => $values,
             'fields' => [
-                ['name' => 'room_type_id', 'label' => 'Room Type', 'type' => 'select', 'required' => true, 'options' => $this->roomTypeOptions()],
-                ['name' => 'valid_from', 'label' => 'Valid From', 'type' => 'date', 'required' => true],
-                ['name' => 'valid_to', 'label' => 'Valid To', 'type' => 'date'],
-                ['name' => 'overnight_price', 'label' => 'Overnight Price', 'type' => 'number', 'required' => true],
-                ['name' => 'hourly_price', 'label' => 'Hourly Price', 'type' => 'number', 'required' => true],
-                ['name' => 'extra_adult_price', 'label' => 'Extra Adult', 'type' => 'number', 'required' => true],
-                ['name' => 'extra_child_price', 'label' => 'Extra Child', 'type' => 'number', 'required' => true],
-                ['name' => 'early_checkin_price', 'label' => 'Early Check-in', 'type' => 'number', 'required' => true],
-                ['name' => 'late_checkout_price', 'label' => 'Late Checkout', 'type' => 'number', 'required' => true],
-                ['name' => 'status', 'label' => 'Status', 'type' => 'select', 'required' => true, 'options' => RateStatus::options()],
+                ['name' => 'room_type_id', 'label' => 'Loại phòng', 'type' => 'select', 'required' => true, 'options' => $this->roomTypeOptions()],
+                ['name' => 'valid_from', 'label' => 'Hiệu lực từ', 'type' => 'date', 'required' => true],
+                ['name' => 'valid_to', 'label' => 'Hiệu lực đến', 'type' => 'date'],
+                ['name' => 'overnight_price', 'label' => 'Giá qua đêm', 'type' => 'number', 'required' => true],
+                ['name' => 'hourly_price', 'label' => 'Giá theo giờ', 'type' => 'number', 'required' => true],
+                ['name' => 'extra_adult_price', 'label' => 'Người lớn thêm', 'type' => 'number', 'required' => true],
+                ['name' => 'extra_child_price', 'label' => 'Trẻ em thêm', 'type' => 'number', 'required' => true],
+                ['name' => 'early_checkin_price', 'label' => 'Nhận phòng sớm', 'type' => 'number', 'required' => true],
+                ['name' => 'late_checkout_price', 'label' => 'Trả phòng muộn', 'type' => 'number', 'required' => true],
+                ['name' => 'status', 'label' => 'Trạng thái', 'type' => 'select', 'required' => true, 'options' => RateStatus::options()],
             ],
         ];
     }

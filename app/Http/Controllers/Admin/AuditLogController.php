@@ -21,8 +21,8 @@ class AuditLogController extends Controller
 
         $items = $this->auditLogs->paginate($request->validated())->through(fn (AuditLog $log): array => [
             'id' => $log->id,
-            'action' => $log->action?->value,
-            'user' => $log->user?->email ?? 'System',
+            'action' => $log->action?->label(),
+            'user' => $log->user?->email ?? 'Hệ thống',
             'entity_type' => class_basename($log->entity_type),
             'entity_id' => $log->entity_id,
             'ip_address' => $log->ip_address,
@@ -30,26 +30,26 @@ class AuditLogController extends Controller
         ]);
 
         return Inertia::render('Admin/CrudIndex', [
-            'title' => 'Audit Logs',
+            'title' => 'Nhật ký',
             'baseUrl' => '/audit-logs',
             'items' => $items,
             'filters' => $request->validated(),
             'columns' => [
-                ['key' => 'created_at', 'label' => 'Timestamp', 'sortable' => true],
-                ['key' => 'action', 'label' => 'Action', 'sortable' => true],
-                ['key' => 'user', 'label' => 'User'],
-                ['key' => 'entity_type', 'label' => 'Entity', 'sortable' => true],
-                ['key' => 'entity_id', 'label' => 'Entity ID'],
-                ['key' => 'ip_address', 'label' => 'IP Address'],
+                ['key' => 'created_at', 'label' => 'Thời điểm', 'sortable' => true],
+                ['key' => 'action', 'label' => 'Hành động', 'sortable' => true],
+                ['key' => 'user', 'label' => 'Người dùng'],
+                ['key' => 'entity_type', 'label' => 'Đối tượng', 'sortable' => true],
+                ['key' => 'entity_id', 'label' => 'ID đối tượng'],
+                ['key' => 'ip_address', 'label' => 'Địa chỉ IP'],
             ],
             'filterFields' => [
-                ['name' => 'action', 'label' => 'Action', 'type' => 'select', 'options' => [
-                    ['value' => 'created', 'label' => 'Created'],
-                    ['value' => 'updated', 'label' => 'Updated'],
-                    ['value' => 'deleted', 'label' => 'Deleted'],
-                    ['value' => 'restored', 'label' => 'Restored'],
+                ['name' => 'action', 'label' => 'Hành động', 'type' => 'select', 'options' => [
+                    ['value' => 'created', 'label' => 'Đã tạo'],
+                    ['value' => 'updated', 'label' => 'Đã cập nhật'],
+                    ['value' => 'deleted', 'label' => 'Đã xóa'],
+                    ['value' => 'restored', 'label' => 'Đã khôi phục'],
                 ]],
-                ['name' => 'entity_type', 'label' => 'Entity Type', 'type' => 'text'],
+                ['name' => 'entity_type', 'label' => 'Loại đối tượng', 'type' => 'text'],
             ],
             'canCreate' => false,
             'readOnly' => true,

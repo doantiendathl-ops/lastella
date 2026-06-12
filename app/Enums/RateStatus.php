@@ -10,8 +10,8 @@ enum RateStatus: string
     public function label(): string
     {
         return match ($this) {
-            self::Active => 'Active',
-            self::Inactive => 'Inactive',
+            self::Active => 'Hoạt động',
+            self::Inactive => 'Ngừng hoạt động',
         };
     }
 

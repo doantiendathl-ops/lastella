@@ -23,16 +23,16 @@ class RoomTypeController extends Controller
         $this->authorize('viewAny', RoomType::class);
 
         return Inertia::render('Admin/CrudIndex', [
-            'title' => 'Room Types',
+            'title' => 'Loại phòng',
             'baseUrl' => '/room-types',
             'items' => $this->roomTypes->paginate($request->validated()),
             'filters' => $request->validated(),
             'columns' => [
-                ['key' => 'code', 'label' => 'Code', 'sortable' => true],
-                ['key' => 'name', 'label' => 'Name', 'sortable' => true],
-                ['key' => 'standard_adults', 'label' => 'Std Adults', 'sortable' => true],
-                ['key' => 'max_adults', 'label' => 'Max Adults', 'sortable' => true],
-                ['key' => 'free_children', 'label' => 'Free Children'],
+                ['key' => 'code', 'label' => 'Mã', 'sortable' => true],
+                ['key' => 'name', 'label' => 'Tên', 'sortable' => true],
+                ['key' => 'standard_adults', 'label' => 'Người lớn chuẩn', 'sortable' => true],
+                ['key' => 'max_adults', 'label' => 'Người lớn tối đa', 'sortable' => true],
+                ['key' => 'free_children', 'label' => 'Trẻ em miễn phí'],
             ],
             'canCreate' => true,
         ]);
@@ -42,7 +42,7 @@ class RoomTypeController extends Controller
     {
         $this->authorize('create', RoomType::class);
 
-        return Inertia::render('Admin/CrudForm', $this->formProps('Create Room Type', '/room-types', 'post'));
+        return Inertia::render('Admin/CrudForm', $this->formProps('Tạo loại phòng', '/room-types', 'post'));
     }
 
     public function store(StoreRoomTypeRequest $request): RedirectResponse
@@ -50,14 +50,14 @@ class RoomTypeController extends Controller
         $this->authorize('create', RoomType::class);
         $this->roomTypes->create($request->validated());
 
-        return redirect('/room-types')->with('success', 'Room type created.');
+        return redirect('/room-types')->with('success', 'Đã tạo loại phòng.');
     }
 
     public function edit(RoomType $roomType): Response
     {
         $this->authorize('update', $roomType);
 
-        return Inertia::render('Admin/CrudForm', $this->formProps('Edit Room Type', "/room-types/{$roomType->id}", 'put', $roomType->only([
+        return Inertia::render('Admin/CrudForm', $this->formProps('Sửa loại phòng', "/room-types/{$roomType->id}", 'put', $roomType->only([
             'code',
             'name',
             'description',
@@ -72,7 +72,7 @@ class RoomTypeController extends Controller
         $this->authorize('update', $roomType);
         $this->roomTypes->update($roomType, $request->validated());
 
-        return redirect('/room-types')->with('success', 'Room type updated.');
+        return redirect('/room-types')->with('success', 'Đã cập nhật loại phòng.');
     }
 
     public function destroy(RoomType $roomType): RedirectResponse
@@ -80,7 +80,7 @@ class RoomTypeController extends Controller
         $this->authorize('delete', $roomType);
         $this->roomTypes->delete($roomType);
 
-        return redirect('/room-types')->with('success', 'Room type deleted.');
+        return redirect('/room-types')->with('success', 'Đã xóa loại phòng.');
     }
 
     private function formProps(string $title, string $action, string $method, array $values = []): array
@@ -92,12 +92,12 @@ class RoomTypeController extends Controller
             'cancelUrl' => '/room-types',
             'values' => $values,
             'fields' => [
-                ['name' => 'code', 'label' => 'Code', 'type' => 'text', 'required' => true],
-                ['name' => 'name', 'label' => 'Name', 'type' => 'text', 'required' => true],
-                ['name' => 'description', 'label' => 'Description', 'type' => 'textarea'],
-                ['name' => 'standard_adults', 'label' => 'Standard Adults', 'type' => 'number', 'required' => true],
-                ['name' => 'max_adults', 'label' => 'Max Adults', 'type' => 'number', 'required' => true],
-                ['name' => 'free_children', 'label' => 'Free Children', 'type' => 'number', 'required' => true],
+                ['name' => 'code', 'label' => 'Mã', 'type' => 'text', 'required' => true],
+                ['name' => 'name', 'label' => 'Tên', 'type' => 'text', 'required' => true],
+                ['name' => 'description', 'label' => 'Mô tả', 'type' => 'textarea'],
+                ['name' => 'standard_adults', 'label' => 'Người lớn tiêu chuẩn', 'type' => 'number', 'required' => true],
+                ['name' => 'max_adults', 'label' => 'Người lớn tối đa', 'type' => 'number', 'required' => true],
+                ['name' => 'free_children', 'label' => 'Trẻ em miễn phí', 'type' => 'number', 'required' => true],
             ],
         ];
     }

@@ -23,13 +23,13 @@ class PermissionController extends Controller
         $this->authorize('viewAny', Permission::class);
 
         return Inertia::render('Admin/CrudIndex', [
-            'title' => 'Permissions',
+            'title' => 'Quyền',
             'baseUrl' => '/permissions',
             'items' => $this->permissions->paginate($request->validated()),
             'filters' => $request->validated(),
             'columns' => [
-                ['key' => 'name', 'label' => 'Name', 'sortable' => true],
-                ['key' => 'guard_name', 'label' => 'Guard'],
+                ['key' => 'name', 'label' => 'Tên', 'sortable' => true],
+                ['key' => 'guard_name', 'label' => 'Guard xác thực'],
             ],
             'canCreate' => true,
         ]);
@@ -39,7 +39,7 @@ class PermissionController extends Controller
     {
         $this->authorize('create', Permission::class);
 
-        return Inertia::render('Admin/CrudForm', $this->formProps('Create Permission', '/permissions', 'post'));
+        return Inertia::render('Admin/CrudForm', $this->formProps('Tạo quyền', '/permissions', 'post'));
     }
 
     public function store(StorePermissionRequest $request): RedirectResponse
@@ -47,14 +47,14 @@ class PermissionController extends Controller
         $this->authorize('create', Permission::class);
         $this->permissions->create($request->validated());
 
-        return redirect('/permissions')->with('success', 'Permission created.');
+        return redirect('/permissions')->with('success', 'Đã tạo quyền.');
     }
 
     public function edit(Permission $permission): Response
     {
         $this->authorize('update', $permission);
 
-        return Inertia::render('Admin/CrudForm', $this->formProps('Edit Permission', "/permissions/{$permission->id}", 'put', [
+        return Inertia::render('Admin/CrudForm', $this->formProps('Sửa quyền', "/permissions/{$permission->id}", 'put', [
             'name' => $permission->name,
         ]));
     }
@@ -64,7 +64,7 @@ class PermissionController extends Controller
         $this->authorize('update', $permission);
         $this->permissions->update($permission, $request->validated());
 
-        return redirect('/permissions')->with('success', 'Permission updated.');
+        return redirect('/permissions')->with('success', 'Đã cập nhật quyền.');
     }
 
     public function destroy(Permission $permission): RedirectResponse
@@ -72,7 +72,7 @@ class PermissionController extends Controller
         $this->authorize('delete', $permission);
         $this->permissions->delete($permission);
 
-        return redirect('/permissions')->with('success', 'Permission deleted.');
+        return redirect('/permissions')->with('success', 'Đã xóa quyền.');
     }
 
     private function formProps(string $title, string $action, string $method, array $values = []): array
@@ -84,7 +84,7 @@ class PermissionController extends Controller
             'cancelUrl' => '/permissions',
             'values' => $values,
             'fields' => [
-                ['name' => 'name', 'label' => 'Name', 'type' => 'text', 'required' => true],
+                ['name' => 'name', 'label' => 'Tên', 'type' => 'text', 'required' => true],
             ],
         ];
     }

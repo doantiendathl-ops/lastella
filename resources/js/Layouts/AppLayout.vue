@@ -24,17 +24,17 @@ const permissions = computed(() => new Set(user.value?.permissions ?? []));
 const can = (permission) => permissions.value.has(permission);
 
 const navItems = computed(() => [
-    { label: 'Dashboard', href: '/dashboard', icon: Gauge, show: true },
-    { label: 'Bookings', href: '/admin/bookings', icon: CalendarCheck, show: can('booking.create') || can('booking.update') || can('booking.cancel') || can('report.view') },
-    { label: 'Users', href: '/users', icon: Users, show: can('users.manage') },
-    { label: 'Roles', href: '/roles', icon: Shield, show: can('roles.manage') },
-    { label: 'Permissions', href: '/permissions', icon: KeyRound, show: can('roles.manage') },
-    { label: 'Floors', href: '/floors', icon: Layers, show: can('rooms.manage') },
-    { label: 'Room Types', href: '/room-types', icon: Tags, show: can('room_types.manage') },
-    { label: 'Rooms', href: '/rooms', icon: BedDouble, show: can('rooms.manage') },
-    { label: 'Room Rates', href: '/room-rates', icon: DollarSign, show: can('rates.manage') },
-    { label: 'Settings', href: '/settings', icon: Settings, show: can('settings.manage') },
-    { label: 'Audit Logs', href: '/audit-logs', icon: ClipboardList, show: can('report.view') },
+    { label: 'Tổng quan', href: '/dashboard', icon: Gauge, show: true },
+    { label: 'Đặt phòng', href: '/admin/bookings', icon: CalendarCheck, show: can('booking.create') || can('booking.update') || can('booking.cancel') || can('report.view') },
+    { label: 'Người dùng', href: '/users', icon: Users, show: can('users.manage') },
+    { label: 'Vai trò', href: '/roles', icon: Shield, show: can('roles.manage') },
+    { label: 'Quyền', href: '/permissions', icon: KeyRound, show: can('roles.manage') },
+    { label: 'Tầng', href: '/floors', icon: Layers, show: can('rooms.manage') },
+    { label: 'Loại phòng', href: '/room-types', icon: Tags, show: can('room_types.manage') },
+    { label: 'Phòng', href: '/rooms', icon: BedDouble, show: can('rooms.manage') },
+    { label: 'Giá phòng', href: '/room-rates', icon: DollarSign, show: can('rates.manage') },
+    { label: 'Cài đặt', href: '/settings', icon: Settings, show: can('settings.manage') },
+    { label: 'Nhật ký', href: '/audit-logs', icon: ClipboardList, show: can('report.view') },
 ].filter((item) => item.show));
 
 const currentPath = computed(() => new URL(page.url, window.location.origin).pathname);
@@ -46,7 +46,7 @@ const currentPath = computed(() => new URL(page.url, window.location.origin).pat
             <div class="flex h-16 items-center border-b border-gray-200 px-6">
                 <div>
                     <div class="text-base font-semibold">Lastella PMS</div>
-                    <div class="text-xs uppercase tracking-wide text-steel">Core System</div>
+                    <div class="text-xs uppercase tracking-wide text-steel">Hệ thống lõi</div>
                 </div>
             </div>
 
@@ -81,7 +81,7 @@ const currentPath = computed(() => new URL(page.url, window.location.origin).pat
                             method="post"
                             as="button"
                             class="inline-flex h-9 w-9 items-center justify-center border border-gray-200 bg-white text-steel transition hover:border-coral hover:text-coral"
-                            title="Log out"
+                            title="Đăng xuất"
                         >
                             <LogOut class="h-4 w-4" />
                         </Link>

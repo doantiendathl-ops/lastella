@@ -30,27 +30,27 @@ class RoomController extends Controller
             'room_number' => $room->room_number,
             'floor' => $room->floor?->code,
             'room_type' => $room->roomType?->code,
-            'status' => $room->status?->value,
+            'status' => $room->status?->label(),
             'resource' => $room->resource?->code,
             'created_at' => $room->created_at?->toDateTimeString(),
         ]);
 
         return Inertia::render('Admin/CrudIndex', [
-            'title' => 'Rooms',
+            'title' => 'Phòng',
             'baseUrl' => '/rooms',
             'items' => $items,
             'filters' => $request->validated(),
             'columns' => [
-                ['key' => 'room_number', 'label' => 'Room', 'sortable' => true],
-                ['key' => 'floor', 'label' => 'Floor'],
-                ['key' => 'room_type', 'label' => 'Type'],
-                ['key' => 'status', 'label' => 'Status', 'sortable' => true],
-                ['key' => 'resource', 'label' => 'Resource'],
+                ['key' => 'room_number', 'label' => 'Phòng', 'sortable' => true],
+                ['key' => 'floor', 'label' => 'Tầng'],
+                ['key' => 'room_type', 'label' => 'Loại'],
+                ['key' => 'status', 'label' => 'Trạng thái', 'sortable' => true],
+                ['key' => 'resource', 'label' => 'Tài nguyên'],
             ],
             'filterFields' => [
-                ['name' => 'floor_id', 'label' => 'Floor', 'type' => 'select', 'options' => $this->floorOptions()],
-                ['name' => 'room_type_id', 'label' => 'Room Type', 'type' => 'select', 'options' => $this->roomTypeOptions()],
-                ['name' => 'status', 'label' => 'Status', 'type' => 'select', 'options' => RoomStatus::options()],
+                ['name' => 'floor_id', 'label' => 'Tầng', 'type' => 'select', 'options' => $this->floorOptions()],
+                ['name' => 'room_type_id', 'label' => 'Loại phòng', 'type' => 'select', 'options' => $this->roomTypeOptions()],
+                ['name' => 'status', 'label' => 'Trạng thái', 'type' => 'select', 'options' => RoomStatus::options()],
             ],
             'canCreate' => true,
         ]);
@@ -60,7 +60,7 @@ class RoomController extends Controller
     {
         $this->authorize('create', Room::class);
 
-        return Inertia::render('Admin/CrudForm', $this->formProps('Create Room', '/rooms', 'post'));
+        return Inertia::render('Admin/CrudForm', $this->formProps('Tạo phòng', '/rooms', 'post'));
     }
 
     public function store(StoreRoomRequest $request): RedirectResponse
@@ -68,14 +68,14 @@ class RoomController extends Controller
         $this->authorize('create', Room::class);
         $this->rooms->create($request->validated());
 
-        return redirect('/rooms')->with('success', 'Room created.');
+        return redirect('/rooms')->with('success', 'Đã tạo phòng.');
     }
 
     public function edit(Room $room): Response
     {
         $this->authorize('update', $room);
 
-        return Inertia::render('Admin/CrudForm', $this->formProps('Edit Room', "/rooms/{$room->id}", 'put', [
+        return Inertia::render('Admin/CrudForm', $this->formProps('Sửa phòng', "/rooms/{$room->id}", 'put', [
             'floor_id' => $room->floor_id,
             'room_type_id' => $room->room_type_id,
             'room_number' => $room->room_number,
@@ -90,7 +90,7 @@ class RoomController extends Controller
         $this->authorize('update', $room);
         $this->rooms->update($room, $request->validated());
 
-        return redirect('/rooms')->with('success', 'Room updated.');
+        return redirect('/rooms')->with('success', 'Đã cập nhật phòng.');
     }
 
     public function destroy(Room $room): RedirectResponse
@@ -98,7 +98,7 @@ class RoomController extends Controller
         $this->authorize('delete', $room);
         $this->rooms->delete($room);
 
-        return redirect('/rooms')->with('success', 'Room deleted.');
+        return redirect('/rooms')->with('success', 'Đã xóa phòng.');
     }
 
     private function formProps(string $title, string $action, string $method, array $values = []): array
@@ -110,12 +110,12 @@ class RoomController extends Controller
             'cancelUrl' => '/rooms',
             'values' => $values,
             'fields' => [
-                ['name' => 'room_number', 'label' => 'Room Number', 'type' => 'text', 'required' => true],
-                ['name' => 'floor_id', 'label' => 'Floor', 'type' => 'select', 'required' => true, 'options' => $this->floorOptions()],
-                ['name' => 'room_type_id', 'label' => 'Room Type', 'type' => 'select', 'required' => true, 'options' => $this->roomTypeOptions()],
-                ['name' => 'status', 'label' => 'Status', 'type' => 'select', 'required' => true, 'options' => RoomStatus::options()],
-                ['name' => 'bed_configuration', 'label' => 'Bed Configuration', 'type' => 'json'],
-                ['name' => 'notes', 'label' => 'Notes', 'type' => 'textarea'],
+                ['name' => 'room_number', 'label' => 'Số phòng', 'type' => 'text', 'required' => true],
+                ['name' => 'floor_id', 'label' => 'Tầng', 'type' => 'select', 'required' => true, 'options' => $this->floorOptions()],
+                ['name' => 'room_type_id', 'label' => 'Loại phòng', 'type' => 'select', 'required' => true, 'options' => $this->roomTypeOptions()],
+                ['name' => 'status', 'label' => 'Trạng thái', 'type' => 'select', 'required' => true, 'options' => RoomStatus::options()],
+                ['name' => 'bed_configuration', 'label' => 'Cấu hình giường', 'type' => 'json'],
+                ['name' => 'notes', 'label' => 'Ghi chú', 'type' => 'textarea'],
             ],
         ];
     }

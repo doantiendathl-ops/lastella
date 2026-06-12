@@ -77,7 +77,7 @@ class BookingController extends Controller
 
         $booking = $this->bookings->createBooking($request->validated());
 
-        return redirect()->route('admin.bookings.show', $booking)->with('success', 'Booking created.');
+        return redirect()->route('admin.bookings.show', $booking)->with('success', 'Đã tạo đặt phòng.');
     }
 
     public function show(Request $request, Booking $booking, RoomAssignmentService $assignments): Response
@@ -126,7 +126,7 @@ class BookingController extends Controller
 
         $this->bookings->updateBooking($booking, $request->validated());
 
-        return redirect()->route('admin.bookings.show', $booking)->with('success', 'Booking updated.');
+        return redirect()->route('admin.bookings.show', $booking)->with('success', 'Đã cập nhật đặt phòng.');
     }
 
     public function cancel(CancelBookingRequest $request, Booking $booking): RedirectResponse
@@ -135,7 +135,7 @@ class BookingController extends Controller
 
         $this->bookings->cancelBooking($booking, $request->validated('cancellation_reason'));
 
-        return redirect()->route('admin.bookings.show', $booking)->with('success', 'Booking cancelled.');
+        return redirect()->route('admin.bookings.show', $booking)->with('success', 'Đã hủy đặt phòng.');
     }
 
     private function canEdit(Booking $booking): bool

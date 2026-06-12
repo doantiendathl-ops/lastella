@@ -29,6 +29,6 @@ class BookingPaymentController extends Controller
             default => $this->payments->addPayment($booking, $data),
         };
 
-        return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'payments'])->with('success', 'Payment recorded.');
+        return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'payments'])->with('success', 'Đã ghi nhận thanh toán.');
     }
 }

@@ -16,13 +16,13 @@ const submit = () => {
 </script>
 
 <template>
-    <Head title="Login" />
+    <Head title="Đăng nhập" />
 
     <main class="grid min-h-screen place-items-center bg-gray-50 px-4">
         <form class="w-full max-w-sm border border-gray-200 bg-white p-6 shadow-sm" @submit.prevent="submit">
             <div class="mb-6">
                 <h1 class="text-xl font-semibold text-ink">Lastella PMS</h1>
-                <p class="mt-1 text-sm text-steel">Sign in to continue</p>
+                <p class="mt-1 text-sm text-steel">Đăng nhập để tiếp tục</p>
             </div>
 
             <label class="block text-sm font-medium text-ink" for="email">Email</label>
@@ -36,7 +36,7 @@ const submit = () => {
             >
             <p v-if="form.errors.email" class="mt-1 text-sm text-coral">{{ form.errors.email }}</p>
 
-            <label class="mt-4 block text-sm font-medium text-ink" for="password">Password</label>
+            <label class="mt-4 block text-sm font-medium text-ink" for="password">Mật khẩu</label>
             <input
                 id="password"
                 v-model="form.password"
@@ -48,7 +48,7 @@ const submit = () => {
 
             <label class="mt-4 flex items-center gap-2 text-sm text-steel">
                 <input v-model="form.remember" type="checkbox" class="h-4 w-4 border-gray-300 text-pine focus:ring-pine">
-                Remember me
+                Ghi nhớ đăng nhập
             </label>
 
             <button
@@ -57,7 +57,7 @@ const submit = () => {
                 :disabled="form.processing"
             >
                 <LogIn class="h-4 w-4" />
-                Sign In
+                Đăng nhập
             </button>
         </form>
     </main>

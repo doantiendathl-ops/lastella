@@ -58,7 +58,7 @@ const sortBy = (column) => {
 };
 
 const destroy = (id) => {
-    if (!window.confirm('Delete this record?')) {
+    if (!window.confirm('Xóa bản ghi này?')) {
         return;
     }
 
@@ -83,7 +83,7 @@ const cleanupQuery = (params) => Object.fromEntries(
                     class="inline-flex items-center gap-2 bg-pine px-3 py-2 text-sm font-semibold text-white transition hover:bg-ink"
                 >
                     <Plus class="h-4 w-4" />
-                    New
+                    Tạo mới
                 </Link>
             </div>
         </template>
@@ -91,7 +91,7 @@ const cleanupQuery = (params) => Object.fromEntries(
         <section class="border border-gray-200 bg-white shadow-sm">
             <form class="flex flex-col gap-3 border-b border-gray-200 p-4 xl:flex-row xl:items-end" @submit.prevent="runSearch">
                 <div class="min-w-0 flex-1">
-                    <label class="block text-xs font-semibold uppercase tracking-wide text-steel" for="search">Search</label>
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-steel" for="search">Tìm kiếm</label>
                     <div class="mt-1 flex">
                         <input
                             id="search"
@@ -99,7 +99,7 @@ const cleanupQuery = (params) => Object.fromEntries(
                             type="search"
                             class="min-w-0 flex-1 border border-gray-300 px-3 py-2 text-sm focus:border-pine focus:outline-none focus:ring-1 focus:ring-pine"
                         >
-                        <button class="inline-flex w-10 items-center justify-center bg-pine text-white" type="submit" title="Search">
+                        <button class="inline-flex w-10 items-center justify-center bg-pine text-white" type="submit" title="Tìm kiếm">
                             <Search class="h-4 w-4" />
                         </button>
                     </div>
@@ -113,7 +113,7 @@ const cleanupQuery = (params) => Object.fromEntries(
                         v-model="query[field.name]"
                         class="mt-1 block w-full border border-gray-300 px-3 py-2 text-sm focus:border-pine focus:outline-none focus:ring-1 focus:ring-pine"
                     >
-                        <option value="">All</option>
+                        <option value="">Tất cả</option>
                         <option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.label }}</option>
                     </select>
                     <input
@@ -128,11 +128,11 @@ const cleanupQuery = (params) => Object.fromEntries(
                 <div class="flex gap-2">
                     <button type="submit" class="inline-flex h-10 items-center gap-2 bg-pine px-3 text-sm font-semibold text-white">
                         <Search class="h-4 w-4" />
-                        Apply
+                        Áp dụng
                     </button>
                     <button type="button" class="inline-flex h-10 items-center gap-2 border border-gray-300 px-3 text-sm text-steel hover:text-ink" @click="resetFilters">
                         <X class="h-4 w-4" />
-                        Reset
+                        Đặt lại
                     </button>
                 </div>
             </form>
@@ -153,7 +153,7 @@ const cleanupQuery = (params) => Object.fromEntries(
                                 </button>
                                 <span v-else>{{ column.label }}</span>
                             </th>
-                            <th v-if="!readOnly" class="w-24 px-4 py-3 text-right font-semibold">Actions</th>
+                            <th v-if="!readOnly" class="w-24 px-4 py-3 text-right font-semibold">Thao tác</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100 bg-white">
@@ -165,14 +165,14 @@ const cleanupQuery = (params) => Object.fromEntries(
                                 <Link
                                     :href="`${baseUrl}/${row.id}/edit`"
                                     class="mr-2 inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel transition hover:border-pine hover:text-pine"
-                                    title="Edit"
+                                    title="Sửa"
                                 >
                                     <Pencil class="h-4 w-4" />
                                 </Link>
                                 <button
                                     type="button"
                                     class="inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel transition hover:border-coral hover:text-coral"
-                                    title="Delete"
+                                    title="Xóa"
                                     @click="destroy(row.id)"
                                 >
                                     <Trash2 class="h-4 w-4" />
@@ -181,7 +181,7 @@ const cleanupQuery = (params) => Object.fromEntries(
                         </tr>
                         <tr v-if="items.data.length === 0">
                             <td :colspan="columns.length + (readOnly ? 0 : 1)" class="px-4 py-12 text-center text-sm text-steel">
-                                No records found.
+                                Không có dữ liệu.
                             </td>
                         </tr>
                     </tbody>
@@ -190,7 +190,7 @@ const cleanupQuery = (params) => Object.fromEntries(
 
             <div class="flex flex-col gap-3 border-t border-gray-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                 <p class="text-sm text-steel">
-                    Showing {{ items.from ?? 0 }} to {{ items.to ?? 0 }} of {{ items.total ?? 0 }}
+                    Hiển thị {{ items.from ?? 0 }} đến {{ items.to ?? 0 }} trên {{ items.total ?? 0 }}
                 </p>
                 <Pagination :links="items.links" />
             </div>

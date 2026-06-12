@@ -16,14 +16,14 @@ enum RoomStatus: string
     public function label(): string
     {
         return match ($this) {
-            self::VacantClean => 'Vacant Clean',
-            self::VacantDirty => 'Vacant Dirty',
-            self::Occupied => 'Occupied',
-            self::Reserved => 'Reserved',
-            self::OutOfOrder => 'Out Of Order',
-            self::OutOfService => 'Out Of Service',
-            self::Cleaning => 'Cleaning',
-            self::Inspected => 'Inspected',
+            self::VacantClean => 'Trống sạch',
+            self::VacantDirty => 'Trống bẩn',
+            self::Occupied => 'Đang ở',
+            self::Reserved => 'Đã đặt',
+            self::OutOfOrder => 'Hỏng',
+            self::OutOfService => 'Ngừng phục vụ',
+            self::Cleaning => 'Đang dọn',
+            self::Inspected => 'Đã kiểm tra',
         };
     }
 

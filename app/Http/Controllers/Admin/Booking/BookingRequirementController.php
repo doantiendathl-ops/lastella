@@ -21,7 +21,7 @@ class BookingRequirementController extends Controller
         $this->authorize('update', $booking);
         $this->bookings->addRequirement($booking, $request->validated());
 
-        return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'requirements'])->with('success', 'Requirement added.');
+        return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'requirements'])->with('success', 'Đã thêm nhu cầu phòng.');
     }
 
     public function update(UpdateBookingRequirementRequest $request, Booking $booking, BookingRequirement $requirement): RedirectResponse
@@ -31,7 +31,7 @@ class BookingRequirementController extends Controller
 
         $this->bookings->updateRequirement($requirement, $request->validated());
 
-        return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'requirements'])->with('success', 'Requirement updated.');
+        return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'requirements'])->with('success', 'Đã cập nhật nhu cầu phòng.');
     }
 
     public function destroy(Booking $booking, BookingRequirement $requirement): RedirectResponse
@@ -41,6 +41,6 @@ class BookingRequirementController extends Controller
 
         $this->bookings->deleteRequirement($requirement);
 
-        return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'requirements'])->with('success', 'Requirement deleted.');
+        return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'requirements'])->with('success', 'Đã xóa nhu cầu phòng.');
     }
 }

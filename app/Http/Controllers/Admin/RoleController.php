@@ -31,13 +31,13 @@ class RoleController extends Controller
         ]);
 
         return Inertia::render('Admin/CrudIndex', [
-            'title' => 'Roles',
+            'title' => 'Vai trò',
             'baseUrl' => '/roles',
             'items' => $items,
             'filters' => $request->validated(),
             'columns' => [
-                ['key' => 'name', 'label' => 'Name', 'sortable' => true],
-                ['key' => 'permissions_count', 'label' => 'Permissions'],
+                ['key' => 'name', 'label' => 'Tên', 'sortable' => true],
+                ['key' => 'permissions_count', 'label' => 'Quyền'],
             ],
             'canCreate' => true,
         ]);
@@ -47,7 +47,7 @@ class RoleController extends Controller
     {
         $this->authorize('create', Role::class);
 
-        return Inertia::render('Admin/CrudForm', $this->formProps('Create Role', '/roles', 'post', []));
+        return Inertia::render('Admin/CrudForm', $this->formProps('Tạo vai trò', '/roles', 'post', []));
     }
 
     public function store(StoreRoleRequest $request): RedirectResponse
@@ -55,7 +55,7 @@ class RoleController extends Controller
         $this->authorize('create', Role::class);
         $this->roles->create($request->validated());
 
-        return redirect('/roles')->with('success', 'Role created.');
+        return redirect('/roles')->with('success', 'Đã tạo vai trò.');
     }
 
     public function edit(Role $role): Response
@@ -63,7 +63,7 @@ class RoleController extends Controller
         $this->authorize('update', $role);
         $role->load('permissions');
 
-        return Inertia::render('Admin/CrudForm', $this->formProps('Edit Role', "/roles/{$role->id}", 'put', [
+        return Inertia::render('Admin/CrudForm', $this->formProps('Sửa vai trò', "/roles/{$role->id}", 'put', [
             'name' => $role->name,
             'permissions' => $role->permissions->pluck('name')->values(),
         ]));
@@ -74,7 +74,7 @@ class RoleController extends Controller
         $this->authorize('update', $role);
         $this->roles->update($role, $request->validated());
 
-        return redirect('/roles')->with('success', 'Role updated.');
+        return redirect('/roles')->with('success', 'Đã cập nhật vai trò.');
     }
 
     public function destroy(Role $role): RedirectResponse
@@ -82,7 +82,7 @@ class RoleController extends Controller
         $this->authorize('delete', $role);
         $this->roles->delete($role);
 
-        return redirect('/roles')->with('success', 'Role deleted.');
+        return redirect('/roles')->with('success', 'Đã xóa vai trò.');
     }
 
     private function formProps(string $title, string $action, string $method, array $values): array
@@ -94,8 +94,8 @@ class RoleController extends Controller
             'cancelUrl' => '/roles',
             'values' => $values,
             'fields' => [
-                ['name' => 'name', 'label' => 'Name', 'type' => 'text', 'required' => true],
-                ['name' => 'permissions', 'label' => 'Permissions', 'type' => 'multiselect', 'options' => $this->permissionOptions()],
+                ['name' => 'name', 'label' => 'Tên', 'type' => 'text', 'required' => true],
+                ['name' => 'permissions', 'label' => 'Quyền', 'type' => 'multiselect', 'options' => $this->permissionOptions()],
             ],
         ];
     }

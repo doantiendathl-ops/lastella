@@ -32,10 +32,10 @@ class UserController extends Controller
             'created_at' => $user->created_at?->toDateTimeString(),
         ]);
 
-        return Inertia::render('Admin/CrudIndex', $this->indexProps('Users', '/users', $items, $request->validated(), [
-            ['key' => 'name', 'label' => 'Name', 'sortable' => true],
+        return Inertia::render('Admin/CrudIndex', $this->indexProps('Người dùng', '/users', $items, $request->validated(), [
+            ['key' => 'name', 'label' => 'Tên', 'sortable' => true],
             ['key' => 'email', 'label' => 'Email', 'sortable' => true],
-            ['key' => 'roles_list', 'label' => 'Roles'],
+            ['key' => 'roles_list', 'label' => 'Vai trò'],
         ]));
     }
 
@@ -43,7 +43,7 @@ class UserController extends Controller
     {
         $this->authorize('create', User::class);
 
-        return Inertia::render('Admin/CrudForm', $this->formProps('Create User', '/users', 'post', $this->fields()));
+        return Inertia::render('Admin/CrudForm', $this->formProps('Tạo người dùng', '/users', 'post', $this->fields()));
     }
 
     public function store(StoreUserRequest $request): RedirectResponse
@@ -51,7 +51,7 @@ class UserController extends Controller
         $this->authorize('create', User::class);
         $this->users->create($request->validated());
 
-        return redirect('/users')->with('success', 'User created.');
+        return redirect('/users')->with('success', 'Đã tạo người dùng.');
     }
 
     public function edit(User $user): Response
@@ -59,7 +59,7 @@ class UserController extends Controller
         $this->authorize('update', $user);
         $user->load('roles');
 
-        return Inertia::render('Admin/CrudForm', $this->formProps('Edit User', "/users/{$user->id}", 'put', $this->fields(false), [
+        return Inertia::render('Admin/CrudForm', $this->formProps('Sửa người dùng', "/users/{$user->id}", 'put', $this->fields(false), [
             'name' => $user->name,
             'email' => $user->email,
             'roles' => $user->roles->pluck('name')->values(),
@@ -71,7 +71,7 @@ class UserController extends Controller
         $this->authorize('update', $user);
         $this->users->update($user, $request->validated());
 
-        return redirect('/users')->with('success', 'User updated.');
+        return redirect('/users')->with('success', 'Đã cập nhật người dùng.');
     }
 
     public function destroy(User $user): RedirectResponse
@@ -79,17 +79,17 @@ class UserController extends Controller
         $this->authorize('delete', $user);
         $this->users->delete($user);
 
-        return redirect('/users')->with('success', 'User deleted.');
+        return redirect('/users')->with('success', 'Đã xóa người dùng.');
     }
 
     private function fields(bool $requiresPassword = true): array
     {
         return [
-            ['name' => 'name', 'label' => 'Name', 'type' => 'text', 'required' => true],
+            ['name' => 'name', 'label' => 'Tên', 'type' => 'text', 'required' => true],
             ['name' => 'email', 'label' => 'Email', 'type' => 'email', 'required' => true],
-            ['name' => 'password', 'label' => 'Password', 'type' => 'password', 'required' => $requiresPassword],
-            ['name' => 'password_confirmation', 'label' => 'Confirm Password', 'type' => 'password', 'required' => $requiresPassword],
-            ['name' => 'roles', 'label' => 'Roles', 'type' => 'multiselect', 'options' => $this->roleOptions()],
+            ['name' => 'password', 'label' => 'Mật khẩu', 'type' => 'password', 'required' => $requiresPassword],
+            ['name' => 'password_confirmation', 'label' => 'Xác nhận mật khẩu', 'type' => 'password', 'required' => $requiresPassword],
+            ['name' => 'roles', 'label' => 'Vai trò', 'type' => 'multiselect', 'options' => $this->roleOptions()],
         ];
     }
 

@@ -26,25 +26,25 @@ class SettingController extends Controller
             'id' => $setting->id,
             'key' => $setting->key,
             'value' => is_array($setting->typed_value) ? json_encode($setting->typed_value) : $setting->typed_value,
-            'type' => $setting->type,
+            'type' => $this->typeLabel($setting->type),
             'group' => $setting->group,
-            'is_public' => $setting->is_public ? 'Yes' : 'No',
+            'is_public' => $setting->is_public ? 'Có' : 'Không',
         ]);
 
         return Inertia::render('Admin/CrudIndex', [
-            'title' => 'Settings',
+            'title' => 'Cài đặt',
             'baseUrl' => '/settings',
             'items' => $items,
             'filters' => $request->validated(),
             'columns' => [
-                ['key' => 'key', 'label' => 'Key', 'sortable' => true],
-                ['key' => 'value', 'label' => 'Value'],
-                ['key' => 'type', 'label' => 'Type'],
-                ['key' => 'group', 'label' => 'Group', 'sortable' => true],
-                ['key' => 'is_public', 'label' => 'Public'],
+                ['key' => 'key', 'label' => 'Khóa', 'sortable' => true],
+                ['key' => 'value', 'label' => 'Giá trị'],
+                ['key' => 'type', 'label' => 'Kiểu'],
+                ['key' => 'group', 'label' => 'Nhóm', 'sortable' => true],
+                ['key' => 'is_public', 'label' => 'Công khai'],
             ],
             'filterFields' => [
-                ['name' => 'group', 'label' => 'Group', 'type' => 'text'],
+                ['name' => 'group', 'label' => 'Nhóm', 'type' => 'text'],
             ],
             'canCreate' => true,
         ]);
@@ -54,7 +54,7 @@ class SettingController extends Controller
     {
         $this->authorize('create', Setting::class);
 
-        return Inertia::render('Admin/CrudForm', $this->formProps('Create Setting', '/settings', 'post'));
+        return Inertia::render('Admin/CrudForm', $this->formProps('Tạo cài đặt', '/settings', 'post'));
     }
 
     public function store(StoreSettingRequest $request): RedirectResponse
@@ -62,14 +62,14 @@ class SettingController extends Controller
         $this->authorize('create', Setting::class);
         $this->settings->create($request->validated());
 
-        return redirect('/settings')->with('success', 'Setting created.');
+        return redirect('/settings')->with('success', 'Đã tạo cài đặt.');
     }
 
     public function edit(Setting $setting): Response
     {
         $this->authorize('update', $setting);
 
-        return Inertia::render('Admin/CrudForm', $this->formProps('Edit Setting', "/settings/{$setting->id}", 'put', [
+        return Inertia::render('Admin/CrudForm', $this->formProps('Sửa cài đặt', "/settings/{$setting->id}", 'put', [
             'key' => $setting->key,
             'value' => is_array($setting->typed_value) ? json_encode($setting->typed_value, JSON_PRETTY_PRINT) : $setting->typed_value,
             'type' => $setting->type,
@@ -83,7 +83,7 @@ class SettingController extends Controller
         $this->authorize('update', $setting);
         $this->settings->update($setting, $request->validated());
 
-        return redirect('/settings')->with('success', 'Setting updated.');
+        return redirect('/settings')->with('success', 'Đã cập nhật cài đặt.');
     }
 
     public function destroy(Setting $setting): RedirectResponse
@@ -91,7 +91,7 @@ class SettingController extends Controller
         $this->authorize('delete', $setting);
         $this->settings->delete($setting);
 
-        return redirect('/settings')->with('success', 'Setting deleted.');
+        return redirect('/settings')->with('success', 'Đã xóa cài đặt.');
     }
 
     private function formProps(string $title, string $action, string $method, array $values = []): array
@@ -103,18 +103,30 @@ class SettingController extends Controller
             'cancelUrl' => '/settings',
             'values' => $values,
             'fields' => [
-                ['name' => 'key', 'label' => 'Key', 'type' => 'text', 'required' => true],
-                ['name' => 'value', 'label' => 'Value', 'type' => 'textarea'],
-                ['name' => 'type', 'label' => 'Type', 'type' => 'select', 'required' => true, 'options' => [
-                    ['value' => 'string', 'label' => 'String'],
-                    ['value' => 'integer', 'label' => 'Integer'],
-                    ['value' => 'boolean', 'label' => 'Boolean'],
-                    ['value' => 'time', 'label' => 'Time'],
+                ['name' => 'key', 'label' => 'Khóa', 'type' => 'text', 'required' => true],
+                ['name' => 'value', 'label' => 'Giá trị', 'type' => 'textarea'],
+                ['name' => 'type', 'label' => 'Kiểu', 'type' => 'select', 'required' => true, 'options' => [
+                    ['value' => 'string', 'label' => 'Chuỗi'],
+                    ['value' => 'integer', 'label' => 'Số nguyên'],
+                    ['value' => 'boolean', 'label' => 'Đúng/Sai'],
+                    ['value' => 'time', 'label' => 'Thời gian'],
                     ['value' => 'json', 'label' => 'JSON'],
                 ]],
-                ['name' => 'group', 'label' => 'Group', 'type' => 'text', 'required' => true],
-                ['name' => 'is_public', 'label' => 'Public', 'type' => 'checkbox'],
+                ['name' => 'group', 'label' => 'Nhóm', 'type' => 'text', 'required' => true],
+                ['name' => 'is_public', 'label' => 'Công khai', 'type' => 'checkbox'],
             ],
         ];
+    }
+
+    private function typeLabel(string $type): string
+    {
+        return match ($type) {
+            'string' => 'Chuỗi',
+            'integer' => 'Số nguyên',
+            'boolean' => 'Đúng/Sai',
+            'time' => 'Thời gian',
+            'json' => 'JSON',
+            default => $type,
+        };
     }
 }

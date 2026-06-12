@@ -15,13 +15,13 @@ enum ResourceType: string
     public function label(): string
     {
         return match ($this) {
-            self::Room => 'Room',
-            self::Hall => 'Hall',
-            self::MeetingRoom => 'Meeting Room',
-            self::Restaurant => 'Restaurant',
-            self::Pool => 'Pool',
-            self::Sauna => 'Sauna',
-            self::Other => 'Other',
+            self::Room => 'Phòng',
+            self::Hall => 'Hội trường',
+            self::MeetingRoom => 'Phòng họp',
+            self::Restaurant => 'Nhà hàng',
+            self::Pool => 'Hồ bơi',
+            self::Sauna => 'Phòng xông hơi',
+            self::Other => 'Khác',
         };
     }
 

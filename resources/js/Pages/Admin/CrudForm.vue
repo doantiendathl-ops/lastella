@@ -58,7 +58,7 @@ const submit = () => {
         try {
             payload[field] = JSON.parse(payload[field]);
         } catch (error) {
-            jsonError.value = `Invalid JSON in ${field}.`;
+                jsonError.value = `JSON không hợp lệ ở ${field}.`;
             return;
         }
     }
@@ -80,7 +80,7 @@ const submit = () => {
                 <h1 class="truncate text-lg font-semibold">{{ title }}</h1>
                 <Link :href="cancelUrl" class="inline-flex items-center gap-2 border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-steel hover:text-ink">
                     <ArrowLeft class="h-4 w-4" />
-                    Back
+                    Quay lại
                 </Link>
             </div>
         </template>
@@ -107,7 +107,7 @@ const submit = () => {
                         v-model="form[field.name]"
                         class="mt-2 block w-full border border-gray-300 px-3 py-2 text-sm focus:border-pine focus:outline-none focus:ring-1 focus:ring-pine"
                     >
-                        <option value="">Select</option>
+                        <option value="">Chọn</option>
                         <option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.label }}</option>
                     </select>
 
@@ -123,7 +123,7 @@ const submit = () => {
 
                     <label v-else-if="field.type === 'checkbox'" class="mt-3 inline-flex items-center gap-2 text-sm text-steel">
                         <input v-model="form[field.name]" type="checkbox" class="h-4 w-4 border-gray-300 text-pine focus:ring-pine">
-                        Enabled
+                        Bật
                     </label>
 
                     <input
@@ -142,7 +142,7 @@ const submit = () => {
 
             <div class="mt-6 flex justify-end gap-3 border-t border-gray-200 pt-5">
                 <Link :href="cancelUrl" class="inline-flex items-center border border-gray-300 px-4 py-2 text-sm font-semibold text-steel hover:text-ink">
-                    Cancel
+                    Hủy
                 </Link>
                 <button
                     type="submit"
@@ -150,7 +150,7 @@ const submit = () => {
                     :disabled="form.processing"
                 >
                     <Save class="h-4 w-4" />
-                    Save
+                    Lưu
                 </button>
             </div>
         </form>
