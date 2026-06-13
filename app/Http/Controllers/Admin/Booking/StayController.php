@@ -23,7 +23,7 @@ class StayController extends Controller
 
         $this->stays->checkIn($stay, $request->validated('actual_checkin_at'));
 
-        return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'stays'])->with('success', 'Đã nhận phòng.');
+        return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'room_map'])->with('success', 'Đã nhận phòng.');
     }
 
     public function checkOut(CheckOutStayRequest $request, Booking $booking, Stay $stay): RedirectResponse
@@ -33,6 +33,6 @@ class StayController extends Controller
 
         $this->stays->checkOut($stay, $request->validated('actual_checkout_at'));
 
-        return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'stays'])->with('success', 'Đã trả phòng.');
+        return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'room_map'])->with('success', 'Đã trả phòng.');
     }
 }

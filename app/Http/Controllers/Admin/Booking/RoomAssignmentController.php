@@ -38,7 +38,7 @@ class RoomAssignmentController extends Controller
             $this->stays->createStayFromAssignment($assignment);
         }
 
-        return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'assignments'])->with('success', 'Đã phân phòng.');
+        return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'room_map'])->with('success', 'Đã phân phòng.');
     }
 
     public function release(ReleaseAssignmentRequest $request, Booking $booking, RoomAssignment $assignment): RedirectResponse
@@ -48,6 +48,6 @@ class RoomAssignmentController extends Controller
 
         $this->assignments->releaseAssignment($assignment, $request->validated('release_reason'));
 
-        return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'assignments'])->with('success', 'Đã giải phóng phòng.');
+        return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'room_map'])->with('success', 'Đã giải phóng phòng.');
     }
 }

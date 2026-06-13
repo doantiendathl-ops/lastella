@@ -6,6 +6,7 @@ use App\Enums\AssignmentStatus;
 use App\Enums\BookingStatus;
 use App\Enums\BookingType;
 use App\Enums\CustomerType;
+use App\Enums\PaymentMethod;
 use App\Enums\PaymentType;
 use App\Enums\PriceSource;
 use App\Enums\RateStatus;
@@ -101,28 +102,27 @@ class BookingManagementUiTest extends TestCase
             );
     }
 
-    public function test_cancelled_booking_exposes_disabled_edit_state(): void
+    public function test_admin_closed_booking_exposes_enabled_edit_state(): void
     {
         $this->actingAs($this->admin);
         $booking = $this->createBooking();
         $booking->update(['status' => BookingStatus::Cancelled]);
-        $message = 'Booking đã kết thúc hoặc đã hủy, không thể chỉnh sửa.';
 
         $this->get('/admin/bookings')
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->where('bookings.data', fn ($bookings): bool => collect($bookings)->contains(
                     fn (array $item): bool => $item['id'] === $booking->id
-                        && $item['can_edit'] === false
-                        && $item['edit_disabled_reason'] === $message
+                        && $item['can_edit'] === true
+                        && $item['edit_disabled_reason'] === null
                 ))
             );
 
         $this->get("/admin/bookings/{$booking->id}")
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->where('can.editBooking', false)
-                ->where('can.editDisabledReason', $message)
+                ->where('can.editBooking', true)
+                ->where('can.editDisabledReason', null)
             );
     }
 
@@ -144,18 +144,68 @@ class BookingManagementUiTest extends TestCase
         $this->actingAs($this->admin);
         $booking = $this->createBooking();
 
-        $this->get("/admin/bookings/{$booking->id}")->assertOk();
+        $this->get("/admin/bookings/{$booking->id}")
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Admin/Bookings/Show')
+                ->where('activeTab', 'info')
+                ->where('tabs', [
+                    ['key' => 'info', 'label' => 'Thông tin Booking'],
+                    ['key' => 'room_map', 'label' => 'Sơ đồ phòng'],
+                    ['key' => 'payments', 'label' => 'Thanh toán'],
+                    ['key' => 'history', 'label' => 'Lịch sử'],
+                ])
+            );
     }
 
-    public function test_direct_edit_access_for_cancelled_booking_redirects_with_error(): void
+    public function test_admin_can_access_edit_page_for_checked_out_booking(): void
     {
         $this->actingAs($this->admin);
         $booking = $this->createBooking();
-        $booking->update(['status' => BookingStatus::Cancelled]);
+        $booking->update(['status' => BookingStatus::CheckedOut]);
 
         $this->get("/admin/bookings/{$booking->id}/edit")
-            ->assertRedirect(route('admin.bookings.show', $booking))
-            ->assertSessionHas('error', 'Booking đã kết thúc hoặc đã hủy, không thể chỉnh sửa.');
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->component('Admin/Bookings/Form'));
+    }
+
+    public function test_non_admin_cannot_edit_closed_bookings(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('MANAGER');
+        $message = 'Booking đã kết thúc hoặc đã hủy, không thể chỉnh sửa.';
+
+        $this->actingAs($manager);
+
+        foreach ([BookingStatus::CheckedOut, BookingStatus::Cancelled, BookingStatus::NoShow] as $status) {
+            $booking = $this->createBooking(['customer_name' => "Closed {$status->value}"]);
+            $booking->update(['status' => $status]);
+
+            $this->get("/admin/bookings/{$booking->id}/edit")
+                ->assertRedirect(route('admin.bookings.show', $booking))
+                ->assertSessionHas('error', $message);
+        }
+    }
+
+    public function test_non_admin_cancelled_booking_exposes_disabled_edit_state(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('MANAGER');
+        $this->actingAs($manager);
+
+        $booking = $this->createBooking();
+        $booking->update(['status' => BookingStatus::Cancelled]);
+        $message = 'Booking đã kết thúc hoặc đã hủy, không thể chỉnh sửa.';
+
+        $this->get('/admin/bookings')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('bookings.data', fn ($bookings): bool => collect($bookings)->contains(
+                    fn (array $item): bool => $item['id'] === $booking->id
+                        && $item['can_edit'] === false
+                        && $item['edit_disabled_reason'] === $message
+                ))
+            );
     }
 
     public function test_booking_detail_includes_suggested_requirement_price_from_active_room_rate(): void
@@ -209,9 +259,9 @@ class BookingManagementUiTest extends TestCase
         $payload = $this->requirementPayload($roomType);
         $payload['children_under_6'] = 51;
 
-        $this->from("/admin/bookings/{$booking->id}?tab=requirements")
+        $this->from("/admin/bookings/{$booking->id}?tab=info")
             ->post("/admin/bookings/{$booking->id}/requirements", $payload)
-            ->assertRedirect("/admin/bookings/{$booking->id}?tab=requirements")
+            ->assertRedirect("/admin/bookings/{$booking->id}?tab=info")
             ->assertSessionHasErrors('children_under_6');
     }
 
@@ -223,7 +273,7 @@ class BookingManagementUiTest extends TestCase
         $this->post("/admin/bookings/{$booking->id}/payments", [
             'payment_type' => PaymentType::Deposit->value,
             'amount' => 1200,
-            'payment_method' => 'cash',
+            'payment_method' => PaymentMethod::Cash->value,
             'payment_at' => '2026-07-01 10:00:00',
             'note' => 'Deposit received',
         ])->assertRedirect();
@@ -232,8 +282,52 @@ class BookingManagementUiTest extends TestCase
             'booking_id' => $booking->id,
             'payment_type' => PaymentType::Deposit->value,
             'amount' => 1200,
-            'payment_method' => 'cash',
+            'payment_method' => PaymentMethod::Cash->value,
         ]);
+    }
+
+    public function test_booking_detail_includes_payment_summary_and_refund_subtracts_from_paid_total(): void
+    {
+        $this->actingAs($this->admin);
+        $twin = RoomType::where('code', 'TWIN')->firstOrFail();
+        $double = RoomType::where('code', 'DOUBLE')->firstOrFail();
+
+        $booking = $this->createBooking([
+            'requirements' => [
+                $this->requirementPayload($twin, ['quantity' => 2, 'room_price' => 800000]),
+                $this->requirementPayload($double, ['quantity' => 1, 'room_price' => 1000000]),
+            ],
+        ], withRequirements: false);
+
+        $booking->bookingPayments()->create([
+            'payment_type' => PaymentType::Deposit,
+            'amount' => 500000,
+            'payment_method' => PaymentMethod::Cash->value,
+            'payment_at' => '2026-07-01 10:00:00',
+            'confirmed_by' => $this->admin->id,
+        ]);
+        $booking->bookingPayments()->create([
+            'payment_type' => PaymentType::RoomPayment,
+            'amount' => 300000,
+            'payment_method' => PaymentMethod::BankTransfer->value,
+            'payment_at' => '2026-07-01 11:00:00',
+            'confirmed_by' => $this->admin->id,
+        ]);
+        $booking->bookingPayments()->create([
+            'payment_type' => PaymentType::Refund,
+            'amount' => 100000,
+            'payment_method' => PaymentMethod::Cash->value,
+            'payment_at' => '2026-07-01 12:00:00',
+            'confirmed_by' => $this->admin->id,
+        ]);
+
+        $this->get("/admin/bookings/{$booking->id}")
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('booking.payment_summary.expected_total', 2600000)
+                ->where('booking.payment_summary.paid_total', 700000)
+                ->where('booking.payment_summary.remaining_balance', 1900000)
+            );
     }
 
     public function test_admin_can_assign_available_room(): void
@@ -274,13 +368,13 @@ class BookingManagementUiTest extends TestCase
             'end_at' => '2026-07-02 12:00:00',
         ])->assertRedirect();
 
-        $this->from("/admin/bookings/{$conflictingBooking->id}?tab=assignments")
+        $this->from("/admin/bookings/{$conflictingBooking->id}?tab=room_map")
             ->post("/admin/bookings/{$conflictingBooking->id}/assignments", [
                 'room_id' => $room->id,
                 'start_at' => '2026-07-02 10:00:00',
                 'end_at' => '2026-07-02 18:00:00',
             ])
-            ->assertRedirect("/admin/bookings/{$conflictingBooking->id}?tab=assignments")
+            ->assertRedirect("/admin/bookings/{$conflictingBooking->id}?tab=room_map")
             ->assertSessionHasErrors('room_id');
     }
 
@@ -384,7 +478,7 @@ class BookingManagementUiTest extends TestCase
         ];
     }
 
-    private function requirementPayload(RoomType $roomType): array
+    private function requirementPayload(RoomType $roomType, array $overrides = []): array
     {
         return [
             'room_type_id' => $roomType->id,
@@ -395,6 +489,7 @@ class BookingManagementUiTest extends TestCase
             'room_price' => 1800,
             'price_source' => PriceSource::Manual->value,
             'note' => 'Manual rate',
+            ...$overrides,
         ];
     }
 

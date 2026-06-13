@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\PaymentMethod;
 use App\Enums\PaymentType;
 use App\Models\Booking;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -17,7 +18,7 @@ class BookingPaymentFactory extends Factory
             'booking_id' => Booking::factory(),
             'payment_type' => PaymentType::Deposit,
             'amount' => fake()->numberBetween(500, 3000),
-            'payment_method' => 'cash',
+            'payment_method' => PaymentMethod::Cash->value,
             'payment_at' => now(),
             'confirmed_by' => null,
             'note' => null,

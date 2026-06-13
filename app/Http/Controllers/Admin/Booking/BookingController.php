@@ -6,6 +6,7 @@ use App\Enums\AssignmentStatus;
 use App\Enums\BookingStatus;
 use App\Enums\BookingType;
 use App\Enums\CustomerType;
+use App\Enums\PaymentMethod;
 use App\Enums\PaymentType;
 use App\Enums\PriceSource;
 use App\Http\Controllers\Controller;
@@ -40,24 +41,28 @@ class BookingController extends Controller
         $this->authorize('viewAny', Booking::class);
         $canUpdate = $request->user()?->can('booking.update') ?? false;
 
-        $items = $this->bookings->paginate($request->validated())->through(fn (Booking $booking): array => [
-            'id' => $booking->id,
-            'booking_code' => $booking->booking_code,
-            'customer_name' => $booking->customer_name,
-            'customer_phone' => $booking->customer_phone,
-            'booking_type' => $booking->booking_type?->value,
-            'checkin_at' => $booking->checkin_at?->format('Y-m-d H:i'),
-            'checkout_at' => $booking->checkout_at?->format('Y-m-d H:i'),
-            'adults' => $booking->adults,
-            'children_under_6' => $booking->children_under_6,
-            'children_over_6' => $booking->children_over_6,
-            'status' => $booking->status?->value,
-            'sales_user' => $booking->salesUser?->name,
-            'booking_color' => $booking->booking_color,
-            'created_at' => $booking->created_at?->format('Y-m-d H:i'),
-            'can_edit' => $canUpdate && $this->canEdit($booking),
-            'edit_disabled_reason' => $this->canEdit($booking) ? null : self::CLOSED_BOOKING_EDIT_MESSAGE,
-        ]);
+        $items = $this->bookings->paginate($request->validated())->through(function (Booking $booking) use ($request, $canUpdate): array {
+            $canEdit = $this->canEdit($booking, $request->user());
+
+            return [
+                'id' => $booking->id,
+                'booking_code' => $booking->booking_code,
+                'customer_name' => $booking->customer_name,
+                'customer_phone' => $booking->customer_phone,
+                'booking_type' => $booking->booking_type?->value,
+                'checkin_at' => $booking->checkin_at?->format('Y-m-d H:i'),
+                'checkout_at' => $booking->checkout_at?->format('Y-m-d H:i'),
+                'adults' => $booking->adults,
+                'children_under_6' => $booking->children_under_6,
+                'children_over_6' => $booking->children_over_6,
+                'status' => $booking->status?->value,
+                'sales_user' => $booking->salesUser?->name,
+                'booking_color' => $booking->booking_color,
+                'created_at' => $booking->created_at?->format('Y-m-d H:i'),
+                'can_edit' => $canUpdate && $canEdit,
+                'edit_disabled_reason' => $canUpdate && ! $canEdit ? self::CLOSED_BOOKING_EDIT_MESSAGE : null,
+            ];
+        });
 
         return Inertia::render('Admin/Bookings/Index', [
             'bookings' => $items,
@@ -105,12 +110,13 @@ class BookingController extends Controller
 
         return Inertia::render('Admin/Bookings/Show', [
             'booking' => $this->bookingPayload($booking),
-            'activeTab' => $request->query('tab', 'overview'),
+            'activeTab' => $this->normalizeDetailTab((string) $request->query('tab', 'info')),
+            'tabs' => $this->detailTabs(),
             'assignmentSummary' => $assignments->getAssignmentSummary($booking),
             'options' => $this->options(includeRooms: true, booking: $booking),
             'can' => $this->permissions() + [
-                'editBooking' => $this->canEdit($booking) && $request->user()?->can('booking.update'),
-                'editDisabledReason' => self::CLOSED_BOOKING_EDIT_MESSAGE,
+                'editBooking' => $this->canEdit($booking, $request->user()) && $request->user()?->can('booking.update'),
+                'editDisabledReason' => $this->canEdit($booking, $request->user()) ? null : self::CLOSED_BOOKING_EDIT_MESSAGE,
             ],
         ]);
     }
@@ -119,7 +125,7 @@ class BookingController extends Controller
     {
         $this->authorize('update', $booking);
 
-        if (! $this->canEdit($booking)) {
+        if (! $this->canEdit($booking, request()->user())) {
             return redirect()
                 ->route('admin.bookings.show', $booking)
                 ->with('error', self::CLOSED_BOOKING_EDIT_MESSAGE);
@@ -137,7 +143,7 @@ class BookingController extends Controller
     {
         $this->authorize('update', $booking);
 
-        if (! $this->canEdit($booking)) {
+        if (! $this->canEdit($booking, $request->user())) {
             return redirect()
                 ->route('admin.bookings.show', $booking)
                 ->with('error', self::CLOSED_BOOKING_EDIT_MESSAGE);
@@ -157,8 +163,12 @@ class BookingController extends Controller
         return redirect()->route('admin.bookings.show', $booking)->with('success', 'Đã hủy đặt phòng.');
     }
 
-    private function canEdit(Booking $booking): bool
+    private function canEdit(Booking $booking, ?User $user): bool
     {
+        if ($user?->hasRole('ADMIN')) {
+            return true;
+        }
+
         return ! in_array($booking->status, [
             BookingStatus::CheckedOut,
             BookingStatus::Cancelled,
@@ -182,6 +192,7 @@ class BookingController extends Controller
                 'price_source' => $requirement->price_source?->value,
                 'note' => $requirement->note,
             ])->values(),
+            'payment_summary' => $this->bookings->paymentSummary($booking),
             'payments' => $booking->bookingPayments->map(fn ($payment): array => [
                 'id' => $payment->id,
                 'payment_type' => $payment->payment_type?->value,
@@ -248,6 +259,7 @@ class BookingController extends Controller
             'statuses' => $this->enumOptions(BookingStatus::cases()),
             'priceSources' => $this->enumOptions(PriceSource::cases()),
             'paymentTypes' => $this->enumOptions(PaymentType::cases()),
+            'paymentMethods' => PaymentMethod::options(),
             'roomTypes' => RoomType::query()->orderBy('code')->get(['id', 'code', 'name'])->map(function (RoomType $type) use ($booking): array {
                 $option = [
                     'value' => $type->id,
@@ -292,6 +304,26 @@ class BookingController extends Controller
             fn ($case): array => ['value' => $case->value, 'label' => str_replace('_', ' ', $case->value)],
             $cases,
         );
+    }
+
+    private function detailTabs(): array
+    {
+        return [
+            ['key' => 'info', 'label' => 'Thông tin Booking'],
+            ['key' => 'room_map', 'label' => 'Sơ đồ phòng'],
+            ['key' => 'payments', 'label' => 'Thanh toán'],
+            ['key' => 'history', 'label' => 'Lịch sử'],
+        ];
+    }
+
+    private function normalizeDetailTab(string $tab): string
+    {
+        return match ($tab) {
+            'overview', 'requirements' => 'info',
+            'assignments', 'stays' => 'room_map',
+            'payments', 'history', 'room_map', 'info' => $tab,
+            default => 'info',
+        };
     }
 
     private function permissions(): array

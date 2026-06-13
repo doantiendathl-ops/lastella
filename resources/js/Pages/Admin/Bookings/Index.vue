@@ -155,13 +155,13 @@ const clean = (value) => Object.fromEntries(Object.entries(value).filter(([, ite
                                         <Pencil class="h-4 w-4" />
                                     </button>
                                 </span>
-                                <Link v-if="can.updateBooking" :href="`/admin/bookings/${booking.id}?tab=requirements`" class="mr-1 inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-pine hover:text-pine" title="Thêm nhu cầu phòng">
+                                <Link v-if="can.updateBooking" :href="`/admin/bookings/${booking.id}?tab=info`" class="mr-1 inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-pine hover:text-pine" title="Thêm nhu cầu phòng">
                                     <Plus class="h-4 w-4" />
                                 </Link>
                                 <Link v-if="can.addPayment" :href="`/admin/bookings/${booking.id}?tab=payments`" class="mr-1 inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-pine hover:text-pine" title="Thêm đặt cọc">
                                     <Banknote class="h-4 w-4" />
                                 </Link>
-                                <Link v-if="can.assignRoom" :href="`/admin/bookings/${booking.id}?tab=assignments`" class="mr-1 inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-pine hover:text-pine" title="Phân phòng">
+                                <Link v-if="can.assignRoom" :href="`/admin/bookings/${booking.id}?tab=room_map`" class="mr-1 inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-pine hover:text-pine" title="Phân phòng">
                                     <BedDouble class="h-4 w-4" />
                                 </Link>
                                 <button v-if="can.cancelBooking && booking.status !== 'CANCELLED'" type="button" class="inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-coral hover:text-coral" title="Hủy" @click="cancelBooking(booking)">

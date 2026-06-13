@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\AssignmentStatus;
 use App\Enums\BookingStatus;
+use App\Enums\PaymentType;
 use App\Enums\StayStatus;
 use App\Models\Booking;
 use App\Models\BookingRequirement;
@@ -217,9 +218,10 @@ class BookingService
 
         $checkedIn = $stays->where('status', StayStatus::CheckedIn)->count();
         $checkedOut = $stays->where('status', StayStatus::CheckedOut)->count();
+        $remainingBalance = $this->paymentSummary($booking)['remaining_balance'];
 
         $status = match (true) {
-            $checkedOut === $total => BookingStatus::CheckedOut,
+            $checkedOut === $total && $remainingBalance <= 0 => BookingStatus::CheckedOut,
             $checkedOut > 0 => BookingStatus::PartiallyCheckedOut,
             $checkedIn === $total => BookingStatus::CheckedIn,
             $checkedIn > 0 => BookingStatus::PartiallyCheckedIn,
@@ -232,6 +234,33 @@ class BookingService
         ]);
 
         return $booking->refresh();
+    }
+
+    public function paymentSummary(Booking $booking): array
+    {
+        $requirements = $booking->bookingRequirements()->get(['room_price', 'quantity']);
+        $payments = $booking->bookingPayments()->get(['payment_type', 'amount']);
+
+        $expectedTotal = (float) $requirements->sum(
+            fn (BookingRequirement $requirement): float => (float) $requirement->room_price * (int) $requirement->quantity,
+        );
+
+        $paidTotal = (float) $payments->sum(function ($payment): float {
+            return match ($payment->payment_type) {
+                PaymentType::Deposit,
+                PaymentType::AdditionalDeposit,
+                PaymentType::RoomPayment,
+                PaymentType::ServicePayment,
+                PaymentType::Adjustment => (float) $payment->amount,
+                PaymentType::Refund => -1 * (float) $payment->amount,
+            };
+        });
+
+        return [
+            'expected_total' => $expectedTotal,
+            'paid_total' => $paidTotal,
+            'remaining_balance' => $expectedTotal - $paidTotal,
+        ];
     }
 
     private function generateBookingCode(): string

@@ -44,6 +44,16 @@ export const paymentTypeLabels = {
     ADJUSTMENT: 'Điều chỉnh',
 };
 
+export const paymentMethodLabels = {
+    CASH: 'Tiền mặt',
+    BANK_TRANSFER: 'Chuyển khoản',
+    CARD: 'Thẻ',
+    E_WALLET: 'Ví điện tử',
+    OTHER: 'Khác',
+    cash: 'Tiền mặt',
+    transfer: 'Chuyển khoản',
+};
+
 export const assignmentStatusLabels = {
     ASSIGNED: 'Đã phân phòng',
     RELEASED: 'Đã giải phóng',
@@ -67,6 +77,7 @@ const maps = {
     customerType: customerTypeLabels,
     priceSource: priceSourceLabels,
     paymentType: paymentTypeLabels,
+    paymentMethod: paymentMethodLabels,
     assignmentStatus: assignmentStatusLabels,
     stayStatus: stayStatusLabels,
 };

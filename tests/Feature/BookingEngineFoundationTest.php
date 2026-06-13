@@ -6,6 +6,7 @@ use App\Enums\AssignmentStatus;
 use App\Enums\BookingStatus;
 use App\Enums\BookingType;
 use App\Enums\CustomerType;
+use App\Enums\PaymentMethod;
 use App\Enums\PaymentType;
 use App\Enums\PriceSource;
 use App\Enums\StayStatus;
@@ -120,7 +121,7 @@ class BookingEngineFoundationTest extends TestCase
 
         $payment = app(BookingPaymentService::class)->addDeposit($booking, [
             'amount' => 1500,
-            'payment_method' => 'cash',
+            'payment_method' => PaymentMethod::Cash->value,
             'payment_at' => '2026-07-01 10:00:00',
             'note' => 'Front desk deposit',
         ]);
@@ -128,7 +129,7 @@ class BookingEngineFoundationTest extends TestCase
         app(BookingPaymentService::class)->addDeposit($booking, [
             'payment_type' => PaymentType::AdditionalDeposit->value,
             'amount' => 500,
-            'payment_method' => 'transfer',
+            'payment_method' => PaymentMethod::BankTransfer->value,
             'payment_at' => '2026-07-01 12:00:00',
         ]);
 
@@ -251,6 +252,13 @@ class BookingEngineFoundationTest extends TestCase
         $assignment = $this->createSingleAssignment();
         $stay = app(StayService::class)->createStayFromAssignment($assignment);
 
+        app(BookingPaymentService::class)->addPayment($assignment->booking, [
+            'payment_type' => PaymentType::RoomPayment->value,
+            'amount' => 1800,
+            'payment_method' => PaymentMethod::Cash->value,
+            'payment_at' => '2026-07-02 10:00:00',
+        ]);
+
         $stayService = app(StayService::class);
         $checkedIn = $stayService->checkIn($stay, '2026-07-01 15:00:00');
         $checkedOut = $stayService->checkOut($checkedIn, '2026-07-02 11:00:00');
@@ -259,6 +267,18 @@ class BookingEngineFoundationTest extends TestCase
         $this->assertSame(AssignmentStatus::CheckedOut, $assignment->refresh()->status);
         $this->assertSame(BookingStatus::CheckedOut, $assignment->booking->refresh()->status);
         $this->assertNotNull($checkedOut->actual_checkout_at);
+    }
+
+    public function test_booking_does_not_finalize_checkout_when_balance_remains(): void
+    {
+        $assignment = $this->createSingleAssignment();
+        $stay = app(StayService::class)->createStayFromAssignment($assignment);
+
+        $stayService = app(StayService::class);
+        $checkedIn = $stayService->checkIn($stay, '2026-07-01 15:00:00');
+        $stayService->checkOut($checkedIn, '2026-07-02 11:00:00');
+
+        $this->assertSame(BookingStatus::PartiallyCheckedOut, $assignment->booking->refresh()->status);
     }
 
     public function test_assigning_conflicting_room_throws_validation_exception(): void

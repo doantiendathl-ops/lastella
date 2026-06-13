@@ -7,7 +7,8 @@ import { ref } from 'vue';
 
 const props = defineProps({
     booking: { type: Object, required: true },
-    activeTab: { type: String, default: 'overview' },
+    activeTab: { type: String, default: 'info' },
+    tabs: { type: Array, default: () => [] },
     assignmentSummary: { type: Array, default: () => [] },
     options: { type: Object, required: true },
     can: { type: Object, required: true },
@@ -56,7 +57,7 @@ const editRequirementForm = useForm(emptyRequirement());
 const paymentForm = useForm({
     payment_type: 'DEPOSIT',
     amount: '',
-    payment_method: '',
+    payment_method: 'CASH',
     payment_at: nowLocal(),
     note: '',
 });
@@ -65,14 +66,6 @@ const assignmentForm = useForm({
     start_at: props.booking.checkin_at,
     end_at: props.booking.checkout_at,
 });
-
-const tabs = [
-    { key: 'overview', label: 'Tổng quan' },
-    { key: 'requirements', label: 'Nhu cầu phòng' },
-    { key: 'payments', label: 'Thanh toán / Đặt cọc' },
-    { key: 'assignments', label: 'Phân phòng' },
-    { key: 'stays', label: 'Lưu trú' },
-];
 
 const submitRequirement = () => {
     requirementForm.post(`/admin/bookings/${props.booking.id}/requirements`, {
@@ -118,7 +111,7 @@ const submitPayment = () => {
         onSuccess: () => paymentForm.defaults({
             payment_type: 'DEPOSIT',
             amount: '',
-            payment_method: '',
+            payment_method: 'CASH',
             payment_at: nowLocal(),
             note: '',
         }).reset(),
@@ -199,7 +192,7 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                 </button>
             </div>
 
-            <div v-if="tab === 'overview'" class="grid gap-5 p-5 md:grid-cols-2 xl:grid-cols-3">
+            <div v-if="tab === 'info'" class="grid gap-5 p-5 md:grid-cols-2 xl:grid-cols-3">
                 <div class="border border-gray-100 p-4">
                     <div class="text-xs uppercase tracking-wide text-steel">Khách hàng</div>
                     <div class="mt-2 text-sm font-semibold">{{ booking.customer_name }}</div>
@@ -232,7 +225,7 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                 </div>
             </div>
 
-            <div v-if="tab === 'requirements'" class="space-y-5 p-5">
+            <div v-if="tab === 'info'" class="space-y-5 p-5">
                 <form v-if="can.updateBooking" class="grid gap-3 border border-gray-100 p-4 md:grid-cols-4" @submit.prevent="submitRequirement">
                     <div>
                         <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Loại phòng</label>
@@ -340,14 +333,46 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
             </div>
 
             <div v-if="tab === 'payments'" class="space-y-5 p-5">
+                <div class="grid gap-3 md:grid-cols-3">
+                    <div class="border border-gray-100 p-4">
+                        <div class="text-xs uppercase tracking-wide text-steel">Tổng tiền dự kiến</div>
+                        <div class="mt-2 text-lg font-semibold">{{ formatCurrency(booking.payment_summary.expected_total) }}</div>
+                    </div>
+                    <div class="border border-gray-100 p-4">
+                        <div class="text-xs uppercase tracking-wide text-steel">Đã thanh toán</div>
+                        <div class="mt-2 text-lg font-semibold">{{ formatCurrency(booking.payment_summary.paid_total) }}</div>
+                    </div>
+                    <div class="border border-gray-100 p-4">
+                        <div class="text-xs uppercase tracking-wide text-steel">Còn phải thanh toán</div>
+                        <div class="mt-2 text-lg font-semibold">{{ formatCurrency(booking.payment_summary.remaining_balance) }}</div>
+                    </div>
+                </div>
+
                 <form v-if="can.addPayment" class="grid gap-3 border border-gray-100 p-4 md:grid-cols-5" @submit.prevent="submitPayment">
-                    <select v-model="paymentForm.payment_type" class="border border-gray-300 px-3 py-2 text-sm">
-                        <option v-for="type in options.paymentTypes" :key="type.value" :value="type.value">{{ labelFor('paymentType', type.value) }}</option>
-                    </select>
-                    <input v-model="paymentForm.amount" type="number" min="0.01" step="0.01" class="border border-gray-300 px-3 py-2 text-sm" placeholder="Số tiền">
-                    <input v-model="paymentForm.payment_method" type="text" class="border border-gray-300 px-3 py-2 text-sm" placeholder="Phương thức">
-                    <input v-model="paymentForm.payment_at" type="datetime-local" class="border border-gray-300 px-3 py-2 text-sm">
-                    <input v-model="paymentForm.note" type="text" class="border border-gray-300 px-3 py-2 text-sm" placeholder="Ghi chú">
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Loại thanh toán</label>
+                        <select v-model="paymentForm.payment_type" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                            <option v-for="type in options.paymentTypes" :key="type.value" :value="type.value">{{ labelFor('paymentType', type.value) }}</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Số tiền</label>
+                        <input v-model="paymentForm.amount" type="number" min="0.01" step="0.01" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Phương thức</label>
+                        <select v-model="paymentForm.payment_method" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                            <option v-for="method in options.paymentMethods" :key="method.value" :value="method.value">{{ labelFor('paymentMethod', method.value) }}</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Thời gian thanh toán</label>
+                        <input v-model="paymentForm.payment_at" type="datetime-local" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Ghi chú</label>
+                        <input v-model="paymentForm.note" type="text" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                    </div>
                     <button type="submit" class="inline-flex items-center justify-center gap-2 bg-pine px-3 py-2 text-sm font-semibold text-white">
                         <Banknote class="h-4 w-4" />
                         Thêm thanh toán
@@ -361,14 +386,14 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                             <tr><th class="px-4 py-3">Loại</th><th class="px-4 py-3">Số tiền</th><th class="px-4 py-3">Phương thức</th><th class="px-4 py-3">Thời gian thanh toán</th><th class="px-4 py-3">Xác nhận bởi</th><th class="px-4 py-3">Ghi chú</th></tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
-                            <tr v-for="payment in booking.payments" :key="payment.id"><td class="px-4 py-3">{{ labelFor('paymentType', payment.payment_type) }}</td><td class="px-4 py-3">{{ payment.amount }}</td><td class="px-4 py-3">{{ payment.payment_method }}</td><td class="px-4 py-3">{{ payment.payment_at }}</td><td class="px-4 py-3">{{ payment.confirmed_by }}</td><td class="px-4 py-3">{{ payment.note }}</td></tr>
+                            <tr v-for="payment in booking.payments" :key="payment.id"><td class="px-4 py-3">{{ labelFor('paymentType', payment.payment_type) }}</td><td class="px-4 py-3">{{ formatCurrency(payment.amount) }}</td><td class="px-4 py-3">{{ labelFor('paymentMethod', payment.payment_method) }}</td><td class="px-4 py-3">{{ payment.payment_at }}</td><td class="px-4 py-3">{{ payment.confirmed_by }}</td><td class="px-4 py-3">{{ payment.note }}</td></tr>
                             <tr v-if="booking.payments.length === 0"><td colspan="6" class="px-4 py-10 text-center text-sm text-steel">Chưa có thanh toán.</td></tr>
                         </tbody>
                     </table>
                 </div>
             </div>
 
-            <div v-if="tab === 'assignments'" class="space-y-5 p-5">
+            <div v-if="tab === 'room_map'" class="space-y-5 p-5">
                 <div v-if="assignmentSummary.length" class="grid gap-3 md:grid-cols-3">
                     <div v-for="item in assignmentSummary" :key="item.room_type_id" class="border border-gray-100 p-3 text-sm">
                         <div class="font-semibold">{{ item.room_type_code }}</div>
@@ -402,7 +427,7 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                 </div>
             </div>
 
-            <div v-if="tab === 'stays'" class="overflow-x-auto p-5">
+            <div v-if="tab === 'room_map'" class="overflow-x-auto p-5">
                 <table class="min-w-full divide-y divide-gray-200 text-left text-sm">
                     <thead class="bg-gray-50 text-xs uppercase tracking-wide text-steel">
                         <tr><th class="px-4 py-3">Phòng</th><th class="px-4 py-3">Dự kiến nhận phòng</th><th class="px-4 py-3">Dự kiến trả phòng</th><th class="px-4 py-3">Thực nhận phòng</th><th class="px-4 py-3">Thực trả phòng</th><th class="px-4 py-3">Trạng thái</th><th class="px-4 py-3 text-right">Thao tác</th></tr>
@@ -424,6 +449,10 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                         <tr v-if="booking.stays.length === 0"><td colspan="7" class="px-4 py-10 text-center text-sm text-steel">Chưa có lưu trú.</td></tr>
                     </tbody>
                 </table>
+            </div>
+
+            <div v-if="tab === 'history'" class="p-5 text-sm text-steel">
+                Lịch sử booking sẽ được hiển thị ở giai đoạn sau.
             </div>
         </section>
     </AppLayout>
