@@ -12,6 +12,7 @@ use App\Enums\PriceSource;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Booking\BookingIndexRequest;
 use App\Http\Requests\Booking\CancelBookingRequest;
+use App\Http\Requests\Booking\RestoreBookingRequest;
 use App\Http\Requests\Booking\StoreBookingRequest;
 use App\Http\Requests\Booking\UpdateBookingRequest;
 use App\Models\Booking;
@@ -29,6 +30,9 @@ use Inertia\Response;
 class BookingController extends Controller
 {
     private const CLOSED_BOOKING_EDIT_MESSAGE = 'Booking đã kết thúc hoặc đã hủy, không thể chỉnh sửa.';
+    private const CHECKED_IN_CANCEL_MESSAGE = 'Booking đã có phòng nhận khách, không thể hủy thông thường. Vui lòng xử lý trả phòng hoặc liên hệ quản trị viên.';
+    private const CANCEL_WARNING = 'Hành động này sẽ hủy booking và giải phóng các phòng đã phân.';
+    private const RESTORE_SUCCESS_MESSAGE = 'Booking đã được khôi phục. Vui lòng kiểm tra lại phân phòng.';
 
     public function __construct(
         private readonly BookingService $bookings,
@@ -43,6 +47,8 @@ class BookingController extends Controller
 
         $items = $this->bookings->paginate($request->validated())->through(function (Booking $booking) use ($request, $canUpdate): array {
             $canEdit = $this->canEdit($booking, $request->user());
+            $canCancel = ($request->user()?->can('booking.cancel') ?? false) && $booking->status !== BookingStatus::Cancelled;
+            $hasCheckedInStays = (bool) $booking->has_checked_in_stays;
 
             return [
                 'id' => $booking->id,
@@ -61,6 +67,10 @@ class BookingController extends Controller
                 'created_at' => $booking->created_at?->format('Y-m-d H:i'),
                 'can_edit' => $canUpdate && $canEdit,
                 'edit_disabled_reason' => $canUpdate && ! $canEdit ? self::CLOSED_BOOKING_EDIT_MESSAGE : null,
+                'can_cancel' => $canCancel && ! $hasCheckedInStays,
+                'cancel_disabled_reason' => $canCancel && $hasCheckedInStays ? self::CHECKED_IN_CANCEL_MESSAGE : null,
+                'cancel_confirmation' => $this->cancelConfirmationPayload($booking),
+                'can_restore' => $request->user()?->can('restore', $booking) ?? false,
             ];
         });
 
@@ -117,6 +127,13 @@ class BookingController extends Controller
             'can' => $this->permissions() + [
                 'editBooking' => $this->canEdit($booking, $request->user()) && $request->user()?->can('booking.update'),
                 'editDisabledReason' => $this->canEdit($booking, $request->user()) ? null : self::CLOSED_BOOKING_EDIT_MESSAGE,
+                'cancelBookingNormally' => ($request->user()?->can('booking.cancel') ?? false)
+                    && $booking->status !== BookingStatus::Cancelled
+                    && $this->bookings->canCancelNormally($booking),
+                'cancelDisabledReason' => $booking->status !== BookingStatus::Cancelled && ! $this->bookings->canCancelNormally($booking)
+                    ? self::CHECKED_IN_CANCEL_MESSAGE
+                    : null,
+                'restoreBooking' => $request->user()?->can('restore', $booking) ?? false,
             ],
         ]);
     }
@@ -158,9 +175,24 @@ class BookingController extends Controller
     {
         $this->authorize('cancel', $booking);
 
+        if (! $this->bookings->canCancelNormally($booking)) {
+            return redirect()
+                ->route('admin.bookings.show', $booking)
+                ->with('error', self::CHECKED_IN_CANCEL_MESSAGE);
+        }
+
         $this->bookings->cancelBooking($booking, $request->validated('cancellation_reason'));
 
         return redirect()->route('admin.bookings.show', $booking)->with('success', 'Đã hủy đặt phòng.');
+    }
+
+    public function restore(RestoreBookingRequest $request, Booking $booking): RedirectResponse
+    {
+        $this->authorize('restore', $booking);
+
+        $this->bookings->restoreCancelledBooking($booking);
+
+        return redirect()->route('admin.bookings.show', $booking)->with('success', self::RESTORE_SUCCESS_MESSAGE);
     }
 
     private function canEdit(Booking $booking, ?User $user): bool
@@ -248,6 +280,7 @@ class BookingController extends Controller
             'note' => $booking->note,
             'internal_note' => $booking->internal_note,
             'created_at' => $booking->created_at?->format('Y-m-d H:i'),
+            'cancel_confirmation' => $this->cancelConfirmationPayload($booking),
         ];
     }
 
@@ -324,6 +357,17 @@ class BookingController extends Controller
             'payments', 'history', 'room_map', 'info' => $tab,
             default => 'info',
         };
+    }
+
+    private function cancelConfirmationPayload(Booking $booking): array
+    {
+        return [
+            'booking_code' => $booking->booking_code,
+            'customer_name' => $booking->customer_name,
+            'checkin_at' => $booking->checkin_at?->format('Y-m-d H:i'),
+            'checkout_at' => $booking->checkout_at?->format('Y-m-d H:i'),
+            'warning' => self::CANCEL_WARNING,
+        ];
     }
 
     private function permissions(): array

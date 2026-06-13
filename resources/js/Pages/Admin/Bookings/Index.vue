@@ -2,9 +2,9 @@
 import Pagination from '@/Components/Pagination.vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { labelFor } from '@/Support/vietnameseLabels';
-import { Head, Link, router } from '@inertiajs/vue3';
-import { Banknote, BedDouble, Eye, Pencil, Plus, Search, X, XCircle } from 'lucide-vue-next';
-import { reactive } from 'vue';
+import { Head, Link, router, useForm } from '@inertiajs/vue3';
+import { Banknote, BedDouble, Eye, Pencil, Plus, RotateCcw, Search, X, XCircle } from 'lucide-vue-next';
+import { computed, reactive, ref } from 'vue';
 
 const props = defineProps({
     bookings: { type: Object, required: true },
@@ -33,12 +33,45 @@ const resetFilters = () => {
     applyFilters();
 };
 
-const cancelBooking = (booking) => {
-    if (!window.confirm(`Hủy đặt phòng ${booking.booking_code}?`)) {
+const bookingToCancel = ref(null);
+const cancelForm = useForm({
+    booking_code_confirmation: '',
+    cancellation_reason: '',
+});
+
+const canConfirmCancel = computed(() => bookingToCancel.value
+    && cancelForm.booking_code_confirmation === bookingToCancel.value.booking_code
+    && cancelForm.cancellation_reason.trim().length > 0
+    && !cancelForm.processing);
+
+const openCancelModal = (booking) => {
+    bookingToCancel.value = booking;
+    cancelForm.clearErrors();
+    cancelForm.defaults({
+        booking_code_confirmation: '',
+        cancellation_reason: '',
+    }).reset();
+};
+
+const closeCancelModal = () => {
+    bookingToCancel.value = null;
+    cancelForm.clearErrors();
+    cancelForm.reset();
+};
+
+const submitCancel = () => {
+    if (!bookingToCancel.value || !canConfirmCancel.value) {
         return;
     }
 
-    router.post(`/admin/bookings/${booking.id}/cancel`, {}, { preserveScroll: true });
+    cancelForm.post(`/admin/bookings/${bookingToCancel.value.id}/cancel`, {
+        preserveScroll: true,
+        onSuccess: closeCancelModal,
+    });
+};
+
+const restoreBooking = (booking) => {
+    router.post(`/admin/bookings/${booking.id}/restore`, {}, { preserveScroll: true });
 };
 
 const clean = (value) => Object.fromEntries(Object.entries(value).filter(([, item]) => item !== '' && item !== null && item !== undefined));
@@ -164,8 +197,21 @@ const clean = (value) => Object.fromEntries(Object.entries(value).filter(([, ite
                                 <Link v-if="can.assignRoom" :href="`/admin/bookings/${booking.id}?tab=room_map`" class="mr-1 inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-pine hover:text-pine" title="Phân phòng">
                                     <BedDouble class="h-4 w-4" />
                                 </Link>
-                                <button v-if="can.cancelBooking && booking.status !== 'CANCELLED'" type="button" class="inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-coral hover:text-coral" title="Hủy" @click="cancelBooking(booking)">
+                                <button v-if="can.cancelBooking && booking.can_cancel" type="button" class="inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-coral hover:text-coral" title="Hủy booking" @click="openCancelModal(booking)">
                                     <XCircle class="h-4 w-4" />
+                                </button>
+                                <span
+                                    v-else-if="can.cancelBooking && booking.cancel_disabled_reason"
+                                    class="inline-flex"
+                                    :title="booking.cancel_disabled_reason"
+                                    :aria-label="booking.cancel_disabled_reason"
+                                >
+                                    <button type="button" class="inline-flex h-8 w-8 cursor-not-allowed items-center justify-center border border-gray-200 text-gray-300" disabled>
+                                        <XCircle class="h-4 w-4" />
+                                    </button>
+                                </span>
+                                <button v-if="booking.can_restore" type="button" class="ml-1 inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-pine hover:text-pine" title="Khôi phục booking" @click="restoreBooking(booking)">
+                                    <RotateCcw class="h-4 w-4" />
                                 </button>
                             </td>
                         </tr>
@@ -181,5 +227,61 @@ const clean = (value) => Object.fromEntries(Object.entries(value).filter(([, ite
                 <Pagination :links="bookings.links" />
             </div>
         </section>
+
+        <div v-if="bookingToCancel" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <form class="w-full max-w-lg border border-gray-200 bg-white p-5 shadow-xl" @submit.prevent="submitCancel">
+                <div class="flex items-start justify-between gap-4">
+                    <div>
+                        <h2 class="text-lg font-semibold">Hủy booking</h2>
+                        <p class="mt-1 text-sm text-steel">Nhập đúng mã booking và lý do hủy trước khi xác nhận.</p>
+                    </div>
+                    <button type="button" class="text-steel hover:text-ink" @click="closeCancelModal">
+                        <X class="h-5 w-5" />
+                    </button>
+                </div>
+
+                <dl class="mt-4 grid gap-3 border border-gray-100 p-3 text-sm sm:grid-cols-2">
+                    <div>
+                        <dt class="text-xs uppercase tracking-wide text-steel">Mã booking</dt>
+                        <dd class="mt-1 font-semibold">{{ bookingToCancel.cancel_confirmation.booking_code }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs uppercase tracking-wide text-steel">Khách hàng</dt>
+                        <dd class="mt-1 font-semibold">{{ bookingToCancel.cancel_confirmation.customer_name }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs uppercase tracking-wide text-steel">Nhận phòng</dt>
+                        <dd class="mt-1">{{ bookingToCancel.cancel_confirmation.checkin_at }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs uppercase tracking-wide text-steel">Trả phòng</dt>
+                        <dd class="mt-1">{{ bookingToCancel.cancel_confirmation.checkout_at }}</dd>
+                    </div>
+                </dl>
+
+                <div class="mt-4 border border-coral/30 bg-coral/5 p-3 text-sm font-medium text-coral">
+                    {{ bookingToCancel.cancel_confirmation.warning }}
+                </div>
+
+                <div class="mt-4">
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Nhập mã booking để xác nhận</label>
+                    <input v-model="cancelForm.booking_code_confirmation" type="text" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm focus:border-pine focus:outline-none focus:ring-1 focus:ring-pine">
+                    <p v-if="cancelForm.errors.booking_code_confirmation" class="mt-1 text-sm text-coral">{{ cancelForm.errors.booking_code_confirmation }}</p>
+                </div>
+
+                <div class="mt-4">
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Lý do hủy</label>
+                    <textarea v-model="cancelForm.cancellation_reason" rows="4" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm focus:border-pine focus:outline-none focus:ring-1 focus:ring-pine" />
+                    <p v-if="cancelForm.errors.cancellation_reason" class="mt-1 text-sm text-coral">{{ cancelForm.errors.cancellation_reason }}</p>
+                </div>
+
+                <div class="mt-5 flex justify-end gap-2">
+                    <button type="button" class="border border-gray-300 px-3 py-2 text-sm font-semibold text-steel hover:text-ink" @click="closeCancelModal">Đóng</button>
+                    <button type="submit" class="bg-coral px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300" :disabled="!canConfirmCancel">
+                        Xác nhận hủy booking
+                    </button>
+                </div>
+            </form>
+        </div>
     </AppLayout>
 </template>

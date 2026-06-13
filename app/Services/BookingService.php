@@ -15,12 +15,17 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class BookingService
 {
     public function paginate(array $filters = []): LengthAwarePaginator
     {
-        $query = Booking::query()->with('salesUser');
+        $query = Booking::query()
+            ->with('salesUser')
+            ->withExists([
+                'stays as has_checked_in_stays' => fn (Builder $query): Builder => $query->where('status', StayStatus::CheckedIn->value),
+            ]);
 
         $this->applyLikeFilter($query, $filters, 'booking_code');
         $this->applyLikeFilter($query, $filters, 'customer_name');
@@ -116,21 +121,27 @@ class BookingService
         });
     }
 
-    public function cancelBooking(Booking $booking, ?string $reason = null): Booking
+    public function cancelBooking(Booking $booking, string $reason): Booking
     {
         return DB::transaction(function () use ($booking, $reason): Booking {
+            if (! $this->canCancelNormally($booking)) {
+                throw ValidationException::withMessages([
+                    'booking' => 'Booking đã có phòng nhận khách, không thể hủy thông thường. Vui lòng xử lý trả phòng hoặc liên hệ quản trị viên.',
+                ]);
+            }
+
             $booking->roomAssignments()
                 ->whereIn('status', AssignmentStatus::activeValues())
                 ->get()
                 ->each(fn ($assignment) => $assignment->update([
-                    'status' => AssignmentStatus::Cancelled,
+                    'status' => AssignmentStatus::Released,
                     'released_by' => Auth::id(),
                     'released_at' => now(),
                     'release_reason' => $reason,
                 ]));
 
             $booking->stays()
-                ->whereIn('status', [StayStatus::Reserved->value, StayStatus::CheckedIn->value])
+                ->where('status', StayStatus::Reserved->value)
                 ->get()
                 ->each(fn ($stay) => $stay->update([
                     'status' => StayStatus::Cancelled,
@@ -146,6 +157,32 @@ class BookingService
 
             return $booking->refresh();
         });
+    }
+
+    public function restoreCancelledBooking(Booking $booking): Booking
+    {
+        return DB::transaction(function () use ($booking): Booking {
+            $status = $booking->bookingRequirements()->exists()
+                ? BookingStatus::PendingAssignment
+                : BookingStatus::Draft;
+
+            $booking->update([
+                'status' => $status,
+                'cancelled_at' => null,
+                'cancelled_by' => null,
+                'cancellation_reason' => null,
+                'updated_by' => Auth::id(),
+            ]);
+
+            return $booking->refresh();
+        });
+    }
+
+    public function canCancelNormally(Booking $booking): bool
+    {
+        return ! $booking->stays()
+            ->where('status', StayStatus::CheckedIn->value)
+            ->exists();
     }
 
     public function updateBookingAssignmentStatus(Booking $booking): Booking

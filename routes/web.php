@@ -41,6 +41,7 @@ Route::middleware('auth')->group(function (): void {
     Route::prefix('admin')->name('admin.')->group(function (): void {
         Route::resource('bookings', BookingController::class)->except(['destroy']);
         Route::post('bookings/{booking}/cancel', [BookingController::class, 'cancel'])->name('bookings.cancel');
+        Route::post('bookings/{booking}/restore', [BookingController::class, 'restore'])->name('bookings.restore');
         Route::post('bookings/{booking}/requirements', [BookingRequirementController::class, 'store'])->name('bookings.requirements.store');
         Route::put('bookings/{booking}/requirements/{requirement}', [BookingRequirementController::class, 'update'])->name('bookings.requirements.update');
         Route::delete('bookings/{booking}/requirements/{requirement}', [BookingRequirementController::class, 'destroy'])->name('bookings.requirements.destroy');

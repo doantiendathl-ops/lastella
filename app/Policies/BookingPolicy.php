@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Enums\BookingStatus;
 use App\Models\Booking;
 use App\Models\User;
 
@@ -33,6 +34,11 @@ class BookingPolicy
     public function cancel(User $user, Booking $booking): bool
     {
         return $user->can('booking.cancel');
+    }
+
+    public function restore(User $user, Booking $booking): bool
+    {
+        return $user->hasRole('ADMIN') && $booking->status === BookingStatus::Cancelled;
     }
 
     public function delete(User $user, Booking $booking): bool

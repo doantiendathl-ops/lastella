@@ -286,6 +286,176 @@ class BookingManagementUiTest extends TestCase
         ]);
     }
 
+    public function test_cancel_requires_reason(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+
+        $this->from("/admin/bookings/{$booking->id}")
+            ->post("/admin/bookings/{$booking->id}/cancel", [
+                'booking_code_confirmation' => $booking->booking_code,
+            ])
+            ->assertRedirect("/admin/bookings/{$booking->id}")
+            ->assertSessionHasErrors('cancellation_reason');
+    }
+
+    public function test_cancel_requires_exact_booking_code_confirmation(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+
+        $this->from("/admin/bookings/{$booking->id}")
+            ->post("/admin/bookings/{$booking->id}/cancel", [
+                'booking_code_confirmation' => 'WRONG-CODE',
+                'cancellation_reason' => 'Guest requested cancellation',
+            ])
+            ->assertRedirect("/admin/bookings/{$booking->id}")
+            ->assertSessionHasErrors('booking_code_confirmation');
+    }
+
+    public function test_cancel_sets_cancellation_metadata(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+
+        $this->post("/admin/bookings/{$booking->id}/cancel", $this->cancelPayload($booking, 'Guest requested cancellation'))
+            ->assertRedirect(route('admin.bookings.show', $booking));
+
+        $booking->refresh();
+
+        $this->assertSame(BookingStatus::Cancelled, $booking->status);
+        $this->assertNotNull($booking->cancelled_at);
+        $this->assertSame($this->admin->id, $booking->cancelled_by);
+        $this->assertSame('Guest requested cancellation', $booking->cancellation_reason);
+    }
+
+    public function test_cancel_releases_active_assignments_and_cancels_reserved_stays(): void
+    {
+        $this->actingAs($this->admin);
+        [$booking, $assignment] = $this->createAssignment();
+        $stay = Stay::where('room_assignment_id', $assignment->id)->firstOrFail();
+
+        $this->post("/admin/bookings/{$booking->id}/cancel", $this->cancelPayload($booking, 'Schedule changed'))
+            ->assertRedirect(route('admin.bookings.show', $booking));
+
+        $assignment->refresh();
+        $stay->refresh();
+
+        $this->assertSame(AssignmentStatus::Released, $assignment->status);
+        $this->assertSame($this->admin->id, $assignment->released_by);
+        $this->assertNotNull($assignment->released_at);
+        $this->assertSame('Schedule changed', $assignment->release_reason);
+        $this->assertSame(StayStatus::Cancelled, $stay->status);
+    }
+
+    public function test_cancel_does_not_delete_payments_or_requirements(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+        $booking->bookingPayments()->create([
+            'payment_type' => PaymentType::Deposit,
+            'amount' => 500000,
+            'payment_method' => PaymentMethod::Cash->value,
+            'payment_at' => '2026-07-01 10:00:00',
+            'confirmed_by' => $this->admin->id,
+        ]);
+        $requirementCount = $booking->bookingRequirements()->count();
+        $paymentCount = $booking->bookingPayments()->count();
+
+        $this->post("/admin/bookings/{$booking->id}/cancel", $this->cancelPayload($booking, 'Guest cancelled'))
+            ->assertRedirect(route('admin.bookings.show', $booking));
+
+        $this->assertSame($requirementCount, $booking->bookingRequirements()->count());
+        $this->assertSame($paymentCount, $booking->bookingPayments()->count());
+    }
+
+    public function test_cannot_cancel_booking_with_checked_in_stay(): void
+    {
+        $this->actingAs($this->admin);
+        [$booking, $assignment] = $this->createAssignment();
+        $stay = Stay::where('room_assignment_id', $assignment->id)->firstOrFail();
+
+        $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-in")->assertRedirect();
+
+        $this->from("/admin/bookings/{$booking->id}")
+            ->post("/admin/bookings/{$booking->id}/cancel", $this->cancelPayload($booking, 'Guest cancelled'))
+            ->assertRedirect(route('admin.bookings.show', $booking))
+            ->assertSessionHas('error', 'Booking đã có phòng nhận khách, không thể hủy thông thường. Vui lòng xử lý trả phòng hoặc liên hệ quản trị viên.');
+
+        $this->assertNotSame(BookingStatus::Cancelled, $booking->refresh()->status);
+        $this->assertSame(StayStatus::CheckedIn, $stay->refresh()->status);
+        $this->assertSame(AssignmentStatus::CheckedIn, $assignment->refresh()->status);
+    }
+
+    public function test_admin_can_restore_cancelled_booking(): void
+    {
+        $this->actingAs($this->admin);
+        [$booking, $assignment] = $this->createAssignment();
+
+        $this->post("/admin/bookings/{$booking->id}/cancel", $this->cancelPayload($booking, 'Guest cancelled'))
+            ->assertRedirect(route('admin.bookings.show', $booking));
+
+        $assignmentCount = $booking->roomAssignments()->count();
+
+        $this->post("/admin/bookings/{$booking->id}/restore")
+            ->assertRedirect(route('admin.bookings.show', $booking))
+            ->assertSessionHas('success', 'Booking đã được khôi phục. Vui lòng kiểm tra lại phân phòng.');
+
+        $booking->refresh();
+
+        $this->assertSame(BookingStatus::PendingAssignment, $booking->status);
+        $this->assertNull($booking->cancelled_at);
+        $this->assertNull($booking->cancelled_by);
+        $this->assertNull($booking->cancellation_reason);
+        $this->assertSame($assignmentCount, $booking->roomAssignments()->count());
+        $this->assertSame(AssignmentStatus::Released, $assignment->refresh()->status);
+    }
+
+    public function test_non_admin_cannot_restore_cancelled_booking(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+        $this->post("/admin/bookings/{$booking->id}/cancel", $this->cancelPayload($booking, 'Guest cancelled'))
+            ->assertRedirect(route('admin.bookings.show', $booking));
+
+        $manager = User::factory()->create();
+        $manager->assignRole('MANAGER');
+
+        $this->actingAs($manager)
+            ->post("/admin/bookings/{$booking->id}/restore")
+            ->assertForbidden();
+
+        $this->assertSame(BookingStatus::Cancelled, $booking->refresh()->status);
+        $this->assertNotNull($booking->cancelled_at);
+    }
+
+    public function test_booking_ui_exposes_cancel_confirmation_data(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+        $warning = 'Hành động này sẽ hủy booking và giải phóng các phòng đã phân.';
+
+        $this->get('/admin/bookings')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('bookings.data', fn ($bookings): bool => collect($bookings)->contains(
+                    fn (array $item): bool => $item['id'] === $booking->id
+                        && $item['can_cancel'] === true
+                        && $item['cancel_confirmation']['booking_code'] === $booking->booking_code
+                        && $item['cancel_confirmation']['customer_name'] === $booking->customer_name
+                        && $item['cancel_confirmation']['warning'] === $warning
+                ))
+            );
+
+        $this->get("/admin/bookings/{$booking->id}")
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('booking.cancel_confirmation.booking_code', $booking->booking_code)
+                ->where('booking.cancel_confirmation.customer_name', $booking->customer_name)
+                ->where('booking.cancel_confirmation.warning', $warning)
+            );
+    }
+
     public function test_booking_detail_includes_payment_summary_and_refund_subtracts_from_paid_total(): void
     {
         $this->actingAs($this->admin);
@@ -490,6 +660,14 @@ class BookingManagementUiTest extends TestCase
             'price_source' => PriceSource::Manual->value,
             'note' => 'Manual rate',
             ...$overrides,
+        ];
+    }
+
+    private function cancelPayload(Booking $booking, string $reason = 'Guest requested cancellation'): array
+    {
+        return [
+            'booking_code_confirmation' => $booking->booking_code,
+            'cancellation_reason' => $reason,
         ];
     }
 
