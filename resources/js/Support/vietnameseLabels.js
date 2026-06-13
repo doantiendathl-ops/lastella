@@ -32,7 +32,7 @@ export const customerTypeLabels = {
 export const priceSourceLabels = {
     RATE_TABLE: 'Bảng giá',
     MANUAL: 'Nhập tay',
-    SPECIAL_DEAL: 'Ưu đãi đặc biệt',
+    SPECIAL_DEAL: 'Ưu đãi riêng',
 };
 
 export const paymentTypeLabels = {

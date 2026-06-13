@@ -7,10 +7,12 @@ use App\Enums\BookingType;
 use App\Enums\CustomerType;
 use App\Enums\PaymentType;
 use App\Enums\PriceSource;
+use App\Enums\RateStatus;
 use App\Enums\StayStatus;
 use App\Models\Booking;
 use App\Models\Room;
 use App\Models\RoomAssignment;
+use App\Models\RoomRate;
 use App\Models\RoomType;
 use App\Models\Stay;
 use App\Models\User;
@@ -20,6 +22,7 @@ use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoomSeeder;
 use Database\Seeders\RoomTypeSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
 class BookingManagementUiTest extends TestCase
@@ -72,6 +75,33 @@ class BookingManagementUiTest extends TestCase
         $this->get("/admin/bookings/{$booking->id}")->assertOk();
     }
 
+    public function test_booking_detail_includes_suggested_requirement_price_from_active_room_rate(): void
+    {
+        $this->actingAs($this->admin);
+        $roomType = RoomType::where('code', 'TWIN')->firstOrFail();
+
+        RoomRate::factory()->create([
+            'room_type_id' => $roomType->id,
+            'valid_from' => '2026-01-01',
+            'valid_to' => '2026-12-31',
+            'overnight_price' => 800000,
+            'hourly_price' => 150000,
+            'status' => RateStatus::Active,
+        ]);
+
+        $booking = $this->createBooking(withRequirements: false);
+
+        $this->get("/admin/bookings/{$booking->id}")
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Admin/Bookings/Show')
+                ->where('options.roomTypes', fn ($roomTypes): bool => collect($roomTypes)->contains(
+                    fn (array $option): bool => (int) $option['value'] === $roomType->id
+                        && (float) $option['suggested_price'] === 800000.0
+                ))
+            );
+    }
+
     public function test_admin_can_add_requirement(): void
     {
         $this->actingAs($this->admin);
@@ -86,6 +116,20 @@ class BookingManagementUiTest extends TestCase
             'room_type_id' => $roomType->id,
             'quantity' => 1,
         ]);
+    }
+
+    public function test_requirement_child_counts_may_not_exceed_fifty(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking(withRequirements: false);
+        $roomType = RoomType::where('code', 'TWIN')->firstOrFail();
+        $payload = $this->requirementPayload($roomType);
+        $payload['children_under_6'] = 51;
+
+        $this->from("/admin/bookings/{$booking->id}?tab=requirements")
+            ->post("/admin/bookings/{$booking->id}/requirements", $payload)
+            ->assertRedirect("/admin/bookings/{$booking->id}?tab=requirements")
+            ->assertSessionHasErrors('children_under_6');
     }
 
     public function test_admin_can_add_deposit(): void

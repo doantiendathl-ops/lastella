@@ -19,6 +19,7 @@ use App\Models\RoomType;
 use App\Models\User;
 use App\Services\BookingService;
 use App\Services\RoomAssignmentService;
+use App\Services\RoomRateService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -26,8 +27,10 @@ use Inertia\Response;
 
 class BookingController extends Controller
 {
-    public function __construct(private readonly BookingService $bookings)
-    {
+    public function __construct(
+        private readonly BookingService $bookings,
+        private readonly RoomRateService $roomRates,
+    ) {
     }
 
     public function index(BookingIndexRequest $request): Response
@@ -99,7 +102,7 @@ class BookingController extends Controller
             'booking' => $this->bookingPayload($booking),
             'activeTab' => $request->query('tab', 'overview'),
             'assignmentSummary' => $assignments->getAssignmentSummary($booking),
-            'options' => $this->options(includeRooms: true),
+            'options' => $this->options(includeRooms: true, booking: $booking),
             'can' => $this->permissions() + [
                 'editBooking' => $this->canEdit($booking) && $request->user()?->can('booking.update'),
             ],
@@ -221,7 +224,7 @@ class BookingController extends Controller
         ];
     }
 
-    private function options(bool $includeRooms = false): array
+    private function options(bool $includeRooms = false, ?Booking $booking = null): array
     {
         $options = [
             'bookingTypes' => $this->enumOptions(BookingType::cases()),
@@ -229,10 +232,22 @@ class BookingController extends Controller
             'statuses' => $this->enumOptions(BookingStatus::cases()),
             'priceSources' => $this->enumOptions(PriceSource::cases()),
             'paymentTypes' => $this->enumOptions(PaymentType::cases()),
-            'roomTypes' => RoomType::query()->orderBy('code')->get(['id', 'code', 'name'])->map(fn (RoomType $type): array => [
-                'value' => $type->id,
-                'label' => "{$type->code} - {$type->name}",
-            ])->values(),
+            'roomTypes' => RoomType::query()->orderBy('code')->get(['id', 'code', 'name'])->map(function (RoomType $type) use ($booking): array {
+                $option = [
+                    'value' => $type->id,
+                    'label' => "{$type->code} - {$type->name}",
+                ];
+
+                if ($booking !== null) {
+                    $option['suggested_price'] = $this->roomRates->suggestedPrice(
+                        (int) $type->id,
+                        $booking->booking_type,
+                        $booking->checkin_at,
+                    );
+                }
+
+                return $option;
+            })->values(),
             'salesUsers' => User::query()->orderBy('name')->get(['id', 'name'])->map(fn (User $user): array => [
                 'value' => $user->id,
                 'label' => $user->name,

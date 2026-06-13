@@ -22,14 +22,32 @@ const nowLocal = () => {
     return date.toISOString().slice(0, 16);
 };
 
+const suggestedPriceForRoomType = (roomTypeId) => props.options.roomTypes.find((type) => String(type.value) === String(roomTypeId))?.suggested_price ?? null;
+
+const normalizePrice = (value) => {
+    if (value === null || value === undefined || value === '') {
+        return 0;
+    }
+
+    return Number(value);
+};
+
+const defaultRoomPrice = (roomTypeId) => normalizePrice(suggestedPriceForRoomType(roomTypeId));
+
+const applySuggestedPrice = (form) => {
+    form.room_price = defaultRoomPrice(form.room_type_id);
+};
+
+const formatCurrency = (value) => `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(normalizePrice(value))} đ`;
+
 const emptyRequirement = () => ({
     room_type_id: props.options.roomTypes[0]?.value ?? '',
     quantity: 1,
     adults: 1,
     children_under_6: 0,
     children_over_6: 0,
-    room_price: 0,
-    price_source: 'RATE_TABLE',
+    room_price: defaultRoomPrice(props.options.roomTypes[0]?.value ?? ''),
+    price_source: 'MANUAL',
     note: '',
 });
 
@@ -72,7 +90,7 @@ const startEditRequirement = (requirement) => {
         children_under_6: requirement.children_under_6,
         children_over_6: requirement.children_over_6,
         room_price: requirement.room_price,
-        price_source: requirement.price_source,
+        price_source: requirement.price_source ?? 'MANUAL',
         note: requirement.note ?? '',
     }).reset();
 };
@@ -201,19 +219,44 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
 
             <div v-if="tab === 'requirements'" class="space-y-5 p-5">
                 <form v-if="can.updateBooking" class="grid gap-3 border border-gray-100 p-4 md:grid-cols-4" @submit.prevent="submitRequirement">
-                    <select v-model="requirementForm.room_type_id" class="border border-gray-300 px-3 py-2 text-sm">
-                        <option v-for="type in options.roomTypes" :key="type.value" :value="type.value">{{ type.label }}</option>
-                    </select>
-                    <input v-model="requirementForm.quantity" type="number" min="1" class="border border-gray-300 px-3 py-2 text-sm" placeholder="Số lượng">
-                    <input v-model="requirementForm.adults" type="number" min="0" class="border border-gray-300 px-3 py-2 text-sm" placeholder="Người lớn">
-                    <input v-model="requirementForm.children_under_6" type="number" min="0" class="border border-gray-300 px-3 py-2 text-sm" placeholder="Trẻ dưới 6 tuổi">
-                    <input v-model="requirementForm.children_over_6" type="number" min="0" class="border border-gray-300 px-3 py-2 text-sm" placeholder="Trẻ trên 6 tuổi">
-                    <input v-model="requirementForm.room_price" type="number" min="0" step="0.01" class="border border-gray-300 px-3 py-2 text-sm" placeholder="Giá phòng">
-                    <select v-model="requirementForm.price_source" class="border border-gray-300 px-3 py-2 text-sm">
-                        <option v-for="source in options.priceSources" :key="source.value" :value="source.value">{{ labelFor('priceSource', source.value) }}</option>
-                    </select>
-                    <input v-model="requirementForm.note" type="text" class="border border-gray-300 px-3 py-2 text-sm" placeholder="Ghi chú">
-                    <button type="submit" class="inline-flex items-center justify-center gap-2 bg-pine px-3 py-2 text-sm font-semibold text-white">
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Loại phòng</label>
+                        <select v-model="requirementForm.room_type_id" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm" @change="applySuggestedPrice(requirementForm)">
+                            <option v-for="type in options.roomTypes" :key="type.value" :value="type.value">{{ type.label }}</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Số lượng</label>
+                        <input v-model="requirementForm.quantity" type="number" min="1" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Người lớn</label>
+                        <input v-model="requirementForm.adults" type="number" min="0" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Trẻ em dưới 6 tuổi</label>
+                        <input v-model="requirementForm.children_under_6" type="number" min="0" max="50" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Trẻ em từ 6 tuổi</label>
+                        <input v-model="requirementForm.children_over_6" type="number" min="0" max="50" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Giá phòng</label>
+                        <input v-model="requirementForm.room_price" type="number" min="0" step="0.01" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                        <p class="mt-1 text-xs text-steel">Giá tham khảo lấy từ bảng giá, có thể sửa trực tiếp.</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Nguồn giá</label>
+                        <select v-model="requirementForm.price_source" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                            <option v-for="source in options.priceSources" :key="source.value" :value="source.value">{{ labelFor('priceSource', source.value) }}</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Ghi chú</label>
+                        <input v-model="requirementForm.note" type="text" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                    </div>
+                    <button type="submit" class="inline-flex h-10 items-center justify-center gap-2 self-end bg-pine px-3 py-2 text-sm font-semibold text-white">
                         <Plus class="h-4 w-4" />
                         Thêm nhu cầu
                     </button>
@@ -237,10 +280,17 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                         <tbody class="divide-y divide-gray-100">
                             <tr v-for="requirement in booking.requirements" :key="requirement.id">
                                 <template v-if="editingRequirementId === requirement.id">
-                                    <td class="px-4 py-3"><select v-model="editRequirementForm.room_type_id" class="w-full border border-gray-300 px-2 py-1"><option v-for="type in options.roomTypes" :key="type.value" :value="type.value">{{ type.label }}</option></select></td>
+                                    <td class="px-4 py-3"><select v-model="editRequirementForm.room_type_id" class="w-full border border-gray-300 px-2 py-1" @change="applySuggestedPrice(editRequirementForm)"><option v-for="type in options.roomTypes" :key="type.value" :value="type.value">{{ type.label }}</option></select></td>
                                     <td class="px-4 py-3"><input v-model="editRequirementForm.quantity" type="number" min="1" class="w-20 border border-gray-300 px-2 py-1"></td>
                                     <td class="px-4 py-3"><input v-model="editRequirementForm.adults" type="number" min="0" class="w-20 border border-gray-300 px-2 py-1"></td>
-                                    <td class="px-4 py-3"><input v-model="editRequirementForm.children_under_6" type="number" min="0" class="w-20 border border-gray-300 px-2 py-1"> / <input v-model="editRequirementForm.children_over_6" type="number" min="0" class="w-20 border border-gray-300 px-2 py-1"></td>
+                                    <td class="px-4 py-3">
+                                        <div class="space-y-1">
+                                            <label class="block text-xs text-steel">Dưới 6</label>
+                                            <input v-model="editRequirementForm.children_under_6" type="number" min="0" max="50" class="w-20 border border-gray-300 px-2 py-1">
+                                            <label class="block text-xs text-steel">Từ 6+</label>
+                                            <input v-model="editRequirementForm.children_over_6" type="number" min="0" max="50" class="w-20 border border-gray-300 px-2 py-1">
+                                        </div>
+                                    </td>
                                     <td class="px-4 py-3"><input v-model="editRequirementForm.room_price" type="number" min="0" step="0.01" class="w-28 border border-gray-300 px-2 py-1"></td>
                                     <td class="px-4 py-3"><select v-model="editRequirementForm.price_source" class="border border-gray-300 px-2 py-1"><option v-for="source in options.priceSources" :key="source.value" :value="source.value">{{ labelFor('priceSource', source.value) }}</option></select></td>
                                     <td class="px-4 py-3"><input v-model="editRequirementForm.note" type="text" class="w-full border border-gray-300 px-2 py-1"></td>
@@ -253,8 +303,11 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                                     <td class="whitespace-nowrap px-4 py-3">{{ requirement.room_type }}</td>
                                     <td class="whitespace-nowrap px-4 py-3">{{ requirement.quantity }}</td>
                                     <td class="whitespace-nowrap px-4 py-3">{{ requirement.adults }}</td>
-                                    <td class="whitespace-nowrap px-4 py-3">{{ requirement.children_under_6 }} / {{ requirement.children_over_6 }}</td>
-                                    <td class="whitespace-nowrap px-4 py-3">{{ requirement.room_price }}</td>
+                                    <td class="whitespace-nowrap px-4 py-3">
+                                        <div>Dưới 6: {{ requirement.children_under_6 }}</div>
+                                        <div>Từ 6+: {{ requirement.children_over_6 }}</div>
+                                    </td>
+                                    <td class="whitespace-nowrap px-4 py-3">{{ formatCurrency(requirement.room_price) }}</td>
                                     <td class="whitespace-nowrap px-4 py-3">{{ labelFor('priceSource', requirement.price_source) }}</td>
                                     <td class="px-4 py-3">{{ requirement.note }}</td>
                                     <td v-if="can.updateBooking" class="whitespace-nowrap px-4 py-3 text-right">
