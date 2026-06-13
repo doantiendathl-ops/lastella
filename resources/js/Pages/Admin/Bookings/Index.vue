@@ -19,10 +19,8 @@ const query = reactive({
     customer_phone: props.filters.customer_phone ?? '',
     status: props.filters.status ?? '',
     booking_type: props.filters.booking_type ?? '',
-    checkin_from: props.filters.checkin_from ?? '',
-    checkin_to: props.filters.checkin_to ?? '',
-    checkout_from: props.filters.checkout_from ?? '',
-    checkout_to: props.filters.checkout_to ?? '',
+    date_from: props.filters.date_from ?? '',
+    date_to: props.filters.date_to ?? '',
     sales_user_id: props.filters.sales_user_id ?? '',
 });
 
@@ -77,14 +75,18 @@ const clean = (value) => Object.fromEntries(Object.entries(value).filter(([, ite
                     <option value="">Tất cả loại đặt phòng</option>
                     <option v-for="type in options.bookingTypes" :key="type.value" :value="type.value">{{ labelFor('bookingType', type.value) }}</option>
                 </select>
-                <input v-model="query.checkin_from" type="date" class="border border-gray-300 px-3 py-2 text-sm focus:border-pine focus:outline-none focus:ring-1 focus:ring-pine">
-                <input v-model="query.checkin_to" type="date" class="border border-gray-300 px-3 py-2 text-sm focus:border-pine focus:outline-none focus:ring-1 focus:ring-pine">
+                <div>
+                    <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-steel">Từ ngày</label>
+                    <input v-model="query.date_from" type="date" class="w-full border border-gray-300 px-3 py-2 text-sm focus:border-pine focus:outline-none focus:ring-1 focus:ring-pine">
+                </div>
+                <div>
+                    <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-steel">Đến ngày</label>
+                    <input v-model="query.date_to" type="date" class="w-full border border-gray-300 px-3 py-2 text-sm focus:border-pine focus:outline-none focus:ring-1 focus:ring-pine">
+                </div>
                 <select v-model="query.sales_user_id" class="border border-gray-300 px-3 py-2 text-sm focus:border-pine focus:outline-none focus:ring-1 focus:ring-pine">
                     <option value="">Tất cả nhân viên kinh doanh</option>
                     <option v-for="user in options.salesUsers" :key="user.value" :value="user.value">{{ user.label }}</option>
                 </select>
-                <input v-model="query.checkout_from" type="date" class="border border-gray-300 px-3 py-2 text-sm focus:border-pine focus:outline-none focus:ring-1 focus:ring-pine">
-                <input v-model="query.checkout_to" type="date" class="border border-gray-300 px-3 py-2 text-sm focus:border-pine focus:outline-none focus:ring-1 focus:ring-pine">
                 <div class="flex gap-2 md:col-span-2">
                     <button type="submit" class="inline-flex h-10 items-center gap-2 bg-pine px-3 text-sm font-semibold text-white">
                         <Search class="h-4 w-4" />

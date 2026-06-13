@@ -55,6 +55,52 @@ class BookingManagementUiTest extends TestCase
         $this->get('/admin/bookings')->assertOk();
     }
 
+    public function test_booking_list_date_filter_returns_bookings_that_overlap_selected_range(): void
+    {
+        $this->actingAs($this->admin);
+        $startsBefore = $this->createBooking([
+            'customer_name' => 'Starts Before',
+            'checkin_at' => '2026-06-12 14:00:00',
+            'checkout_at' => '2026-06-14 12:00:00',
+        ]);
+        $inside = $this->createBooking([
+            'customer_name' => 'Inside Range',
+            'checkin_at' => '2026-06-14 14:00:00',
+            'checkout_at' => '2026-06-15 12:00:00',
+        ]);
+        $endsAfter = $this->createBooking([
+            'customer_name' => 'Ends After',
+            'checkin_at' => '2026-06-15 14:00:00',
+            'checkout_at' => '2026-06-16 12:00:00',
+        ]);
+        $before = $this->createBooking([
+            'customer_name' => 'Before Range',
+            'checkin_at' => '2026-06-10 14:00:00',
+            'checkout_at' => '2026-06-12 12:00:00',
+        ]);
+        $after = $this->createBooking([
+            'customer_name' => 'After Range',
+            'checkin_at' => '2026-06-16 14:00:00',
+            'checkout_at' => '2026-06-17 12:00:00',
+        ]);
+
+        $this->get('/admin/bookings?date_from=2026-06-13&date_to=2026-06-15')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('filters.date_from', '2026-06-13')
+                ->where('filters.date_to', '2026-06-15')
+                ->where('bookings.data', function ($bookings) use ($startsBefore, $inside, $endsAfter, $before, $after): bool {
+                    $ids = collect($bookings)->pluck('id');
+
+                    return $ids->contains($startsBefore->id)
+                        && $ids->contains($inside->id)
+                        && $ids->contains($endsAfter->id)
+                        && ! $ids->contains($before->id)
+                        && ! $ids->contains($after->id);
+                })
+            );
+    }
+
     public function test_cancelled_booking_exposes_disabled_edit_state(): void
     {
         $this->actingAs($this->admin);

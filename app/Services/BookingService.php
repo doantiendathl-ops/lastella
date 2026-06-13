@@ -10,6 +10,7 @@ use App\Models\BookingRequirement;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -30,21 +31,7 @@ class BookingService
             }
         }
 
-        if (filled($filters['checkin_from'] ?? null)) {
-            $query->where('checkin_at', '>=', $filters['checkin_from']);
-        }
-
-        if (filled($filters['checkin_to'] ?? null)) {
-            $query->where('checkin_at', '<=', $filters['checkin_to']);
-        }
-
-        if (filled($filters['checkout_from'] ?? null)) {
-            $query->where('checkout_at', '>=', $filters['checkout_from']);
-        }
-
-        if (filled($filters['checkout_to'] ?? null)) {
-            $query->where('checkout_at', '<=', $filters['checkout_to']);
-        }
+        $this->applyStayPeriodOverlapFilter($query, $filters);
 
         $sort = in_array($filters['sort'] ?? null, [
             'booking_code',
@@ -260,6 +247,28 @@ class BookingService
     {
         if (filled($filters[$column] ?? null)) {
             $query->where($column, 'like', '%'.$filters[$column].'%');
+        }
+    }
+
+    private function applyStayPeriodOverlapFilter(Builder $query, array $filters): void
+    {
+        $dateFrom = filled($filters['date_from'] ?? null)
+            ? Carbon::parse($filters['date_from'])->startOfDay()
+            : null;
+        $dateTo = filled($filters['date_to'] ?? null)
+            ? Carbon::parse($filters['date_to'])->endOfDay()
+            : null;
+
+        if ($dateFrom === null && $dateTo === null) {
+            return;
+        }
+
+        if ($dateTo !== null) {
+            $query->where('checkin_at', '<=', $dateTo);
+        }
+
+        if ($dateFrom !== null) {
+            $query->where('checkout_at', '>=', $dateFrom);
         }
     }
 }
