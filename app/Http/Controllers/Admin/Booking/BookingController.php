@@ -27,6 +27,8 @@ use Inertia\Response;
 
 class BookingController extends Controller
 {
+    private const CLOSED_BOOKING_EDIT_MESSAGE = 'Booking đã kết thúc hoặc đã hủy, không thể chỉnh sửa.';
+
     public function __construct(
         private readonly BookingService $bookings,
         private readonly RoomRateService $roomRates,
@@ -36,6 +38,7 @@ class BookingController extends Controller
     public function index(BookingIndexRequest $request): Response
     {
         $this->authorize('viewAny', Booking::class);
+        $canUpdate = $request->user()?->can('booking.update') ?? false;
 
         $items = $this->bookings->paginate($request->validated())->through(fn (Booking $booking): array => [
             'id' => $booking->id,
@@ -52,6 +55,8 @@ class BookingController extends Controller
             'sales_user' => $booking->salesUser?->name,
             'booking_color' => $booking->booking_color,
             'created_at' => $booking->created_at?->format('Y-m-d H:i'),
+            'can_edit' => $canUpdate && $this->canEdit($booking),
+            'edit_disabled_reason' => $this->canEdit($booking) ? null : self::CLOSED_BOOKING_EDIT_MESSAGE,
         ]);
 
         return Inertia::render('Admin/Bookings/Index', [
@@ -105,14 +110,20 @@ class BookingController extends Controller
             'options' => $this->options(includeRooms: true, booking: $booking),
             'can' => $this->permissions() + [
                 'editBooking' => $this->canEdit($booking) && $request->user()?->can('booking.update'),
+                'editDisabledReason' => self::CLOSED_BOOKING_EDIT_MESSAGE,
             ],
         ]);
     }
 
-    public function edit(Booking $booking): Response
+    public function edit(Booking $booking): Response|RedirectResponse
     {
         $this->authorize('update', $booking);
-        abort_unless($this->canEdit($booking), 403);
+
+        if (! $this->canEdit($booking)) {
+            return redirect()
+                ->route('admin.bookings.show', $booking)
+                ->with('error', self::CLOSED_BOOKING_EDIT_MESSAGE);
+        }
 
         return Inertia::render('Admin/Bookings/Form', [
             'booking' => $this->formPayload($booking),
@@ -125,7 +136,12 @@ class BookingController extends Controller
     public function update(UpdateBookingRequest $request, Booking $booking): RedirectResponse
     {
         $this->authorize('update', $booking);
-        abort_unless($this->canEdit($booking), 403);
+
+        if (! $this->canEdit($booking)) {
+            return redirect()
+                ->route('admin.bookings.show', $booking)
+                ->with('error', self::CLOSED_BOOKING_EDIT_MESSAGE);
+        }
 
         $this->bookings->updateBooking($booking, $request->validated());
 

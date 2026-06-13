@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\AssignmentStatus;
+use App\Enums\BookingStatus;
 use App\Enums\BookingType;
 use App\Enums\CustomerType;
 use App\Enums\PaymentType;
@@ -54,6 +55,31 @@ class BookingManagementUiTest extends TestCase
         $this->get('/admin/bookings')->assertOk();
     }
 
+    public function test_cancelled_booking_exposes_disabled_edit_state(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+        $booking->update(['status' => BookingStatus::Cancelled]);
+        $message = 'Booking đã kết thúc hoặc đã hủy, không thể chỉnh sửa.';
+
+        $this->get('/admin/bookings')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('bookings.data', fn ($bookings): bool => collect($bookings)->contains(
+                    fn (array $item): bool => $item['id'] === $booking->id
+                        && $item['can_edit'] === false
+                        && $item['edit_disabled_reason'] === $message
+                ))
+            );
+
+        $this->get("/admin/bookings/{$booking->id}")
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('can.editBooking', false)
+                ->where('can.editDisabledReason', $message)
+            );
+    }
+
     public function test_admin_can_create_booking(): void
     {
         $this->actingAs($this->admin)
@@ -73,6 +99,17 @@ class BookingManagementUiTest extends TestCase
         $booking = $this->createBooking();
 
         $this->get("/admin/bookings/{$booking->id}")->assertOk();
+    }
+
+    public function test_direct_edit_access_for_cancelled_booking_redirects_with_error(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+        $booking->update(['status' => BookingStatus::Cancelled]);
+
+        $this->get("/admin/bookings/{$booking->id}/edit")
+            ->assertRedirect(route('admin.bookings.show', $booking))
+            ->assertSessionHas('error', 'Booking đã kết thúc hoặc đã hủy, không thể chỉnh sửa.');
     }
 
     public function test_booking_detail_includes_suggested_requirement_price_from_active_room_rate(): void

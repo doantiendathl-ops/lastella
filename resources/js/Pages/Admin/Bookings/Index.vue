@@ -136,9 +136,23 @@ const clean = (value) => Object.fromEntries(Object.entries(value).filter(([, ite
                                 <Link :href="`/admin/bookings/${booking.id}`" class="mr-1 inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-pine hover:text-pine" title="Xem">
                                     <Eye class="h-4 w-4" />
                                 </Link>
-                                <Link v-if="can.updateBooking" :href="`/admin/bookings/${booking.id}/edit`" class="mr-1 inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-pine hover:text-pine" title="Sửa">
+                                <Link v-if="can.updateBooking && booking.can_edit" :href="`/admin/bookings/${booking.id}/edit`" class="mr-1 inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-pine hover:text-pine" title="Sửa">
                                     <Pencil class="h-4 w-4" />
                                 </Link>
+                                <span
+                                    v-else-if="can.updateBooking"
+                                    class="mr-1 inline-flex"
+                                    :title="booking.edit_disabled_reason"
+                                    :aria-label="booking.edit_disabled_reason"
+                                >
+                                    <button
+                                        type="button"
+                                        class="inline-flex h-8 w-8 cursor-not-allowed items-center justify-center border border-gray-200 text-gray-300"
+                                        disabled
+                                    >
+                                        <Pencil class="h-4 w-4" />
+                                    </button>
+                                </span>
                                 <Link v-if="can.updateBooking" :href="`/admin/bookings/${booking.id}?tab=requirements`" class="mr-1 inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-pine hover:text-pine" title="Thêm nhu cầu phòng">
                                     <Plus class="h-4 w-4" />
                                 </Link>

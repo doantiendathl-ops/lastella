@@ -162,6 +162,21 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                         <Pencil class="h-4 w-4" />
                         Sửa
                     </Link>
+                    <span
+                        v-else-if="can.updateBooking"
+                        class="inline-flex"
+                        :title="can.editDisabledReason"
+                        :aria-label="can.editDisabledReason"
+                    >
+                        <button
+                            type="button"
+                            class="inline-flex cursor-not-allowed items-center gap-2 border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-300"
+                            disabled
+                        >
+                            <Pencil class="h-4 w-4" />
+                            Sửa
+                        </button>
+                    </span>
                     <button v-if="can.cancelBooking && booking.status !== 'CANCELLED'" type="button" class="inline-flex items-center gap-2 border border-coral px-3 py-2 text-sm font-semibold text-coral hover:bg-coral hover:text-white" @click="cancelBooking">
                         <XCircle class="h-4 w-4" />
                         Hủy
