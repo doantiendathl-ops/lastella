@@ -159,6 +159,54 @@ const isRoomSelected = (room) => selectedRoomIds.value.includes(Number(room.id))
 
 const canSelectRoom = (room) => room.availability_status === 'available';
 
+const shortRoomTypeCode = (room) => ({
+    TWIN: 'TWN',
+    DOUBLE: 'DBL',
+    TRIP: 'TRP',
+    FAMILY: 'FAM',
+    TRIP_FAMILY: 'TFM',
+}[room.room_type] ?? room.room_type);
+
+const availabilityLabel = (room) => ({
+    available: 'Có thể chọn',
+    conflict: 'Đã có booking khác',
+    unavailable: 'Không khả dụng',
+    current_booking: 'Đã phân cho booking này',
+}[room.availability_status] ?? 'Không xác định');
+
+const roomTooltipText = (room) => {
+    const lines = [
+        `Phòng: ${room.room_number}`,
+        `Loại phòng: ${room.room_type_name ?? room.room_type}`,
+        `Trạng thái phòng: ${room.status_label}`,
+        `Khả dụng: ${availabilityLabel(room)}`,
+    ];
+
+    if (room.assignment_detail) {
+        lines.push(
+            `Mã booking: ${room.assignment_detail.booking_code}`,
+            `Khách hàng: ${room.assignment_detail.customer_name}`,
+            `Nhận phòng: ${room.assignment_detail.checkin_at}`,
+            `Trả phòng: ${room.assignment_detail.checkout_at}`,
+            `Trạng thái phân phòng: ${labelFor('assignmentStatus', room.assignment_detail.status)}`,
+        );
+    }
+
+    if (room.disabled_reason) {
+        lines.push(`Lý do: ${room.disabled_reason}`);
+    }
+
+    if (!room.matches_requirement) {
+        lines.push('Cảnh báo: Không đúng loại phòng yêu cầu');
+    }
+
+    if (isRoomSelected(room)) {
+        lines.push('Đã chọn cho booking hiện tại');
+    }
+
+    return lines.filter(Boolean).join('\n');
+};
+
 const toggleRoomSelection = (room) => {
     if (!canSelectRoom(room)) {
         return;
@@ -177,11 +225,15 @@ const toggleRoomSelection = (room) => {
 
 const roomCardClass = (room) => {
     if (isRoomSelected(room)) {
-        return 'border-pine text-white shadow-sm';
+        return 'border-transparent text-white shadow-sm ring-2 ring-pine/20 ring-offset-1';
     }
 
     if (room.availability_status === 'conflict' || room.availability_status === 'unavailable' || room.availability_status === 'current_booking') {
         return 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400';
+    }
+
+    if (!room.matches_requirement) {
+        return 'border-amber-300 bg-amber-50 text-ink hover:border-amber-400 hover:shadow-sm';
     }
 
     return 'border-gray-200 bg-white text-ink hover:border-pine hover:shadow-sm';
@@ -190,6 +242,26 @@ const roomCardClass = (room) => {
 const roomCardStyle = (room) => isRoomSelected(room)
     ? { backgroundColor: props.booking.booking_color, borderColor: props.booking.booking_color }
     : {};
+
+const roomStatusDotClass = (room) => {
+    if (isRoomSelected(room)) {
+        return 'bg-white';
+    }
+
+    if (room.availability_status === 'conflict' || room.availability_status === 'current_booking') {
+        return 'bg-gray-400';
+    }
+
+    if (room.availability_status === 'unavailable') {
+        return 'bg-coral';
+    }
+
+    if (!room.matches_requirement) {
+        return 'bg-amber-500';
+    }
+
+    return 'bg-pine';
+};
 
 const submitAssignment = () => {
     assignmentForm.room_ids = selectedRoomIds.value;
@@ -541,40 +613,75 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                     </div>
                     <p v-if="Object.keys(assignmentForm.errors).length" class="text-sm text-coral">{{ Object.values(assignmentForm.errors)[0] }}</p>
 
-                    <div class="space-y-5">
-                        <section v-for="floor in roomBoard.floors" :key="floor.id" class="space-y-3">
-                            <div class="flex items-center justify-between border-b border-gray-100 pb-2">
+                    <div class="space-y-4">
+                        <section v-for="floor in roomBoard.floors" :key="floor.id" class="space-y-2">
+                            <div class="flex items-center justify-between border-b border-gray-100 pb-1.5">
                                 <h3 class="text-sm font-semibold">{{ floor.code === 'B1' ? 'B1' : `Tầng ${floor.code}` }}</h3>
                                 <span class="text-xs text-steel">{{ floor.rooms.length }} phòng</span>
                             </div>
 
-                            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-6">
+                            <div class="flex flex-wrap gap-2">
                                 <button
                                     v-for="room in floor.rooms"
                                     :key="room.id"
                                     type="button"
-                                    class="min-h-32 border p-3 text-left text-sm transition"
+                                    class="group relative h-16 w-20 border px-2 py-1.5 text-center text-xs transition focus:outline-none focus:ring-2 focus:ring-pine/40"
                                     :class="roomCardClass(room)"
                                     :style="roomCardStyle(room)"
-                                    :disabled="!canSelectRoom(room)"
+                                    :aria-disabled="!canSelectRoom(room)"
+                                    :tabindex="canSelectRoom(room) ? 0 : -1"
+                                    :title="roomTooltipText(room)"
                                     @click="toggleRoomSelection(room)"
                                 >
-                                    <div class="flex items-start justify-between gap-2">
-                                        <div class="min-w-0">
-                                            <div class="text-lg font-semibold">{{ room.room_number }}</div>
-                                            <div class="mt-1 text-xs font-medium uppercase tracking-wide">{{ room.room_type }}</div>
+                                    <div class="flex h-full flex-col items-center justify-center gap-0.5">
+                                        <div class="text-base font-semibold leading-none">{{ room.room_number }}</div>
+                                        <div class="max-w-full truncate text-[10px] font-semibold uppercase leading-tight">{{ shortRoomTypeCode(room) }}</div>
+                                        <span class="mt-0.5 h-2 w-2 rounded-full" :class="roomStatusDotClass(room)" />
+                                    </div>
+
+                                    <div class="pointer-events-none absolute left-1/2 top-full z-30 mt-2 hidden w-64 -translate-x-1/2 border border-gray-200 bg-gray-950 p-3 text-left text-xs leading-relaxed text-white shadow-xl group-hover:block group-focus:block">
+                                        <div class="font-semibold">{{ room.room_number }} - {{ room.room_type_name ?? room.room_type }}</div>
+                                        <dl class="mt-2 space-y-1">
+                                            <div class="flex justify-between gap-3">
+                                                <dt class="text-gray-300">Trạng thái phòng</dt>
+                                                <dd class="text-right font-medium">{{ room.status_label }}</dd>
+                                            </div>
+                                            <div class="flex justify-between gap-3">
+                                                <dt class="text-gray-300">Khả dụng</dt>
+                                                <dd class="text-right font-medium">{{ availabilityLabel(room) }}</dd>
+                                            </div>
+                                            <div v-if="room.assignment_detail" class="mt-2 border-t border-white/10 pt-2">
+                                                <div class="flex justify-between gap-3">
+                                                    <dt class="text-gray-300">Mã booking</dt>
+                                                    <dd class="text-right font-medium">{{ room.assignment_detail.booking_code }}</dd>
+                                                </div>
+                                                <div class="flex justify-between gap-3">
+                                                    <dt class="text-gray-300">Khách hàng</dt>
+                                                    <dd class="text-right font-medium">{{ room.assignment_detail.customer_name }}</dd>
+                                                </div>
+                                                <div class="flex justify-between gap-3">
+                                                    <dt class="text-gray-300">Nhận phòng</dt>
+                                                    <dd class="text-right font-medium">{{ room.assignment_detail.checkin_at }}</dd>
+                                                </div>
+                                                <div class="flex justify-between gap-3">
+                                                    <dt class="text-gray-300">Trả phòng</dt>
+                                                    <dd class="text-right font-medium">{{ room.assignment_detail.checkout_at }}</dd>
+                                                </div>
+                                                <div class="flex justify-between gap-3">
+                                                    <dt class="text-gray-300">Phân phòng</dt>
+                                                    <dd class="text-right font-medium">{{ labelFor('assignmentStatus', room.assignment_detail.status) }}</dd>
+                                                </div>
+                                            </div>
+                                        </dl>
+                                        <div v-if="room.disabled_reason" class="mt-2 border-t border-white/10 pt-2 font-semibold">
+                                            {{ room.disabled_reason }}
                                         </div>
-                                        <span v-if="isRoomSelected(room)" class="border border-white/60 px-2 py-0.5 text-xs font-semibold">Đã chọn</span>
-                                    </div>
-                                    <div class="mt-3 text-xs">{{ room.status_label }}</div>
-                                    <div v-if="room.disabled_reason" class="mt-2 text-xs font-semibold">
-                                        {{ room.disabled_reason }}
-                                    </div>
-                                    <div v-if="room.conflict_booking" class="mt-1 text-xs">
-                                        {{ room.conflict_booking.code }} - {{ room.conflict_booking.customer_name }}
-                                    </div>
-                                    <div v-if="!room.matches_requirement" class="mt-2 border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">
-                                        Không đúng loại phòng yêu cầu
+                                        <div v-if="!room.matches_requirement" class="mt-2 text-amber-200">
+                                            Không đúng loại phòng yêu cầu
+                                        </div>
+                                        <div v-if="isRoomSelected(room)" class="mt-2 text-emerald-200">
+                                            Đã chọn cho booking hiện tại
+                                        </div>
                                     </div>
                                 </button>
                             </div>

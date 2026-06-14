@@ -129,12 +129,13 @@ class RoomAssignmentService
             ->get()
             ->keyBy('room_id');
 
-        $currentBookingRoomIds = $booking->roomAssignments()
+        $currentAssignments = $booking->roomAssignments()
+            ->with('booking:id,booking_code,customer_name')
             ->whereIn('status', AssignmentStatus::activeValues())
             ->where('start_at', '<', $booking->checkout_at)
             ->where('end_at', '>', $booking->checkin_at)
-            ->pluck('room_id')
-            ->unique();
+            ->get()
+            ->keyBy('room_id');
 
         $unavailableStatuses = [
             RoomStatus::OutOfOrder,
@@ -147,17 +148,19 @@ class RoomAssignmentService
                 ->with(['rooms' => fn ($query) => $query->with('roomType')->orderBy('room_number')])
                 ->orderBy('sort_order')
                 ->get()
-                ->map(function (Floor $floor) use ($conflicts, $currentBookingRoomIds, $requiredRoomTypeIds, $unavailableStatuses): array {
+                ->map(function (Floor $floor) use ($conflicts, $currentAssignments, $requiredRoomTypeIds, $unavailableStatuses): array {
                     return [
                         'id' => $floor->id,
                         'code' => $floor->code,
                         'name' => $floor->name,
-                        'rooms' => $floor->rooms->map(function (Room $room) use ($conflicts, $currentBookingRoomIds, $requiredRoomTypeIds, $unavailableStatuses): array {
+                        'rooms' => $floor->rooms->map(function (Room $room) use ($conflicts, $currentAssignments, $requiredRoomTypeIds, $unavailableStatuses): array {
                             $conflict = $conflicts->get($room->id);
+                            $currentAssignment = $currentAssignments->get($room->id);
                             $isUnavailable = in_array($room->status, $unavailableStatuses, true);
-                            $isCurrentBookingAssigned = $currentBookingRoomIds->contains($room->id);
+                            $isCurrentBookingAssigned = $currentAssignment !== null;
                             $matchesRequirement = $requiredRoomTypeIds->isEmpty()
                                 || $requiredRoomTypeIds->contains($room->room_type_id);
+                            $displayAssignment = $conflict ?? $currentAssignment;
 
                             $availabilityStatus = 'available';
                             $disabledReason = null;
@@ -187,12 +190,24 @@ class RoomAssignmentService
                                     'code' => $conflict->booking?->booking_code,
                                     'customer_name' => $conflict->booking?->customer_name,
                                 ] : null,
+                                'assignment_detail' => $displayAssignment ? $this->roomBoardAssignmentPayload($displayAssignment) : null,
                                 'matches_requirement' => $matchesRequirement,
                             ];
                         })->values(),
                     ];
                 })
                 ->values(),
+        ];
+    }
+
+    private function roomBoardAssignmentPayload(RoomAssignment $assignment): array
+    {
+        return [
+            'booking_code' => $assignment->booking?->booking_code,
+            'customer_name' => $assignment->booking?->customer_name,
+            'checkin_at' => $assignment->start_at?->format('Y-m-d H:i'),
+            'checkout_at' => $assignment->end_at?->format('Y-m-d H:i'),
+            'status' => $assignment->status?->value,
         ];
     }
 }

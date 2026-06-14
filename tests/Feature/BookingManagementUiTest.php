@@ -181,6 +181,7 @@ class BookingManagementUiTest extends TestCase
                         && $rooms->every(fn (array $room): bool => array_key_exists('availability_status', $room)
                             && array_key_exists('disabled_reason', $room)
                             && array_key_exists('conflict_booking', $room)
+                            && array_key_exists('assignment_detail', $room)
                             && array_key_exists('matches_requirement', $room))
                         && $rooms->contains(fn (array $room): bool => $room['availability_status'] === 'available'
                             && $room['matches_requirement'] === true);
@@ -215,7 +216,12 @@ class BookingManagementUiTest extends TestCase
                         && $boardRoom['availability_status'] === 'conflict'
                         && $boardRoom['disabled_reason'] === 'Đã có booking khác'
                         && $boardRoom['conflict_booking']['code'] === $conflictingBooking->booking_code
-                        && $boardRoom['conflict_booking']['customer_name'] === 'Conflict Guest';
+                        && $boardRoom['conflict_booking']['customer_name'] === 'Conflict Guest'
+                        && $boardRoom['assignment_detail']['booking_code'] === $conflictingBooking->booking_code
+                        && $boardRoom['assignment_detail']['customer_name'] === 'Conflict Guest'
+                        && $boardRoom['assignment_detail']['checkin_at'] === '2026-07-01 14:00'
+                        && $boardRoom['assignment_detail']['checkout_at'] === '2026-07-02 12:00'
+                        && $boardRoom['assignment_detail']['status'] === AssignmentStatus::Assigned->value;
                 })
             );
     }
