@@ -13,7 +13,7 @@ const props = defineProps({
 const cards = [
     { label: 'Tổng số phòng', value: props.metrics.total_rooms, icon: BedDouble },
     { label: 'Phòng còn trống', value: props.metrics.available_rooms, icon: CircleCheck },
-    { label: 'Phòng đang ở', value: props.metrics.occupied_rooms, icon: DoorOpen },
+    { label: 'Phòng đang sử dụng', value: props.metrics.occupied_rooms, icon: DoorOpen },
     { label: 'Phòng hỏng', value: props.metrics.out_of_order_rooms, icon: CircleOff },
     { label: 'Người dùng', value: props.metrics.users, icon: Users },
     { label: 'Loại phòng', value: props.metrics.room_types, icon: Tags },
