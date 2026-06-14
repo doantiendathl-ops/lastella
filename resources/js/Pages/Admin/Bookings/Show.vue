@@ -10,6 +10,7 @@ const props = defineProps({
     activeTab: { type: String, default: 'info' },
     tabs: { type: Array, default: () => [] },
     assignmentSummary: { type: Array, default: () => [] },
+    roomBoard: { type: Object, default: () => ({ floors: [] }) },
     options: { type: Object, required: true },
     can: { type: Object, required: true },
 });
@@ -17,6 +18,7 @@ const props = defineProps({
 const tab = ref(props.activeTab);
 const editingRequirementId = ref(null);
 const showCancelModal = ref(false);
+const selectedRoomIds = ref([]);
 
 const nowLocal = () => {
     const date = new Date();
@@ -67,7 +69,7 @@ const cancelForm = useForm({
     cancellation_reason: '',
 });
 const assignmentForm = useForm({
-    room_id: props.options.rooms[0]?.value ?? '',
+    room_ids: [],
     start_at: props.booking.checkin_at,
     end_at: props.booking.checkout_at,
 });
@@ -123,9 +125,80 @@ const submitPayment = () => {
     });
 };
 
+const allBoardRooms = computed(() => props.roomBoard.floors?.flatMap((floor) => floor.rooms ?? []) ?? []);
+
+const roomById = computed(() => new Map(allBoardRooms.value.map((room) => [Number(room.id), room])));
+
+const selectedRooms = computed(() => selectedRoomIds.value
+    .map((roomId) => roomById.value.get(Number(roomId)))
+    .filter(Boolean));
+
+const selectedCountForRoomType = (roomTypeId) => selectedRooms.value
+    .filter((room) => Number(room.room_type_id) === Number(roomTypeId))
+    .length;
+
+const assignmentSummaryWithSelection = computed(() => props.assignmentSummary.map((item) => {
+    const selected = selectedCountForRoomType(item.room_type_id);
+
+    return {
+        ...item,
+        selected,
+        remaining_after_selection: Math.max(Number(item.required) - Number(item.assigned) - selected, 0),
+    };
+}));
+
+const existingRemainingRooms = computed(() => props.assignmentSummary.reduce(
+    (total, item) => total + Math.max(Number(item.required) - Number(item.assigned), 0),
+    0,
+));
+
+const hasAssignmentShortage = computed(() => assignmentSummaryWithSelection.value.some((item) => item.remaining_after_selection > 0));
+const hasAssignmentOverage = computed(() => selectedRoomIds.value.length > existingRemainingRooms.value);
+
+const isRoomSelected = (room) => selectedRoomIds.value.includes(Number(room.id));
+
+const canSelectRoom = (room) => room.availability_status === 'available';
+
+const toggleRoomSelection = (room) => {
+    if (!canSelectRoom(room)) {
+        return;
+    }
+
+    const roomId = Number(room.id);
+
+    if (isRoomSelected(room)) {
+        selectedRoomIds.value = selectedRoomIds.value.filter((selectedRoomId) => selectedRoomId !== roomId);
+
+        return;
+    }
+
+    selectedRoomIds.value = [...selectedRoomIds.value, roomId];
+};
+
+const roomCardClass = (room) => {
+    if (isRoomSelected(room)) {
+        return 'border-pine text-white shadow-sm';
+    }
+
+    if (room.availability_status === 'conflict' || room.availability_status === 'unavailable' || room.availability_status === 'current_booking') {
+        return 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400';
+    }
+
+    return 'border-gray-200 bg-white text-ink hover:border-pine hover:shadow-sm';
+};
+
+const roomCardStyle = (room) => isRoomSelected(room)
+    ? { backgroundColor: props.booking.booking_color, borderColor: props.booking.booking_color }
+    : {};
+
 const submitAssignment = () => {
+    assignmentForm.room_ids = selectedRoomIds.value;
     assignmentForm.post(`/admin/bookings/${props.booking.id}/assignments`, {
         preserveScroll: true,
+        onSuccess: () => {
+            selectedRoomIds.value = [];
+            assignmentForm.reset('room_ids');
+        },
     });
 };
 
@@ -441,24 +514,72 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
             </div>
 
             <div v-if="tab === 'room_map'" class="space-y-5 p-5">
-                <div v-if="assignmentSummary.length" class="grid gap-3 md:grid-cols-3">
-                    <div v-for="item in assignmentSummary" :key="item.room_type_id" class="border border-gray-100 p-3 text-sm">
+                <div v-if="assignmentSummaryWithSelection.length" class="grid gap-3 md:grid-cols-3">
+                    <div v-for="item in assignmentSummaryWithSelection" :key="item.room_type_id" class="border border-gray-100 p-3 text-sm">
                         <div class="font-semibold">{{ item.room_type_code }}</div>
-                        <div class="mt-1 text-steel">Cần {{ item.required }} - Đã phân {{ item.assigned }} - Còn lại {{ item.remaining }}</div>
+                        <div class="mt-1 text-steel">Cần {{ item.required }} - Đã phân {{ item.assigned }} - Đang chọn {{ item.selected }} - Còn lại {{ item.remaining_after_selection }}</div>
                     </div>
                 </div>
 
-                <form v-if="can.assignRoom" class="grid gap-3 border border-gray-100 p-4 md:grid-cols-4" @submit.prevent="submitAssignment">
-                    <select v-model="assignmentForm.room_id" class="border border-gray-300 px-3 py-2 text-sm">
-                        <option v-for="room in options.rooms" :key="room.value" :value="room.value">{{ room.label }}</option>
-                    </select>
-                    <input v-model="assignmentForm.start_at" type="datetime-local" class="border border-gray-300 px-3 py-2 text-sm">
-                    <input v-model="assignmentForm.end_at" type="datetime-local" class="border border-gray-300 px-3 py-2 text-sm">
-                    <button type="submit" class="inline-flex items-center justify-center gap-2 bg-pine px-3 py-2 text-sm font-semibold text-white">
-                        <BedDouble class="h-4 w-4" />
-                        Phân phòng
-                    </button>
-                    <p v-if="Object.keys(assignmentForm.errors).length" class="md:col-span-4 text-sm text-coral">{{ Object.values(assignmentForm.errors)[0] }}</p>
+                <form v-if="can.assignRoom" class="space-y-4 border border-gray-100 p-4" @submit.prevent="submitAssignment">
+                    <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                            <div class="text-sm font-semibold">Sơ đồ phòng</div>
+                            <div class="mt-1 text-sm text-steel">{{ booking.checkin_at }} - {{ booking.checkout_at }}</div>
+                        </div>
+                        <button type="submit" class="inline-flex items-center justify-center gap-2 bg-pine px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300" :disabled="selectedRoomIds.length === 0 || assignmentForm.processing">
+                            <BedDouble class="h-4 w-4" />
+                            Lưu phân phòng
+                        </button>
+                    </div>
+
+                    <div v-if="hasAssignmentShortage" class="border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+                        Booking còn thiếu phòng.
+                    </div>
+                    <div v-if="hasAssignmentOverage" class="border border-coral/30 bg-coral/5 px-3 py-2 text-sm font-medium text-coral">
+                        Bạn đã chọn vượt số lượng phòng yêu cầu.
+                    </div>
+                    <p v-if="Object.keys(assignmentForm.errors).length" class="text-sm text-coral">{{ Object.values(assignmentForm.errors)[0] }}</p>
+
+                    <div class="space-y-5">
+                        <section v-for="floor in roomBoard.floors" :key="floor.id" class="space-y-3">
+                            <div class="flex items-center justify-between border-b border-gray-100 pb-2">
+                                <h3 class="text-sm font-semibold">{{ floor.code === 'B1' ? 'B1' : `Tầng ${floor.code}` }}</h3>
+                                <span class="text-xs text-steel">{{ floor.rooms.length }} phòng</span>
+                            </div>
+
+                            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-6">
+                                <button
+                                    v-for="room in floor.rooms"
+                                    :key="room.id"
+                                    type="button"
+                                    class="min-h-32 border p-3 text-left text-sm transition"
+                                    :class="roomCardClass(room)"
+                                    :style="roomCardStyle(room)"
+                                    :disabled="!canSelectRoom(room)"
+                                    @click="toggleRoomSelection(room)"
+                                >
+                                    <div class="flex items-start justify-between gap-2">
+                                        <div class="min-w-0">
+                                            <div class="text-lg font-semibold">{{ room.room_number }}</div>
+                                            <div class="mt-1 text-xs font-medium uppercase tracking-wide">{{ room.room_type }}</div>
+                                        </div>
+                                        <span v-if="isRoomSelected(room)" class="border border-white/60 px-2 py-0.5 text-xs font-semibold">Đã chọn</span>
+                                    </div>
+                                    <div class="mt-3 text-xs">{{ room.status_label }}</div>
+                                    <div v-if="room.disabled_reason" class="mt-2 text-xs font-semibold">
+                                        {{ room.disabled_reason }}
+                                    </div>
+                                    <div v-if="room.conflict_booking" class="mt-1 text-xs">
+                                        {{ room.conflict_booking.code }} - {{ room.conflict_booking.customer_name }}
+                                    </div>
+                                    <div v-if="!room.matches_requirement" class="mt-2 border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">
+                                        Không đúng loại phòng yêu cầu
+                                    </div>
+                                </button>
+                            </div>
+                        </section>
+                    </div>
                 </form>
 
                 <div class="overflow-x-auto">

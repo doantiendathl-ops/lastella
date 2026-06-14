@@ -10,6 +10,7 @@ use App\Enums\PaymentMethod;
 use App\Enums\PaymentType;
 use App\Enums\PriceSource;
 use App\Enums\RateStatus;
+use App\Enums\RoomStatus;
 use App\Enums\StayStatus;
 use App\Models\Booking;
 use App\Models\Room;
@@ -155,6 +156,121 @@ class BookingManagementUiTest extends TestCase
                     ['key' => 'payments', 'label' => 'Thanh toán'],
                     ['key' => 'history', 'label' => 'Lịch sử'],
                 ])
+            );
+    }
+
+    public function test_booking_detail_provides_room_board_data(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+
+        $this->get("/admin/bookings/{$booking->id}")
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Admin/Bookings/Show')
+                ->where('roomBoard.floors', function ($floors): bool {
+                    $b1 = collect($floors)->first(fn (array $floor): bool => $floor['code'] === 'B1');
+
+                    if (! $b1) {
+                        return false;
+                    }
+
+                    $rooms = collect($b1['rooms']);
+
+                    return $rooms->pluck('room_number')->all() === ['101', '102', '103', '104', '105', '106', '107']
+                        && $rooms->every(fn (array $room): bool => array_key_exists('availability_status', $room)
+                            && array_key_exists('disabled_reason', $room)
+                            && array_key_exists('conflict_booking', $room)
+                            && array_key_exists('matches_requirement', $room))
+                        && $rooms->contains(fn (array $room): bool => $room['availability_status'] === 'available'
+                            && $room['matches_requirement'] === true);
+                })
+            );
+    }
+
+    public function test_conflicted_room_is_disabled_on_room_board(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+        $conflictingBooking = $this->createBooking(['customer_name' => 'Conflict Guest']);
+        $room = $this->roomForType('TWIN');
+
+        RoomAssignment::create([
+            'booking_id' => $conflictingBooking->id,
+            'room_id' => $room->id,
+            'room_type_id' => $room->room_type_id,
+            'start_at' => '2026-07-01 14:00:00',
+            'end_at' => '2026-07-02 12:00:00',
+            'status' => AssignmentStatus::Assigned,
+            'assigned_by' => $this->admin->id,
+        ]);
+
+        $this->get("/admin/bookings/{$booking->id}")
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('roomBoard.floors', function ($floors) use ($room, $conflictingBooking): bool {
+                    $boardRoom = $this->findBoardRoom($floors, $room->id);
+
+                    return $boardRoom !== null
+                        && $boardRoom['availability_status'] === 'conflict'
+                        && $boardRoom['disabled_reason'] === 'Đã có booking khác'
+                        && $boardRoom['conflict_booking']['code'] === $conflictingBooking->booking_code
+                        && $boardRoom['conflict_booking']['customer_name'] === 'Conflict Guest';
+                })
+            );
+    }
+
+    public function test_out_of_order_room_is_disabled_on_room_board(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+        $room = $this->roomForType('TWIN');
+        $room->update(['status' => RoomStatus::OutOfOrder]);
+
+        $this->get("/admin/bookings/{$booking->id}")
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('roomBoard.floors', function ($floors) use ($room): bool {
+                    $boardRoom = $this->findBoardRoom($floors, $room->id);
+
+                    return $boardRoom !== null
+                        && $boardRoom['availability_status'] === 'unavailable'
+                        && $boardRoom['disabled_reason'] === 'Không khả dụng';
+                })
+            );
+    }
+
+    public function test_same_room_after_previous_checkout_is_available_on_room_board(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+        $previousBooking = $this->createBooking([
+            'customer_name' => 'Previous Guest',
+            'checkin_at' => '2026-06-30 14:00:00',
+            'checkout_at' => '2026-07-01 12:00:00',
+        ]);
+        $room = $this->roomForType('TWIN');
+
+        RoomAssignment::create([
+            'booking_id' => $previousBooking->id,
+            'room_id' => $room->id,
+            'room_type_id' => $room->room_type_id,
+            'start_at' => '2026-06-30 14:00:00',
+            'end_at' => '2026-07-01 12:00:00',
+            'status' => AssignmentStatus::Assigned,
+            'assigned_by' => $this->admin->id,
+        ]);
+
+        $this->get("/admin/bookings/{$booking->id}")
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('roomBoard.floors', function ($floors) use ($room): bool {
+                    $boardRoom = $this->findBoardRoom($floors, $room->id);
+
+                    return $boardRoom !== null
+                        && $boardRoom['availability_status'] === 'available'
+                        && $boardRoom['disabled_reason'] === null;
+                })
             );
     }
 
@@ -507,7 +623,7 @@ class BookingManagementUiTest extends TestCase
         $room = $this->roomForType('TWIN');
 
         $this->post("/admin/bookings/{$booking->id}/assignments", [
-            'room_id' => $room->id,
+            'room_ids' => [$room->id],
             'start_at' => '2026-07-01 14:00:00',
             'end_at' => '2026-07-02 12:00:00',
         ])->assertRedirect();
@@ -525,6 +641,33 @@ class BookingManagementUiTest extends TestCase
         ]);
     }
 
+    public function test_multiple_rooms_can_be_assigned_from_room_board_payload(): void
+    {
+        $this->actingAs($this->admin);
+        $roomType = RoomType::where('code', 'TWIN')->firstOrFail();
+        $rooms = $this->roomsForType('TWIN', 2);
+        $booking = $this->createBooking([
+            'requirements' => [
+                $this->requirementPayload($roomType, ['quantity' => 2]),
+            ],
+        ], withRequirements: false);
+
+        $this->post("/admin/bookings/{$booking->id}/assignments", [
+            'room_ids' => $rooms->pluck('id')->all(),
+            'start_at' => '2026-07-01 14:00:00',
+            'end_at' => '2026-07-02 12:00:00',
+        ])->assertRedirect();
+
+        $this->assertSame(2, RoomAssignment::where('booking_id', $booking->id)
+            ->whereIn('room_id', $rooms->pluck('id'))
+            ->where('status', AssignmentStatus::Assigned->value)
+            ->count());
+        $this->assertSame(2, Stay::where('booking_id', $booking->id)
+            ->whereIn('room_id', $rooms->pluck('id'))
+            ->where('status', StayStatus::Reserved->value)
+            ->count());
+    }
+
     public function test_admin_cannot_assign_conflicting_room(): void
     {
         $this->actingAs($this->admin);
@@ -540,12 +683,29 @@ class BookingManagementUiTest extends TestCase
 
         $this->from("/admin/bookings/{$conflictingBooking->id}?tab=room_map")
             ->post("/admin/bookings/{$conflictingBooking->id}/assignments", [
-                'room_id' => $room->id,
+                'room_ids' => [$room->id],
                 'start_at' => '2026-07-02 10:00:00',
                 'end_at' => '2026-07-02 18:00:00',
             ])
             ->assertRedirect("/admin/bookings/{$conflictingBooking->id}?tab=room_map")
-            ->assertSessionHasErrors('room_id');
+            ->assertSessionHasErrors(['room_id' => 'Phòng đã có booking khác trong khoảng thời gian này.']);
+    }
+
+    public function test_assignment_table_still_provides_history_data(): void
+    {
+        $this->actingAs($this->admin);
+        [$booking, $assignment] = $this->createAssignment();
+        $assignment->load('room');
+
+        $this->get("/admin/bookings/{$booking->id}?tab=room_map")
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('booking.assignments', fn ($assignments): bool => collect($assignments)->contains(
+                    fn (array $item): bool => $item['id'] === $assignment->id
+                        && $item['room_number'] === $assignment->room->room_number
+                        && $item['status'] === AssignmentStatus::Assigned->value
+                ))
+            );
     }
 
     public function test_admin_can_release_assignment(): void
@@ -671,10 +831,27 @@ class BookingManagementUiTest extends TestCase
         ];
     }
 
+    private function findBoardRoom($floors, int $roomId): ?array
+    {
+        return collect($floors)
+            ->flatMap(fn ($floor) => collect($floor['rooms'] ?? []))
+            ->first(fn (array $room): bool => (int) $room['id'] === $roomId);
+    }
+
     private function roomForType(string $roomTypeCode): Room
     {
         $roomType = RoomType::where('code', $roomTypeCode)->firstOrFail();
 
         return Room::where('room_type_id', $roomType->id)->firstOrFail();
+    }
+
+    private function roomsForType(string $roomTypeCode, int $count)
+    {
+        $roomType = RoomType::where('code', $roomTypeCode)->firstOrFail();
+
+        return Room::where('room_type_id', $roomType->id)
+            ->orderBy('room_number')
+            ->limit($count)
+            ->get();
     }
 }

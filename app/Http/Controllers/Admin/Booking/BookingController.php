@@ -123,6 +123,7 @@ class BookingController extends Controller
             'activeTab' => $this->normalizeDetailTab((string) $request->query('tab', 'info')),
             'tabs' => $this->detailTabs(),
             'assignmentSummary' => $assignments->getAssignmentSummary($booking),
+            'roomBoard' => $assignments->getRoomBoard($booking),
             'options' => $this->options(includeRooms: true, booking: $booking),
             'can' => $this->permissions() + [
                 'editBooking' => $this->canEdit($booking, $request->user()) && $request->user()?->can('booking.update'),

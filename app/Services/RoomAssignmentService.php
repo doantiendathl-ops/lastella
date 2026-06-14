@@ -3,7 +3,9 @@
 namespace App\Services;
 
 use App\Enums\AssignmentStatus;
+use App\Enums\RoomStatus;
 use App\Models\Booking;
+use App\Models\Floor;
 use App\Models\Room;
 use App\Models\RoomAssignment;
 use Carbon\CarbonInterface;
@@ -30,7 +32,7 @@ class RoomAssignmentService
 
                 if ($this->checkRoomConflict($room, $startAt, $endAt)) {
                     throw ValidationException::withMessages([
-                        'room_id' => "Room {$room->room_number} already has an active assignment for the selected time.",
+                        'room_id' => 'Phòng đã có booking khác trong khoảng thời gian này.',
                     ]);
                 }
 
@@ -109,5 +111,88 @@ class RoomAssignmentService
             })
             ->values()
             ->all();
+    }
+
+    public function getRoomBoard(Booking $booking): array
+    {
+        $requiredRoomTypeIds = $booking->bookingRequirements()
+            ->pluck('room_type_id')
+            ->unique()
+            ->values();
+
+        $conflicts = RoomAssignment::query()
+            ->with('booking:id,booking_code,customer_name')
+            ->where('booking_id', '!=', $booking->id)
+            ->whereIn('status', AssignmentStatus::activeValues())
+            ->where('start_at', '<', $booking->checkout_at)
+            ->where('end_at', '>', $booking->checkin_at)
+            ->get()
+            ->keyBy('room_id');
+
+        $currentBookingRoomIds = $booking->roomAssignments()
+            ->whereIn('status', AssignmentStatus::activeValues())
+            ->where('start_at', '<', $booking->checkout_at)
+            ->where('end_at', '>', $booking->checkin_at)
+            ->pluck('room_id')
+            ->unique();
+
+        $unavailableStatuses = [
+            RoomStatus::OutOfOrder,
+            RoomStatus::OutOfService,
+        ];
+
+        return [
+            'floors' => Floor::query()
+                ->whereHas('rooms')
+                ->with(['rooms' => fn ($query) => $query->with('roomType')->orderBy('room_number')])
+                ->orderBy('sort_order')
+                ->get()
+                ->map(function (Floor $floor) use ($conflicts, $currentBookingRoomIds, $requiredRoomTypeIds, $unavailableStatuses): array {
+                    return [
+                        'id' => $floor->id,
+                        'code' => $floor->code,
+                        'name' => $floor->name,
+                        'rooms' => $floor->rooms->map(function (Room $room) use ($conflicts, $currentBookingRoomIds, $requiredRoomTypeIds, $unavailableStatuses): array {
+                            $conflict = $conflicts->get($room->id);
+                            $isUnavailable = in_array($room->status, $unavailableStatuses, true);
+                            $isCurrentBookingAssigned = $currentBookingRoomIds->contains($room->id);
+                            $matchesRequirement = $requiredRoomTypeIds->isEmpty()
+                                || $requiredRoomTypeIds->contains($room->room_type_id);
+
+                            $availabilityStatus = 'available';
+                            $disabledReason = null;
+
+                            if ($isUnavailable) {
+                                $availabilityStatus = 'unavailable';
+                                $disabledReason = 'Không khả dụng';
+                            } elseif ($conflict !== null) {
+                                $availabilityStatus = 'conflict';
+                                $disabledReason = 'Đã có booking khác';
+                            } elseif ($isCurrentBookingAssigned) {
+                                $availabilityStatus = 'current_booking';
+                                $disabledReason = 'Đã phân booking này';
+                            }
+
+                            return [
+                                'id' => $room->id,
+                                'room_number' => $room->room_number,
+                                'room_type_id' => $room->room_type_id,
+                                'room_type' => $room->roomType?->code,
+                                'room_type_name' => $room->roomType?->name,
+                                'status' => $room->status?->value,
+                                'status_label' => $room->status?->label(),
+                                'availability_status' => $availabilityStatus,
+                                'disabled_reason' => $disabledReason,
+                                'conflict_booking' => $conflict ? [
+                                    'code' => $conflict->booking?->booking_code,
+                                    'customer_name' => $conflict->booking?->customer_name,
+                                ] : null,
+                                'matches_requirement' => $matchesRequirement,
+                            ];
+                        })->values(),
+                    ];
+                })
+                ->values(),
+        ];
     }
 }

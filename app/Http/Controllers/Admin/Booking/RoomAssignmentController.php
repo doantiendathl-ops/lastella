@@ -25,14 +25,25 @@ class RoomAssignmentController extends Controller
         $this->authorize('create', RoomAssignment::class);
 
         $data = $request->validated();
-        $room = Room::findOrFail($data['room_id']);
+        $roomIds = collect($data['room_ids'] ?? [$data['room_id']])
+            ->map(fn ($roomId): int => (int) $roomId)
+            ->unique()
+            ->values();
+        $rooms = Room::query()->whereKey($roomIds)->get()->keyBy('id');
 
-        $assignments = $this->assignments->assignRooms($booking, [[
-            'room_id' => $room->id,
-            'room_type_id' => $room->room_type_id,
-            'start_at' => $data['start_at'],
-            'end_at' => $data['end_at'],
-        ]]);
+        $assignments = $this->assignments->assignRooms(
+            $booking,
+            $roomIds->map(function (int $roomId) use ($rooms, $data): array {
+                $room = $rooms->get($roomId);
+
+                return [
+                    'room_id' => $room->id,
+                    'room_type_id' => $room->room_type_id,
+                    'start_at' => $data['start_at'],
+                    'end_at' => $data['end_at'],
+                ];
+            })->all(),
+        );
 
         foreach ($assignments as $assignment) {
             $this->stays->createStayFromAssignment($assignment);
