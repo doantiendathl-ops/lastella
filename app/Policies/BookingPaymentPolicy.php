@@ -21,4 +21,17 @@ class BookingPaymentPolicy
     {
         return $user->can('payment.create');
     }
+
+    public function delete(User $user, BookingPayment $bookingPayment): bool
+    {
+        if ($user->hasRole('ADMIN')) {
+            return true;
+        }
+
+        if ($user->can('payment.delete')) {
+            return $bookingPayment->created_at->isToday();
+        }
+
+        return false;
+    }
 }

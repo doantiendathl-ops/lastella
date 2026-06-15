@@ -282,19 +282,30 @@ class BookingService
             fn (BookingRequirement $requirement): float => (float) $requirement->room_price * (int) $requirement->quantity,
         );
 
-        $paidTotal = (float) $payments->sum(function ($payment): float {
-            return match ($payment->payment_type) {
+        $totalDeposit = 0.0;
+        $totalPayment = 0.0;
+        $totalRefund = 0.0;
+        $totalAdjustment = 0.0;
+
+        foreach ($payments as $payment) {
+            match ($payment->payment_type) {
                 PaymentType::Deposit,
-                PaymentType::AdditionalDeposit,
+                PaymentType::AdditionalDeposit => $totalDeposit += (float) $payment->amount,
                 PaymentType::RoomPayment,
-                PaymentType::ServicePayment,
-                PaymentType::Adjustment => (float) $payment->amount,
-                PaymentType::Refund => -1 * (float) $payment->amount,
+                PaymentType::ServicePayment => $totalPayment += (float) $payment->amount,
+                PaymentType::Refund => $totalRefund += (float) $payment->amount,
+                PaymentType::Adjustment => $totalAdjustment += (float) $payment->amount,
             };
-        });
+        }
+
+        $paidTotal = $totalDeposit + $totalPayment + $totalAdjustment - $totalRefund;
 
         return [
             'expected_total' => $expectedTotal,
+            'total_deposit' => $totalDeposit,
+            'total_payment' => $totalPayment,
+            'total_refund' => $totalRefund,
+            'total_adjustment' => $totalAdjustment,
             'paid_total' => $paidTotal,
             'remaining_balance' => $expectedTotal - $paidTotal,
         ];

@@ -234,6 +234,7 @@ class BookingController extends Controller
                 'payment_at' => $payment->payment_at?->format('Y-m-d H:i'),
                 'confirmed_by' => $payment->confirmedBy?->name,
                 'note' => $payment->note,
+                'can_delete' => request()->user()?->can('delete', $payment) ?? false,
             ])->values(),
             'assignments' => $booking->roomAssignments->map(fn ($assignment): array => [
                 'id' => $assignment->id,
@@ -380,6 +381,7 @@ class BookingController extends Controller
             'updateBooking' => $user?->can('booking.update') ?? false,
             'cancelBooking' => $user?->can('booking.cancel') ?? false,
             'addPayment' => $user?->can('payment.create') ?? false,
+            'deletePayment' => $user?->can('payment.delete') ?? false,
             'assignRoom' => $user?->can('room.assign') ?? false,
             'releaseRoom' => $user?->can('room.unassign') ?? false,
             'checkIn' => $user?->can('stay.checkin') ?? false,

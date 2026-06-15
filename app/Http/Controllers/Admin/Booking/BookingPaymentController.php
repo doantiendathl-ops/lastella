@@ -31,4 +31,17 @@ class BookingPaymentController extends Controller
 
         return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'payments'])->with('success', 'Đã ghi nhận thanh toán.');
     }
+
+    public function destroy(Booking $booking, BookingPayment $payment): RedirectResponse
+    {
+        $this->authorize('delete', $payment);
+
+        if ($payment->booking_id !== $booking->id) {
+            abort(403);
+        }
+
+        $this->payments->deletePayment($payment);
+
+        return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'payments'])->with('success', 'Đã xóa giao dịch.');
+    }
 }

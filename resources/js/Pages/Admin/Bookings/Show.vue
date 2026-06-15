@@ -314,6 +314,14 @@ const submitCancel = () => {
 
 const restoreBooking = () => router.post(`/admin/bookings/${props.booking.id}/restore`, {}, { preserveScroll: true });
 
+const deletePayment = (payment) => {
+    if (!window.confirm('Bạn có chắc muốn xóa giao dịch này? Hành động không thể hoàn tác.')) {
+        return;
+    }
+
+    router.delete(`/admin/bookings/${props.booking.id}/payments/${payment.id}`, { preserveScroll: true });
+};
+
 const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-transparent text-steel hover:text-ink';
 </script>
 
@@ -536,7 +544,25 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                     </div>
                     <div class="border border-gray-100 p-4">
                         <div class="text-xs uppercase tracking-wide text-steel">Còn phải thanh toán</div>
-                        <div class="mt-2 text-lg font-semibold">{{ formatCurrency(booking.payment_summary.remaining_balance) }}</div>
+                        <div class="mt-2 text-lg font-semibold" :class="booking.payment_summary.remaining_balance > 0 ? 'text-coral' : 'text-pine'">{{ formatCurrency(booking.payment_summary.remaining_balance) }}</div>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-2 border border-gray-100 p-3 text-sm md:grid-cols-4">
+                    <div>
+                        <div class="text-xs text-steel">Đặt cọc</div>
+                        <div class="mt-1 font-semibold">{{ formatCurrency(booking.payment_summary.total_deposit) }}</div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-steel">Thanh toán</div>
+                        <div class="mt-1 font-semibold">{{ formatCurrency(booking.payment_summary.total_payment) }}</div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-steel">Hoàn tiền</div>
+                        <div class="mt-1 font-semibold" :class="booking.payment_summary.total_refund > 0 ? 'text-coral' : ''">{{ booking.payment_summary.total_refund > 0 ? '−' : '' }}{{ formatCurrency(booking.payment_summary.total_refund) }}</div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-steel">Điều chỉnh</div>
+                        <div class="mt-1 font-semibold">{{ formatCurrency(booking.payment_summary.total_adjustment) }}</div>
                     </div>
                 </div>
 
@@ -575,11 +601,33 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                 <div class="overflow-x-auto">
                     <table class="min-w-full divide-y divide-gray-200 text-left text-sm">
                         <thead class="bg-gray-50 text-xs uppercase tracking-wide text-steel">
-                            <tr><th class="px-4 py-3">Loại</th><th class="px-4 py-3">Số tiền</th><th class="px-4 py-3">Phương thức</th><th class="px-4 py-3">Thời gian thanh toán</th><th class="px-4 py-3">Xác nhận bởi</th><th class="px-4 py-3">Ghi chú</th></tr>
+                            <tr>
+                                <th class="px-4 py-3">Loại</th>
+                                <th class="px-4 py-3">Số tiền</th>
+                                <th class="px-4 py-3">Phương thức</th>
+                                <th class="px-4 py-3">Thời gian thanh toán</th>
+                                <th class="px-4 py-3">Xác nhận bởi</th>
+                                <th class="px-4 py-3">Ghi chú</th>
+                                <th v-if="can.deletePayment" class="px-4 py-3 text-right">Thao tác</th>
+                            </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
-                            <tr v-for="payment in booking.payments" :key="payment.id"><td class="px-4 py-3">{{ labelFor('paymentType', payment.payment_type) }}</td><td class="px-4 py-3">{{ formatCurrency(payment.amount) }}</td><td class="px-4 py-3">{{ labelFor('paymentMethod', payment.payment_method) }}</td><td class="px-4 py-3">{{ payment.payment_at }}</td><td class="px-4 py-3">{{ payment.confirmed_by }}</td><td class="px-4 py-3">{{ payment.note }}</td></tr>
-                            <tr v-if="booking.payments.length === 0"><td colspan="6" class="px-4 py-10 text-center text-sm text-steel">Chưa có thanh toán.</td></tr>
+                            <tr v-for="payment in booking.payments" :key="payment.id">
+                                <td class="px-4 py-3">{{ labelFor('paymentType', payment.payment_type) }}</td>
+                                <td class="px-4 py-3" :class="payment.payment_type === 'REFUND' ? 'text-coral' : ''">{{ payment.payment_type === 'REFUND' ? '−' : '' }}{{ formatCurrency(payment.amount) }}</td>
+                                <td class="px-4 py-3">{{ labelFor('paymentMethod', payment.payment_method) }}</td>
+                                <td class="px-4 py-3">{{ payment.payment_at }}</td>
+                                <td class="px-4 py-3">{{ payment.confirmed_by }}</td>
+                                <td class="px-4 py-3">{{ payment.note }}</td>
+                                <td v-if="can.deletePayment" class="px-4 py-3 text-right">
+                                    <button v-if="payment.can_delete" type="button" class="inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-coral hover:text-coral" :title="'Xóa giao dịch'" @click="deletePayment(payment)">
+                                        <Trash2 class="h-4 w-4" />
+                                    </button>
+                                </td>
+                            </tr>
+                            <tr v-if="booking.payments.length === 0">
+                                <td :colspan="can.deletePayment ? 7 : 6" class="px-4 py-10 text-center text-sm text-steel">Chưa có thanh toán.</td>
+                            </tr>
                         </tbody>
                     </table>
                 </div>
