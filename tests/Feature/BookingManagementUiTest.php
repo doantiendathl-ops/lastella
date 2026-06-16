@@ -153,7 +153,7 @@ class BookingManagementUiTest extends TestCase
                 ->where('tabs', [
                     ['key' => 'info', 'label' => 'Thông tin Booking'],
                     ['key' => 'room_map', 'label' => 'Sơ đồ phòng'],
-                    ['key' => 'payments', 'label' => 'Thanh toán'],
+                    ['key' => 'payments', 'label' => 'Tài chính'],
                     ['key' => 'history', 'label' => 'Lịch sử'],
                 ])
             );

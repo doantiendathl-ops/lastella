@@ -18,6 +18,10 @@ const props = defineProps({
 const tab = ref(props.activeTab);
 const editingRequirementId = ref(null);
 const showCancelModal = ref(false);
+const showAddChargeForm = ref(false);
+const showVoidModal = ref(false);
+const voidingEntry = ref(null);
+const voidReasonInput = ref('');
 const selectedRoomIds = ref([]);
 
 const nowLocal = () => {
@@ -67,6 +71,14 @@ const paymentForm = useForm({
 const cancelForm = useForm({
     booking_code_confirmation: '',
     cancellation_reason: '',
+});
+const chargeForm = useForm({
+    charge_type: 'OTHER',
+    description: '',
+    quantity: 1,
+    unit_price: 0,
+    entry_date: new Date().toISOString().slice(0, 10),
+    amount: 0,
 });
 const assignmentForm = useForm({
     room_ids: [],
@@ -322,6 +334,63 @@ const deletePayment = (payment) => {
     router.delete(`/admin/bookings/${props.booking.id}/payments/${payment.id}`, { preserveScroll: true });
 };
 
+const chargeBreakdown = computed(() => {
+    const entries = props.booking.folio?.entries ?? [];
+    const totals = {};
+    for (const entry of entries) {
+        if (entry.is_voided) continue;
+        const key = entry.charge_type_label ?? entry.charge_type;
+        totals[key] = (totals[key] ?? 0) + Number(entry.amount);
+    }
+    return Object.entries(totals).map(([label, amount]) => ({ label, amount }));
+});
+
+const chargeFormTotal = computed(() => (parseFloat(chargeForm.quantity) || 0) * (parseFloat(chargeForm.unit_price) || 0));
+
+const submitCharge = () => {
+    chargeForm.amount = chargeFormTotal.value;
+    chargeForm.post(`/admin/bookings/${props.booking.id}/folio/entries`, {
+        preserveScroll: true,
+        onSuccess: () => {
+            showAddChargeForm.value = false;
+            chargeForm.reset();
+        },
+    });
+};
+
+const openVoidModal = (entry) => {
+    voidingEntry.value = entry;
+    voidReasonInput.value = '';
+    showVoidModal.value = true;
+};
+
+const closeVoidModal = () => {
+    showVoidModal.value = false;
+    voidingEntry.value = null;
+    voidReasonInput.value = '';
+};
+
+const confirmVoid = () => {
+    if (!voidingEntry.value || voidReasonInput.value.trim().length < 5) return;
+    router.patch(
+        `/admin/bookings/${props.booking.id}/folio/entries/${voidingEntry.value.id}`,
+        { void_reason: voidReasonInput.value },
+        { preserveScroll: true, onSuccess: closeVoidModal },
+    );
+};
+
+const closeFolio = () => {
+    if (!window.confirm('Đóng folio này? Sau khi đóng, không thể thêm phí mới.')) return;
+    router.patch(`/admin/bookings/${props.booking.id}/folio/close`, {}, { preserveScroll: true });
+};
+
+const reopenFolio = () => {
+    if (!window.confirm('Mở lại folio này?')) return;
+    router.patch(`/admin/bookings/${props.booking.id}/folio/reopen`, {}, { preserveScroll: true });
+};
+
+const folioStatusLabel = (status) => ({ OPEN: 'Đang mở', CLOSED: 'Đã đóng', VOIDED: 'Đã hủy' }[status] ?? status);
+
 const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-transparent text-steel hover:text-ink';
 </script>
 
@@ -533,20 +602,31 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
             </div>
 
             <div v-if="tab === 'payments'" class="space-y-5 p-5">
+                <!-- Financial Summary Cards -->
                 <div class="grid gap-3 md:grid-cols-3">
                     <div class="border border-gray-100 p-4">
-                        <div class="text-xs uppercase tracking-wide text-steel">Tổng tiền dự kiến</div>
-                        <div class="mt-2 text-lg font-semibold">{{ formatCurrency(booking.payment_summary.expected_total) }}</div>
+                        <div class="text-xs uppercase tracking-wide text-steel">Tổng phí phát sinh</div>
+                        <div class="mt-2 text-lg font-semibold">{{ formatCurrency(booking.payment_summary.total_charges) }}</div>
                     </div>
                     <div class="border border-gray-100 p-4">
-                        <div class="text-xs uppercase tracking-wide text-steel">Đã thanh toán</div>
+                        <div class="text-xs uppercase tracking-wide text-steel">Đã thu</div>
                         <div class="mt-2 text-lg font-semibold">{{ formatCurrency(booking.payment_summary.paid_total) }}</div>
                     </div>
                     <div class="border border-gray-100 p-4">
-                        <div class="text-xs uppercase tracking-wide text-steel">Còn phải thanh toán</div>
-                        <div class="mt-2 text-lg font-semibold" :class="booking.payment_summary.remaining_balance > 0 ? 'text-coral' : 'text-pine'">{{ formatCurrency(booking.payment_summary.remaining_balance) }}</div>
+                        <div class="text-xs uppercase tracking-wide text-steel">Còn lại</div>
+                        <div class="mt-2 text-lg font-semibold" :class="booking.payment_summary.balance_due > 0 ? 'text-coral' : 'text-pine'">{{ formatCurrency(booking.payment_summary.balance_due) }}</div>
                     </div>
                 </div>
+
+                <!-- Charge type breakdown chips -->
+                <div v-if="chargeBreakdown.length" class="flex flex-wrap gap-2 border border-gray-100 p-3">
+                    <span v-for="item in chargeBreakdown" :key="item.label" class="inline-flex items-center gap-1.5 border border-gray-200 bg-gray-50 px-2 py-1 text-xs">
+                        <span class="font-medium">{{ item.label }}</span>
+                        <span class="text-steel">{{ formatCurrency(item.amount) }}</span>
+                    </span>
+                </div>
+
+                <!-- Payment type breakdown row -->
                 <div class="grid grid-cols-2 gap-2 border border-gray-100 p-3 text-sm md:grid-cols-4">
                     <div>
                         <div class="text-xs text-steel">Đặt cọc</div>
@@ -566,70 +646,205 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                     </div>
                 </div>
 
-                <form v-if="can.addPayment" class="grid gap-3 border border-gray-100 p-4 md:grid-cols-5" @submit.prevent="submitPayment">
-                    <div>
-                        <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Loại thanh toán</label>
-                        <select v-model="paymentForm.payment_type" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
-                            <option v-for="type in options.paymentTypes" :key="type.value" :value="type.value">{{ labelFor('paymentType', type.value) }}</option>
-                        </select>
+                <!-- Charges section -->
+                <div class="space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-sm font-semibold uppercase tracking-wide text-steel">Phí phát sinh</h3>
+                        <button
+                            v-if="can.createCharge && booking.folio?.status === 'OPEN'"
+                            type="button"
+                            class="inline-flex items-center gap-1 border border-gray-300 px-3 py-1.5 text-xs font-semibold text-steel hover:border-pine hover:text-pine"
+                            @click="showAddChargeForm = !showAddChargeForm"
+                        >
+                            <Plus class="h-3.5 w-3.5" />
+                            Thêm phí
+                        </button>
                     </div>
-                    <div>
-                        <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Số tiền</label>
-                        <input v-model="paymentForm.amount" type="number" min="0.01" step="0.01" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Phương thức</label>
-                        <select v-model="paymentForm.payment_method" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
-                            <option v-for="method in options.paymentMethods" :key="method.value" :value="method.value">{{ labelFor('paymentMethod', method.value) }}</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Thời gian thanh toán</label>
-                        <input v-model="paymentForm.payment_at" type="datetime-local" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Ghi chú</label>
-                        <input v-model="paymentForm.note" type="text" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
-                    </div>
-                    <button type="submit" class="inline-flex items-center justify-center gap-2 bg-pine px-3 py-2 text-sm font-semibold text-white">
-                        <Banknote class="h-4 w-4" />
-                        Thêm thanh toán
-                    </button>
-                    <p v-if="Object.keys(paymentForm.errors).length" class="md:col-span-5 text-sm text-coral">{{ Object.values(paymentForm.errors)[0] }}</p>
-                </form>
 
-                <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200 text-left text-sm">
-                        <thead class="bg-gray-50 text-xs uppercase tracking-wide text-steel">
-                            <tr>
-                                <th class="px-4 py-3">Loại</th>
-                                <th class="px-4 py-3">Số tiền</th>
-                                <th class="px-4 py-3">Phương thức</th>
-                                <th class="px-4 py-3">Thời gian thanh toán</th>
-                                <th class="px-4 py-3">Xác nhận bởi</th>
-                                <th class="px-4 py-3">Ghi chú</th>
-                                <th v-if="can.deletePayment" class="px-4 py-3 text-right">Thao tác</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100">
-                            <tr v-for="payment in booking.payments" :key="payment.id">
-                                <td class="px-4 py-3">{{ labelFor('paymentType', payment.payment_type) }}</td>
-                                <td class="px-4 py-3" :class="payment.payment_type === 'REFUND' ? 'text-coral' : ''">{{ payment.payment_type === 'REFUND' ? '−' : '' }}{{ formatCurrency(payment.amount) }}</td>
-                                <td class="px-4 py-3">{{ labelFor('paymentMethod', payment.payment_method) }}</td>
-                                <td class="px-4 py-3">{{ payment.payment_at }}</td>
-                                <td class="px-4 py-3">{{ payment.confirmed_by }}</td>
-                                <td class="px-4 py-3">{{ payment.note }}</td>
-                                <td v-if="can.deletePayment" class="px-4 py-3 text-right">
-                                    <button v-if="payment.can_delete" type="button" class="inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-coral hover:text-coral" :title="'Xóa giao dịch'" @click="deletePayment(payment)">
-                                        <Trash2 class="h-4 w-4" />
-                                    </button>
-                                </td>
-                            </tr>
-                            <tr v-if="booking.payments.length === 0">
-                                <td :colspan="can.deletePayment ? 7 : 6" class="px-4 py-10 text-center text-sm text-steel">Chưa có thanh toán.</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                    <!-- Add Charge inline form -->
+                    <form v-if="showAddChargeForm && can.createCharge" class="grid gap-3 border border-gray-100 p-4 md:grid-cols-5" @submit.prevent="submitCharge">
+                        <div>
+                            <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Loại phí</label>
+                            <select v-model="chargeForm.charge_type" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                                <option v-for="type in options.chargeTypes" :key="type.value" :value="type.value">{{ type.label }}</option>
+                            </select>
+                        </div>
+                        <div class="md:col-span-2">
+                            <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Mô tả</label>
+                            <input v-model="chargeForm.description" type="text" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Số lượng</label>
+                            <input v-model="chargeForm.quantity" type="number" min="0.01" step="0.01" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Đơn giá</label>
+                            <input v-model="chargeForm.unit_price" type="number" min="0" step="0.01" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Ngày phát sinh</label>
+                            <input v-model="chargeForm.entry_date" type="date" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                        </div>
+                        <div class="flex items-end gap-2">
+                            <div class="mr-auto text-sm">
+                                <div class="text-xs text-steel">Thành tiền</div>
+                                <div class="font-semibold">{{ formatCurrency(chargeFormTotal) }}</div>
+                            </div>
+                            <button type="button" class="border border-gray-300 px-3 py-2 text-sm font-semibold text-steel hover:text-ink" @click="showAddChargeForm = false">Hủy</button>
+                            <button type="submit" class="inline-flex items-center gap-2 bg-pine px-3 py-2 text-sm font-semibold text-white disabled:bg-gray-300" :disabled="chargeForm.processing">
+                                <Plus class="h-4 w-4" />
+                                Thêm
+                            </button>
+                        </div>
+                        <p v-if="Object.keys(chargeForm.errors).length" class="md:col-span-5 text-sm text-coral">{{ Object.values(chargeForm.errors)[0] }}</p>
+                    </form>
+
+                    <!-- Folio entries table -->
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200 text-left text-sm">
+                            <thead class="bg-gray-50 text-xs uppercase tracking-wide text-steel">
+                                <tr>
+                                    <th class="px-4 py-3">Ngày</th>
+                                    <th class="px-4 py-3">Loại phí</th>
+                                    <th class="px-4 py-3">Mô tả</th>
+                                    <th class="px-4 py-3">SL</th>
+                                    <th class="px-4 py-3">Đơn giá</th>
+                                    <th class="px-4 py-3">Thành tiền</th>
+                                    <th class="px-4 py-3">Người đăng</th>
+                                    <th v-if="can.voidCharge" class="px-4 py-3 text-right">Thao tác</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                <tr v-for="entry in (booking.folio?.entries ?? [])" :key="entry.id" :class="entry.is_voided ? 'bg-gray-50' : ''">
+                                    <td class="whitespace-nowrap px-4 py-3" :class="entry.is_voided ? 'text-gray-400 line-through' : ''">{{ entry.entry_date }}</td>
+                                    <td class="whitespace-nowrap px-4 py-3" :class="entry.is_voided ? 'text-gray-400 line-through' : ''">{{ entry.charge_type_label }}</td>
+                                    <td class="px-4 py-3" :class="entry.is_voided ? 'text-gray-400 line-through' : ''">{{ entry.description }}</td>
+                                    <td class="whitespace-nowrap px-4 py-3" :class="entry.is_voided ? 'text-gray-400 line-through' : ''">{{ entry.quantity }}</td>
+                                    <td class="whitespace-nowrap px-4 py-3" :class="entry.is_voided ? 'text-gray-400 line-through' : ''">{{ formatCurrency(entry.unit_price) }}</td>
+                                    <td class="whitespace-nowrap px-4 py-3" :class="entry.is_voided ? 'text-gray-400 line-through' : ''">{{ formatCurrency(entry.amount) }}</td>
+                                    <td class="px-4 py-3">
+                                        <template v-if="entry.is_voided">
+                                            <span class="inline-flex items-center border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">VOIDED</span>
+                                            <div v-if="entry.voided_by" class="mt-0.5 text-xs text-gray-400">{{ entry.voided_by }}{{ entry.void_reason ? ' · ' + entry.void_reason : '' }}</div>
+                                        </template>
+                                        <template v-else>{{ entry.posted_by }}</template>
+                                    </td>
+                                    <td v-if="can.voidCharge" class="whitespace-nowrap px-4 py-3 text-right">
+                                        <button
+                                            v-if="entry.can_void"
+                                            type="button"
+                                            class="inline-flex h-8 items-center gap-1 border border-gray-200 px-2 text-xs font-semibold text-steel hover:border-coral hover:text-coral"
+                                            @click="openVoidModal(entry)"
+                                        >
+                                            <XCircle class="h-3.5 w-3.5" />
+                                            Hủy
+                                        </button>
+                                    </td>
+                                </tr>
+                                <tr v-if="!(booking.folio?.entries ?? []).length">
+                                    <td :colspan="can.voidCharge ? 8 : 7" class="px-4 py-10 text-center text-sm text-steel">Chưa có phí phát sinh.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Folio metadata + status controls -->
+                    <div v-if="booking.folio" class="flex flex-wrap items-center justify-between gap-2 border border-gray-100 px-3 py-2 text-sm">
+                        <div class="text-steel">
+                            Folio <span class="font-mono font-medium text-ink">{{ booking.folio.folio_number }}</span>
+                            · Trạng thái:
+                            <span class="font-medium" :class="booking.folio.status === 'OPEN' ? 'text-pine' : 'text-steel'">{{ folioStatusLabel(booking.folio.status) }}</span>
+                        </div>
+                        <div class="flex gap-2">
+                            <button
+                                v-if="booking.folio.can_close"
+                                type="button"
+                                class="border border-gray-300 px-3 py-1.5 text-xs font-semibold text-steel hover:border-ink hover:text-ink"
+                                @click="closeFolio"
+                            >
+                                Đóng folio
+                            </button>
+                            <button
+                                v-if="booking.folio.can_reopen"
+                                type="button"
+                                class="border border-pine px-3 py-1.5 text-xs font-semibold text-pine hover:bg-pine hover:text-white"
+                                @click="reopenFolio"
+                            >
+                                Mở lại
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Payments section -->
+                <div class="space-y-3">
+                    <h3 class="text-sm font-semibold uppercase tracking-wide text-steel">Thanh toán</h3>
+
+                    <form v-if="can.addPayment" class="grid gap-3 border border-gray-100 p-4 md:grid-cols-5" @submit.prevent="submitPayment">
+                        <div>
+                            <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Loại thanh toán</label>
+                            <select v-model="paymentForm.payment_type" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                                <option v-for="type in options.paymentTypes" :key="type.value" :value="type.value">{{ labelFor('paymentType', type.value) }}</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Số tiền</label>
+                            <input v-model="paymentForm.amount" type="number" min="0.01" step="0.01" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Phương thức</label>
+                            <select v-model="paymentForm.payment_method" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                                <option v-for="method in options.paymentMethods" :key="method.value" :value="method.value">{{ labelFor('paymentMethod', method.value) }}</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Thời gian thanh toán</label>
+                            <input v-model="paymentForm.payment_at" type="datetime-local" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Ghi chú</label>
+                            <input v-model="paymentForm.note" type="text" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                        </div>
+                        <button type="submit" class="inline-flex items-center justify-center gap-2 bg-pine px-3 py-2 text-sm font-semibold text-white">
+                            <Banknote class="h-4 w-4" />
+                            Thêm thanh toán
+                        </button>
+                        <p v-if="Object.keys(paymentForm.errors).length" class="md:col-span-5 text-sm text-coral">{{ Object.values(paymentForm.errors)[0] }}</p>
+                    </form>
+
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200 text-left text-sm">
+                            <thead class="bg-gray-50 text-xs uppercase tracking-wide text-steel">
+                                <tr>
+                                    <th class="px-4 py-3">Loại</th>
+                                    <th class="px-4 py-3">Số tiền</th>
+                                    <th class="px-4 py-3">Phương thức</th>
+                                    <th class="px-4 py-3">Thời gian thanh toán</th>
+                                    <th class="px-4 py-3">Xác nhận bởi</th>
+                                    <th class="px-4 py-3">Ghi chú</th>
+                                    <th v-if="can.deletePayment" class="px-4 py-3 text-right">Thao tác</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                <tr v-for="payment in booking.payments" :key="payment.id">
+                                    <td class="px-4 py-3">{{ labelFor('paymentType', payment.payment_type) }}</td>
+                                    <td class="px-4 py-3" :class="payment.payment_type === 'REFUND' ? 'text-coral' : ''">{{ payment.payment_type === 'REFUND' ? '−' : '' }}{{ formatCurrency(payment.amount) }}</td>
+                                    <td class="px-4 py-3">{{ labelFor('paymentMethod', payment.payment_method) }}</td>
+                                    <td class="px-4 py-3">{{ payment.payment_at }}</td>
+                                    <td class="px-4 py-3">{{ payment.confirmed_by }}</td>
+                                    <td class="px-4 py-3">{{ payment.note }}</td>
+                                    <td v-if="can.deletePayment" class="px-4 py-3 text-right">
+                                        <button v-if="payment.can_delete" type="button" class="inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-coral hover:text-coral" :title="'Xóa giao dịch'" @click="deletePayment(payment)">
+                                            <Trash2 class="h-4 w-4" />
+                                        </button>
+                                    </td>
+                                </tr>
+                                <tr v-if="booking.payments.length === 0">
+                                    <td :colspan="can.deletePayment ? 7 : 6" class="px-4 py-10 text-center text-sm text-steel">Chưa có thanh toán.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
 
@@ -778,6 +993,40 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                 Lịch sử booking sẽ được hiển thị ở giai đoạn sau.
             </div>
         </section>
+
+        <!-- Void Entry Modal -->
+        <div v-if="showVoidModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <div class="w-full max-w-md border border-gray-200 bg-white p-5 shadow-xl">
+                <div class="flex items-start justify-between gap-4">
+                    <div>
+                        <h2 class="text-lg font-semibold">Hủy phí phát sinh</h2>
+                        <p class="mt-1 text-sm text-steel">Nhập lý do hủy trước khi xác nhận.</p>
+                    </div>
+                    <button type="button" class="text-steel hover:text-ink" @click="closeVoidModal">
+                        <X class="h-5 w-5" />
+                    </button>
+                </div>
+                <div v-if="voidingEntry" class="mt-4 border border-gray-100 p-3 text-sm">
+                    <div class="font-medium">{{ voidingEntry.charge_type_label }} — {{ voidingEntry.description }}</div>
+                    <div class="mt-1 text-steel">{{ formatCurrency(voidingEntry.amount) }} · {{ voidingEntry.entry_date }}</div>
+                </div>
+                <div class="mt-4">
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Lý do hủy</label>
+                    <textarea v-model="voidReasonInput" rows="3" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm focus:border-pine focus:outline-none focus:ring-1 focus:ring-pine" placeholder="Tối thiểu 5 ký tự" />
+                </div>
+                <div class="mt-5 flex justify-end gap-2">
+                    <button type="button" class="border border-gray-300 px-3 py-2 text-sm font-semibold text-steel hover:text-ink" @click="closeVoidModal">Đóng</button>
+                    <button
+                        type="button"
+                        class="bg-coral px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300"
+                        :disabled="voidReasonInput.trim().length < 5"
+                        @click="confirmVoid"
+                    >
+                        Xác nhận hủy
+                    </button>
+                </div>
+            </div>
+        </div>
 
         <div v-if="showCancelModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
             <form class="w-full max-w-lg border border-gray-200 bg-white p-5 shadow-xl" @submit.prevent="submitCancel">

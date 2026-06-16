@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin\Booking;
 use App\Enums\AssignmentStatus;
 use App\Enums\BookingStatus;
 use App\Enums\BookingType;
+use App\Enums\ChargeType;
 use App\Enums\CustomerType;
 use App\Enums\PaymentMethod;
 use App\Enums\PaymentType;
@@ -111,6 +112,8 @@ class BookingController extends Controller
             'salesUser',
             'bookingRequirements.roomType',
             'bookingPayments.confirmedBy',
+            'folio.folioEntries.postedBy',
+            'folio.folioEntries.voidedBy',
             'roomAssignments.room.roomType',
             'roomAssignments.roomType',
             'roomAssignments.assignedBy',
@@ -226,6 +229,7 @@ class BookingController extends Controller
                 'note' => $requirement->note,
             ])->values(),
             'payment_summary' => $this->bookings->paymentSummary($booking),
+            'folio'           => $this->folioPayload($booking),
             'payments' => $booking->bookingPayments->map(fn ($payment): array => [
                 'id' => $payment->id,
                 'payment_type' => $payment->payment_type?->value,
@@ -295,6 +299,7 @@ class BookingController extends Controller
             'priceSources' => $this->enumOptions(PriceSource::cases()),
             'paymentTypes' => $this->enumOptions(PaymentType::cases()),
             'paymentMethods' => PaymentMethod::options(),
+            'chargeTypes' => ChargeType::options(),
             'roomTypes' => RoomType::query()->orderBy('code')->get(['id', 'code', 'name'])->map(function (RoomType $type) use ($booking): array {
                 $option = [
                     'value' => $type->id,
@@ -346,7 +351,7 @@ class BookingController extends Controller
         return [
             ['key' => 'info', 'label' => 'Thông tin Booking'],
             ['key' => 'room_map', 'label' => 'Sơ đồ phòng'],
-            ['key' => 'payments', 'label' => 'Thanh toán'],
+            ['key' => 'payments', 'label' => 'Tài chính'],
             ['key' => 'history', 'label' => 'Lịch sử'],
         ];
     }
@@ -372,6 +377,38 @@ class BookingController extends Controller
         ];
     }
 
+    private function folioPayload(Booking $booking): ?array
+    {
+        $folio = $booking->folio;
+
+        if ($folio === null) {
+            return null;
+        }
+
+        return [
+            'folio_number' => $folio->folio_number,
+            'status'       => $folio->status?->value,
+            'can_close'    => request()->user()?->can('close', $folio) ?? false,
+            'can_reopen'   => request()->user()?->can('reopen', $folio) ?? false,
+            'entries'      => $folio->folioEntries->map(fn ($entry): array => [
+                'id'                => $entry->id,
+                'charge_type'       => $entry->charge_type?->value,
+                'charge_type_label' => $entry->charge_type?->label(),
+                'description'       => $entry->description,
+                'quantity'          => $entry->quantity,
+                'unit_price'        => $entry->unit_price,
+                'amount'            => $entry->amount,
+                'entry_date'        => $entry->entry_date?->format('Y-m-d'),
+                'posted_by'         => $entry->postedBy?->name,
+                'voided_at'         => $entry->voided_at?->format('Y-m-d H:i'),
+                'voided_by'         => $entry->voidedBy?->name,
+                'void_reason'       => $entry->void_reason,
+                'is_voided'         => $entry->voided_at !== null,
+                'can_void'          => request()->user()?->can('void', $entry) ?? false,
+            ])->values(),
+        ];
+    }
+
     private function permissions(): array
     {
         $user = request()->user();
@@ -380,12 +417,16 @@ class BookingController extends Controller
             'createBooking' => $user?->can('booking.create') ?? false,
             'updateBooking' => $user?->can('booking.update') ?? false,
             'cancelBooking' => $user?->can('booking.cancel') ?? false,
-            'addPayment' => $user?->can('payment.create') ?? false,
+            'addPayment'    => $user?->can('payment.create') ?? false,
             'deletePayment' => $user?->can('payment.delete') ?? false,
-            'assignRoom' => $user?->can('room.assign') ?? false,
-            'releaseRoom' => $user?->can('room.unassign') ?? false,
-            'checkIn' => $user?->can('stay.checkin') ?? false,
-            'checkOut' => $user?->can('stay.checkout') ?? false,
+            'createCharge'  => $user?->can('charge.create') ?? false,
+            'voidCharge'    => $user?->can('charge.void') ?? false,
+            'closeFolio'    => $user?->can('folio.close') ?? false,
+            'reopenFolio'   => $user?->hasRole('ADMIN') ?? false,
+            'assignRoom'    => $user?->can('room.assign') ?? false,
+            'releaseRoom'   => $user?->can('room.unassign') ?? false,
+            'checkIn'       => $user?->can('stay.checkin') ?? false,
+            'checkOut'      => $user?->can('stay.checkout') ?? false,
         ];
     }
 }

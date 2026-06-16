@@ -12,8 +12,10 @@ use Illuminate\Support\Facades\DB;
 
 class StayService
 {
-    public function __construct(private readonly BookingService $bookings)
-    {
+    public function __construct(
+        private readonly BookingService $bookings,
+        private readonly FolioService $folios,
+    ) {
     }
 
     public function createStayFromAssignment(RoomAssignment $assignment): Stay
@@ -38,13 +40,15 @@ class StayService
         return DB::transaction(function () use ($stay, $actualCheckinAt): Stay {
             $stay->update([
                 'actual_checkin_at' => $actualCheckinAt ?? now(),
-                'status' => StayStatus::CheckedIn,
-                'checked_in_by' => Auth::id(),
+                'status'            => StayStatus::CheckedIn,
+                'checked_in_by'     => Auth::id(),
             ]);
 
             $stay->roomAssignment->update([
                 'status' => AssignmentStatus::CheckedIn,
             ]);
+
+            $this->folios->autoPostRoomCharge($stay->booking);
 
             $this->bookings->updateBookingStayStatus($stay->booking);
 

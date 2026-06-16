@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Booking extends Model
 {
@@ -53,6 +54,11 @@ class Booking extends Model
             'status' => BookingStatus::class,
             'cancelled_at' => 'datetime',
         ];
+    }
+
+    public function folio(): HasOne
+    {
+        return $this->hasOne(Folio::class);
     }
 
     public function bookingRequirements(): HasMany

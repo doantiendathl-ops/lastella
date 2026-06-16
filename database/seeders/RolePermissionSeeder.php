@@ -28,6 +28,10 @@ class RolePermissionSeeder extends Seeder
         'stay.checkout',
         'payment.create',
         'payment.delete',
+        'folio.view',
+        'folio.close',
+        'charge.create',
+        'charge.void',
         'report.view',
         'settings.manage',
         'users.manage',
@@ -61,6 +65,10 @@ class RolePermissionSeeder extends Seeder
             'stay.checkout',
             'payment.create',
             'payment.delete',
+            'folio.view',
+            'folio.close',
+            'charge.create',
+            'charge.void',
             'report.view',
             'settings.manage',
             'rooms.manage',
@@ -85,6 +93,8 @@ class RolePermissionSeeder extends Seeder
             'stay.checkin',
             'stay.checkout',
             'payment.create',
+            'folio.view',
+            'charge.create',
             'report.view',
         ]);
 
@@ -96,6 +106,7 @@ class RolePermissionSeeder extends Seeder
 
         Role::findByName('ACCOUNTANT')->syncPermissions([
             'payment.create',
+            'folio.view',
             'report.view',
         ]);
 

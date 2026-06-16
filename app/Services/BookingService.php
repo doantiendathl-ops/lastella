@@ -19,6 +19,10 @@ use Illuminate\Validation\ValidationException;
 
 class BookingService
 {
+    public function __construct(private readonly FolioService $folios)
+    {
+    }
+
     public function paginate(array $filters = []): LengthAwarePaginator
     {
         $query = Booking::query()
@@ -71,7 +75,11 @@ class BookingService
                 $booking->bookingRequirements()->create($requirement);
             }
 
-            return $booking->load(['bookingRequirements.roomType']);
+            $booking->load(['bookingRequirements.roomType']);
+
+            $this->folios->createFolioForBooking($booking);
+
+            return $booking;
         });
     }
 
@@ -276,15 +284,21 @@ class BookingService
     public function paymentSummary(Booking $booking): array
     {
         $requirements = $booking->bookingRequirements()->get(['room_price', 'quantity']);
-        $payments = $booking->bookingPayments()->get(['payment_type', 'amount']);
+        $payments     = $booking->bookingPayments()->get(['payment_type', 'amount']);
 
-        $expectedTotal = (float) $requirements->sum(
+        $requirementsTotal = (float) $requirements->sum(
             fn (BookingRequirement $requirement): float => (float) $requirement->room_price * (int) $requirement->quantity,
         );
 
-        $totalDeposit = 0.0;
-        $totalPayment = 0.0;
-        $totalRefund = 0.0;
+        $folioTotal = $this->folios->getFolioTotal($booking);
+
+        // Transition guard: use folio total when charges have been posted; fall back to
+        // requirements total for bookings that have not yet had a room charge posted.
+        $totalCharges = $folioTotal > 0.0 ? $folioTotal : $requirementsTotal;
+
+        $totalDeposit    = 0.0;
+        $totalPayment    = 0.0;
+        $totalRefund     = 0.0;
         $totalAdjustment = 0.0;
 
         foreach ($payments as $payment) {
@@ -293,21 +307,24 @@ class BookingService
                 PaymentType::AdditionalDeposit => $totalDeposit += (float) $payment->amount,
                 PaymentType::RoomPayment,
                 PaymentType::ServicePayment => $totalPayment += (float) $payment->amount,
-                PaymentType::Refund => $totalRefund += (float) $payment->amount,
+                PaymentType::Refund    => $totalRefund += (float) $payment->amount,
                 PaymentType::Adjustment => $totalAdjustment += (float) $payment->amount,
             };
         }
 
-        $paidTotal = $totalDeposit + $totalPayment + $totalAdjustment - $totalRefund;
+        $paidTotal  = $totalDeposit + $totalPayment + $totalAdjustment - $totalRefund;
+        $balanceDue = $totalCharges - $paidTotal;
 
         return [
-            'expected_total' => $expectedTotal,
-            'total_deposit' => $totalDeposit,
-            'total_payment' => $totalPayment,
-            'total_refund' => $totalRefund,
+            'total_charges'    => $totalCharges,
+            'balance_due'      => $balanceDue,
+            'expected_total'   => $totalCharges,   // backward-compat alias
+            'total_deposit'    => $totalDeposit,
+            'total_payment'    => $totalPayment,
+            'total_refund'     => $totalRefund,
             'total_adjustment' => $totalAdjustment,
-            'paid_total' => $paidTotal,
-            'remaining_balance' => $expectedTotal - $paidTotal,
+            'paid_total'       => $paidTotal,
+            'remaining_balance'=> $balanceDue,     // backward-compat alias
         ];
     }
 
