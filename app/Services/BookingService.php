@@ -8,6 +8,9 @@ use App\Enums\PaymentType;
 use App\Enums\StayStatus;
 use App\Models\Booking;
 use App\Models\BookingRequirement;
+use App\Models\Room;
+use App\Models\RoomAssignment;
+use App\Models\Stay;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Arr;
@@ -19,8 +22,10 @@ use Illuminate\Validation\ValidationException;
 
 class BookingService
 {
-    public function __construct(private readonly FolioService $folios)
-    {
+    public function __construct(
+        private readonly FolioService $folios,
+        private readonly RoomAvailabilityRuleService $rules,
+    ) {
     }
 
     public function paginate(array $filters = []): LengthAwarePaginator
@@ -113,6 +118,8 @@ class BookingService
             $requirements = Arr::pull($data, 'requirements', null);
             $data['updated_by'] = $data['updated_by'] ?? Auth::id();
 
+            $this->validateTimeChange($booking, $data);
+
             $booking->fill($data)->save();
 
             if (is_array($requirements)) {
@@ -127,6 +134,189 @@ class BookingService
 
             return $booking->refresh()->load(['bookingRequirements.roomType']);
         });
+    }
+
+    private function validateTimeChange(Booking $booking, array $data): void
+    {
+        // ── Step 1: compute what changed (no DB access needed) ──────────────
+        $newCheckinAt  = isset($data['checkin_at'])  ? Carbon::parse($data['checkin_at'])  : null;
+        $newCheckoutAt = isset($data['checkout_at']) ? Carbon::parse($data['checkout_at']) : null;
+
+        if ($newCheckinAt === null && $newCheckoutAt === null) {
+            return;
+        }
+
+        $effectiveCheckin  = $newCheckinAt  ?? $booking->checkin_at;
+        $effectiveCheckout = $newCheckoutAt ?? $booking->checkout_at;
+        $checkinChanged    = $newCheckinAt  !== null && ! $newCheckinAt->eq($booking->checkin_at);
+        $checkoutChanged   = $newCheckoutAt !== null && ! $newCheckoutAt->eq($booking->checkout_at);
+
+        if (! $checkinChanged && ! $checkoutChanged) {
+            return;
+        }
+
+        // ── Step 2: pre-lock fail-fast on static state ──────────────────────
+        if ($booking->status === BookingStatus::Cancelled) {
+            throw ValidationException::withMessages([
+                'checkin_at' => 'Booking đã hủy. Không thể chỉnh thời gian lưu trú.',
+            ]);
+        }
+
+        // ── Step 3: pre-lock stay state checks (fresh reads, no locks yet) ───
+        // These cover the case where no active assignments remain (e.g. all checked
+        // out) but the booking still has stays with an actual_checkout_at.
+        // They are re-confirmed under locks in step 6 for concurrency safety.
+        $hasCheckedOutPreLock = Stay::where('booking_id', $booking->id)
+            ->whereNotNull('actual_checkout_at')
+            ->exists();
+        if ($hasCheckedOutPreLock) {
+            throw ValidationException::withMessages([
+                'checkin_at' => 'Booking đã trả phòng. Không thể chỉnh thời gian lưu trú.',
+            ]);
+        }
+
+        if ($checkinChanged) {
+            $hasCheckedInPreLock = Stay::where('booking_id', $booking->id)
+                ->whereNotNull('actual_checkin_at')
+                ->exists();
+            if ($hasCheckedInPreLock) {
+                throw ValidationException::withMessages([
+                    'checkin_at' => 'Booking đã nhận phòng. Chỉ có thể điều chỉnh thời gian trả phòng dự kiến.',
+                ]);
+            }
+        }
+
+        // ── Step 4: identify candidate assignment IDs with a minimal query ───
+        $candidates = RoomAssignment::where('booking_id', $booking->id)
+            ->whereIn('status', [AssignmentStatus::Assigned, AssignmentStatus::CheckedIn])
+            ->get(['id', 'room_id']);
+
+        $candidateIds = $candidates->pluck('id')->all();
+        $roomIds      = $candidates->pluck('room_id')->unique()->sort()->values()->all();
+
+        // ── Step 5: acquire locks — Room → Stay → RA ─────────────────────────
+        // Room lock (room_id asc) matches RoomAssignmentService::assignRooms, so a
+        // concurrent assignRooms on the same rooms must wait for this transaction.
+        if ($roomIds !== []) {
+            Room::whereIn('id', $roomIds)->orderBy('id')->lockForUpdate()->get();
+        }
+
+        // Stay before RA — consistent with StayService::checkIn / checkOut (Stay → RA)
+        // to avoid opposing lock directions on the same row pair.
+        // Lock ALL booking stays, not only active candidates: a concurrent checkout can
+        // move the assignment to CHECKED_OUT before the candidate query and still must
+        // block any booking time change.
+        $lockedStays = Stay::where('booking_id', $booking->id)
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+
+        $lockedStaysByAssignment = $lockedStays->keyBy('room_assignment_id');
+
+        $activeAssignments = $candidateIds === []
+            ? collect()
+            : RoomAssignment::whereIn('id', $candidateIds)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+
+        // ── Step 6: ALL business validation on freshly locked data ───────────
+        // Re-confirm stay checkout state with locked data.
+        if ($lockedStays->contains(fn (Stay $stay): bool => $stay->actual_checkout_at !== null)) {
+            throw ValidationException::withMessages([
+                'checkin_at' => 'Booking đã trả phòng. Không thể chỉnh thời gian lưu trú.',
+            ]);
+        }
+
+        // Re-confirm stay checkin state with locked data.
+        if ($checkinChanged && $lockedStays->contains(fn (Stay $stay): bool => $stay->actual_checkin_at !== null)) {
+            throw ValidationException::withMessages([
+                'checkin_at' => 'Booking đã nhận phòng. Chỉ có thể điều chỉnh thời gian trả phòng dự kiến.',
+            ]);
+        }
+
+        if ($activeAssignments->isEmpty()) {
+            return;
+        }
+
+        // Re-check assignment statuses from locked rows.  A concurrent release or
+        // checkout may have changed a status between the candidate query and the lock.
+        foreach ($activeAssignments as $assignment) {
+            if (! in_array($assignment->status, [AssignmentStatus::Assigned, AssignmentStatus::CheckedIn], true)) {
+                throw ValidationException::withMessages([
+                    'checkin_at' => 'Trạng thái phân phòng đã thay đổi trong khi xử lý. Vui lòng tải lại trang và thử lại.',
+                ]);
+            }
+        }
+
+        // ── Step 6: conflict check with locks held ───────────────────────────
+        $conflictField = ($checkoutChanged && ! $checkinChanged) ? 'checkout_at' : 'checkin_at';
+
+        $conflicts          = [];
+        $structuredConflicts = [];
+        foreach ($activeAssignments as $assignment) {
+            $conflictAssignment = $this->rules->findConflictForTimeChange(
+                $assignment->room_id,
+                $effectiveCheckin,
+                $effectiveCheckout,
+                $booking->id,
+            );
+
+            if ($conflictAssignment !== null) {
+                $roomNumber  = $conflictAssignment->room->room_number;
+                $bookingCode = $conflictAssignment->booking->booking_code;
+                $conflicts[] = "Phòng {$roomNumber} đang được booking {$bookingCode} sử dụng trong khoảng thời gian này.";
+                $structuredConflicts[] = [
+                    'room_id'       => $conflictAssignment->room_id,
+                    'room_number'   => $roomNumber,
+                    'room_type'     => $conflictAssignment->room->roomType?->code,
+                    'booking_id'    => $conflictAssignment->booking->id,
+                    'booking_code'  => $bookingCode,
+                    'customer_name' => $conflictAssignment->booking->customer_name,
+                    'checkin_at'    => $conflictAssignment->booking->checkin_at?->format('Y-m-d H:i'),
+                    'checkout_at'   => $conflictAssignment->booking->checkout_at?->format('Y-m-d H:i'),
+                    'status_label'  => $this->assignmentStatusLabel($conflictAssignment),
+                    'view_url'      => route('admin.bookings.show', $conflictAssignment->booking->id),
+                ];
+            }
+        }
+
+        if (! empty($conflicts)) {
+            session()->flash('booking_time_conflicts', $structuredConflicts);
+            throw ValidationException::withMessages([
+                $conflictField => "Thời gian mới làm phát sinh xung đột phòng.\n"
+                    . implode("\n", $conflicts)
+                    . "\nVui lòng đổi thời gian hoặc giải phóng phòng trước khi lưu.",
+            ]);
+        }
+
+        // ── Step 7: update locked rows ───────────────────────────────────────
+        foreach ($activeAssignments as $assignment) {
+            $assignment->update([
+                'start_at' => $effectiveCheckin,
+                'end_at'   => $effectiveCheckout,
+            ]);
+
+            $stay = $lockedStaysByAssignment->get($assignment->id);
+            if ($stay !== null && $stay->actual_checkout_at === null) {
+                $updateData = ['planned_checkout_at' => $effectiveCheckout];
+                if ($stay->actual_checkin_at === null) {
+                    $updateData['planned_checkin_at'] = $effectiveCheckin;
+                }
+                $stay->update($updateData);
+            }
+        }
+    }
+
+    private function assignmentStatusLabel(RoomAssignment $assignment): string
+    {
+        return match ($assignment->status) {
+            AssignmentStatus::CheckedIn => $assignment->end_at !== null && $assignment->end_at->isPast()
+                ? 'Quá hạn lưu trú'
+                : 'Đã nhận phòng',
+            AssignmentStatus::Assigned => 'Đã phân phòng',
+            default => $assignment->status->value,
+        };
     }
 
     public function cancelBooking(Booking $booking, string $reason): Booking

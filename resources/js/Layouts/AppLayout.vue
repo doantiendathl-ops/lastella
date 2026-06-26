@@ -9,6 +9,7 @@ import {
     KeyRound,
     Layers,
     LogOut,
+    Search,
     Settings,
     Shield,
     Tags,
@@ -26,6 +27,7 @@ const can = (permission) => permissions.value.has(permission);
 const navItems = computed(() => [
     { label: 'Tổng quan', href: '/dashboard', icon: Gauge, show: true },
     { label: 'Đặt phòng', href: '/admin/bookings', icon: CalendarCheck, show: can('booking.create') || can('booking.update') || can('booking.cancel') || can('report.view') },
+    { label: 'Kiểm tra phòng', href: '/admin/room-availability', icon: Search, show: can('room_availability.view') },
     { label: 'Người dùng', href: '/users', icon: Users, show: can('users.manage') },
     { label: 'Vai trò', href: '/roles', icon: Shield, show: can('roles.manage') },
     { label: 'Quyền', href: '/permissions', icon: KeyRound, show: can('roles.manage') },

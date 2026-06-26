@@ -10,6 +10,7 @@ use App\Enums\CustomerType;
 use App\Enums\PaymentMethod;
 use App\Enums\PaymentType;
 use App\Enums\PriceSource;
+use App\Enums\StayStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Booking\BookingIndexRequest;
 use App\Http\Requests\Booking\CancelBookingRequest;
@@ -118,7 +119,9 @@ class BookingController extends Controller
             'roomAssignments.roomType',
             'roomAssignments.assignedBy',
             'roomAssignments.releasedBy',
+            'roomAssignments.stay',
             'stays.room',
+            'stays.roomAssignment',
         ]);
 
         return Inertia::render('Admin/Bookings/Show', [
@@ -156,7 +159,8 @@ class BookingController extends Controller
             'booking' => $this->formPayload($booking),
             'action' => route('admin.bookings.update', $booking),
             'method' => 'put',
-            'options' => $this->options(),
+            'options' => $this->options(booking: $booking),
+            'bookingTimeConflicts' => session('booking_time_conflicts'),
         ]);
     }
 
@@ -212,10 +216,60 @@ class BookingController extends Controller
         ], true);
     }
 
+    private function roomAssignmentMismatch(Booking $booking): array
+    {
+        $activeStatuses = [
+            AssignmentStatus::Assigned->value,
+            AssignmentStatus::CheckedIn->value,
+            AssignmentStatus::CheckedOut->value,
+        ];
+
+        $required = $booking->bookingRequirements
+            ->groupBy('room_type_id')
+            ->map(fn ($reqs) => (int) $reqs->sum('quantity'));
+
+        $assigned = $booking->roomAssignments
+            ->filter(fn ($a) => in_array($a->status?->value, $activeStatuses, true))
+            ->groupBy('room_type_id')
+            ->map(fn ($assignments) => $assignments->count());
+
+        $allTypeIds = $required->keys()->merge($assigned->keys())->unique();
+
+        $items = [];
+        foreach ($allTypeIds as $roomTypeId) {
+            $requiredQty = $required->get($roomTypeId) ?? 0;
+            $assignedQty = $assigned->get($roomTypeId) ?? 0;
+            $difference = $assignedQty - $requiredQty;
+
+            if ($difference === 0) {
+                continue;
+            }
+
+            $req = $booking->bookingRequirements->firstWhere('room_type_id', $roomTypeId);
+            $asg = $booking->roomAssignments->firstWhere('room_type_id', $roomTypeId);
+            $roomTypeName = $req?->roomType?->code ?? $asg?->roomType?->code ?? 'N/A';
+
+            $items[] = [
+                'room_type_id' => $roomTypeId,
+                'room_type_name' => $roomTypeName,
+                'required_quantity' => $requiredQty,
+                'assigned_quantity' => $assignedQty,
+                'difference' => $difference,
+                'status' => $difference < 0 ? 'missing' : 'excess',
+            ];
+        }
+
+        return [
+            'has_mismatch' => count($items) > 0,
+            'items' => $items,
+        ];
+    }
+
     private function bookingPayload(Booking $booking): array
     {
         return [
             ...$this->formPayload($booking),
+            'room_assignment_mismatch' => $this->roomAssignmentMismatch($booking),
             'requirements' => $booking->bookingRequirements->map(fn ($requirement): array => [
                 'id' => $requirement->id,
                 'room_type_id' => $requirement->room_type_id,
@@ -250,7 +304,23 @@ class BookingController extends Controller
                 'assigned_by' => $assignment->assignedBy?->name,
                 'released_at' => $assignment->released_at?->format('Y-m-d H:i'),
                 'release_reason' => $assignment->release_reason,
-                'can_release' => in_array($assignment->status, [AssignmentStatus::Assigned, AssignmentStatus::CheckedIn], true),
+                'is_released' => $assignment->status === AssignmentStatus::Released,
+                'is_checked_in' => $assignment->status === AssignmentStatus::CheckedIn,
+                'is_checked_out' => $assignment->status === AssignmentStatus::CheckedOut,
+                'can_release' => $assignment->status === AssignmentStatus::Assigned,
+                'can_check_in' => $assignment->status === AssignmentStatus::Assigned
+                    && ($assignment->stay?->planned_checkin_at === null || now()->gte($assignment->stay->planned_checkin_at)),
+                'checkin_too_early' => $assignment->status === AssignmentStatus::Assigned
+                    && $assignment->stay?->planned_checkin_at !== null && now()->lt($assignment->stay->planned_checkin_at),
+                'planned_checkin_label' => $assignment->stay?->planned_checkin_at?->format('d/m/Y H:i'),
+                'can_check_out' => $assignment->status === AssignmentStatus::CheckedIn,
+                'action_disabled_reason' => match(true) {
+                    $assignment->status === AssignmentStatus::Released => 'Phòng đã được giải phóng. Không thể nhận/trả phòng.',
+                    $assignment->status === AssignmentStatus::CheckedIn => 'Phòng đã nhận phòng thực tế. Vui lòng trả phòng trước khi giải phóng.',
+                    $assignment->status === AssignmentStatus::CheckedOut => 'Phòng đã trả phòng.',
+                    default => null,
+                },
+                'stay_id' => $assignment->stay?->id,
             ])->values(),
             'stays' => $booking->stays->map(fn ($stay): array => [
                 'id' => $stay->id,
@@ -260,12 +330,30 @@ class BookingController extends Controller
                 'actual_checkin_at' => $stay->actual_checkin_at?->format('Y-m-d H:i'),
                 'actual_checkout_at' => $stay->actual_checkout_at?->format('Y-m-d H:i'),
                 'status' => $stay->status?->value,
+                'is_released' => $stay->roomAssignment?->status === AssignmentStatus::Released,
+                'can_check_in' => $stay->status === StayStatus::Reserved
+                    && $stay->roomAssignment?->status === AssignmentStatus::Assigned
+                    && ($stay->planned_checkin_at === null || now()->gte($stay->planned_checkin_at)),
+                'checkin_too_early' => $stay->status === StayStatus::Reserved
+                    && $stay->roomAssignment?->status === AssignmentStatus::Assigned
+                    && $stay->planned_checkin_at !== null && now()->lt($stay->planned_checkin_at),
+                'planned_checkin_label' => $stay->planned_checkin_at?->format('d/m/Y H:i'),
+                'can_check_out' => $stay->status === StayStatus::CheckedIn
+                    && $stay->roomAssignment?->status === AssignmentStatus::CheckedIn,
             ])->values(),
         ];
     }
 
     private function formPayload(Booking $booking): array
     {
+        $booking->loadMissing(['roomAssignments', 'stays']);
+
+        $hasActiveAssignments = $booking->roomAssignments
+            ->whereIn('status', [AssignmentStatus::Assigned, AssignmentStatus::CheckedIn])
+            ->isNotEmpty();
+        $hasCheckedIn = $booking->stays->contains(fn ($stay) => $stay->actual_checkin_at !== null);
+        $hasCheckedOut = $booking->stays->contains(fn ($stay) => $stay->actual_checkout_at !== null);
+
         return [
             'id' => $booking->id,
             'booking_code' => $booking->booking_code,
@@ -287,12 +375,40 @@ class BookingController extends Controller
             'internal_note' => $booking->internal_note,
             'created_at' => $booking->created_at?->format('Y-m-d H:i'),
             'cancel_confirmation' => $this->cancelConfirmationPayload($booking),
+            'has_active_assignments' => $hasActiveAssignments,
+            'has_checked_in' => $hasCheckedIn,
+            'has_checked_out' => $hasCheckedOut,
+            'is_cancelled' => $booking->status === BookingStatus::Cancelled,
         ];
     }
 
     private function options(bool $includeRooms = false, ?Booking $booking = null): array
     {
+        $paletteColors = [
+            '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#3B82F6', '#EC4899',
+            '#14B8A6', '#6366F1', '#84CC16', '#F97316', '#06B6D4', '#A855F7',
+            '#22C55E', '#EAB308', '#F43F5E', '#64748B',
+        ];
+
+        $usedColorsQuery = Booking::query()
+            ->whereNotNull('booking_color')
+            ->whereNotNull('status')
+            ->whereNotIn('status', [BookingStatus::Cancelled->value, BookingStatus::NoShow->value, BookingStatus::CheckedOut->value]);
+
+        if ($booking !== null) {
+            $usedColorsQuery->whereKeyNot($booking->id);
+        }
+
+        $usedColors = $usedColorsQuery->pluck('booking_color')->unique()->values()->all();
+
+        $recommendedColors = array_values(array_filter(
+            $paletteColors,
+            fn (string $color) => ! in_array($color, $usedColors, true),
+        ));
+
         $options = [
+            'recommended_booking_colors' => $recommendedColors,
+            'used_booking_colors' => $usedColors,
             'bookingTypes' => $this->enumOptions(BookingType::cases()),
             'customerTypes' => $this->enumOptions(CustomerType::cases()),
             'statuses' => $this->enumOptions(BookingStatus::cases()),

@@ -136,6 +136,8 @@ const clean = (value) => Object.fromEntries(Object.entries(value).filter(([, ite
                 <table class="min-w-full divide-y divide-gray-200 text-left text-sm">
                     <thead class="bg-gray-50 text-xs uppercase tracking-wide text-steel">
                         <tr>
+                            <th class="sticky left-0 z-10 bg-gray-50 px-4 py-3 border-r border-gray-200">Thao tác</th>
+                            <th class="px-4 py-3">Màu</th>
                             <th class="px-4 py-3">Mã</th>
                             <th class="px-4 py-3">Khách hàng</th>
                             <th class="px-4 py-3">Điện thoại</th>
@@ -146,28 +148,12 @@ const clean = (value) => Object.fromEntries(Object.entries(value).filter(([, ite
                             <th class="px-4 py-3">Trẻ em</th>
                             <th class="px-4 py-3">Trạng thái</th>
                             <th class="px-4 py-3">Kinh doanh</th>
-                            <th class="px-4 py-3">Màu</th>
                             <th class="px-4 py-3">Ngày tạo</th>
-                            <th class="px-4 py-3 text-right">Thao tác</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100">
-                        <tr v-for="booking in bookings.data" :key="booking.id" class="hover:bg-gray-50">
-                            <td class="whitespace-nowrap px-4 py-3 font-medium">{{ booking.booking_code }}</td>
-                            <td class="whitespace-nowrap px-4 py-3">{{ booking.customer_name }}</td>
-                            <td class="whitespace-nowrap px-4 py-3">{{ booking.customer_phone }}</td>
-                            <td class="whitespace-nowrap px-4 py-3">{{ labelFor('bookingType', booking.booking_type) }}</td>
-                            <td class="whitespace-nowrap px-4 py-3">{{ booking.checkin_at }}</td>
-                            <td class="whitespace-nowrap px-4 py-3">{{ booking.checkout_at }}</td>
-                            <td class="whitespace-nowrap px-4 py-3">{{ booking.adults }}</td>
-                            <td class="whitespace-nowrap px-4 py-3">{{ booking.children_under_6 }} / {{ booking.children_over_6 }}</td>
-                            <td class="whitespace-nowrap px-4 py-3">{{ labelFor('bookingStatus', booking.status) }}</td>
-                            <td class="whitespace-nowrap px-4 py-3">{{ booking.sales_user ?? 'Chưa phân công' }}</td>
-                            <td class="whitespace-nowrap px-4 py-3">
-                                <span class="inline-flex h-5 w-8 border border-gray-200" :style="{ backgroundColor: booking.booking_color }" />
-                            </td>
-                            <td class="whitespace-nowrap px-4 py-3">{{ booking.created_at }}</td>
-                            <td class="whitespace-nowrap px-4 py-3 text-right">
+                        <tr v-for="booking in bookings.data" :key="booking.id" class="group hover:bg-gray-50">
+                            <td class="sticky left-0 z-10 whitespace-nowrap border-r border-gray-200 bg-white px-4 py-3 group-hover:bg-gray-50">
                                 <Link :href="`/admin/bookings/${booking.id}`" class="mr-1 inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-pine hover:text-pine" title="Xem">
                                     <Eye class="h-4 w-4" />
                                 </Link>
@@ -214,6 +200,20 @@ const clean = (value) => Object.fromEntries(Object.entries(value).filter(([, ite
                                     <RotateCcw class="h-4 w-4" />
                                 </button>
                             </td>
+                            <td class="whitespace-nowrap px-4 py-3">
+                                <span class="inline-flex h-5 w-8 border border-gray-200" :style="{ backgroundColor: booking.booking_color }" />
+                            </td>
+                            <td class="whitespace-nowrap px-4 py-3 font-medium">{{ booking.booking_code }}</td>
+                            <td class="whitespace-nowrap px-4 py-3">{{ booking.customer_name }}</td>
+                            <td class="whitespace-nowrap px-4 py-3">{{ booking.customer_phone }}</td>
+                            <td class="whitespace-nowrap px-4 py-3">{{ labelFor('bookingType', booking.booking_type) }}</td>
+                            <td class="whitespace-nowrap px-4 py-3">{{ booking.checkin_at }}</td>
+                            <td class="whitespace-nowrap px-4 py-3">{{ booking.checkout_at }}</td>
+                            <td class="whitespace-nowrap px-4 py-3">{{ booking.adults }}</td>
+                            <td class="whitespace-nowrap px-4 py-3">{{ booking.children_under_6 }} / {{ booking.children_over_6 }}</td>
+                            <td class="whitespace-nowrap px-4 py-3">{{ labelFor('bookingStatus', booking.status) }}</td>
+                            <td class="whitespace-nowrap px-4 py-3">{{ booking.sales_user ?? 'Chưa phân công' }}</td>
+                            <td class="whitespace-nowrap px-4 py-3">{{ booking.created_at }}</td>
                         </tr>
                         <tr v-if="bookings.data.length === 0">
                             <td colspan="13" class="px-4 py-12 text-center text-sm text-steel">Không có đặt phòng.</td>

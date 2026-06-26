@@ -78,9 +78,13 @@ class DashboardTest extends TestCase
     {
         $stay = $this->createReservedStay();
 
+        Carbon::setTestNow('2026-06-14 10:00:00');
+
         $this->assertDashboardMetrics([
             'occupied_rooms' => 0,
         ]);
+
+        Carbon::setTestNow('2026-06-14 14:00:00');
 
         app(StayService::class)->checkIn($stay, '2026-06-14 15:00:00');
 
@@ -144,7 +148,7 @@ class DashboardTest extends TestCase
 
     private function createReservedStay(): Stay
     {
-        Carbon::setTestNow('2026-06-14 10:00:00');
+        Carbon::setTestNow('2026-06-14 14:00:00');
 
         $room = Room::query()->firstOrFail();
         $booking = Booking::factory()->create([

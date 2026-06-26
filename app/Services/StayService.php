@@ -9,6 +9,7 @@ use App\Models\Stay;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class StayService
 {
@@ -38,40 +39,82 @@ class StayService
     public function checkIn(Stay $stay, CarbonInterface|string|null $actualCheckinAt = null): Stay
     {
         return DB::transaction(function () use ($stay, $actualCheckinAt): Stay {
-            $stay->update([
+            $lockedStay = Stay::whereKey($stay->id)->lockForUpdate()->firstOrFail();
+            $assignment = RoomAssignment::whereKey($lockedStay->room_assignment_id)->lockForUpdate()->firstOrFail();
+
+            if ($assignment->status !== AssignmentStatus::Assigned) {
+                throw ValidationException::withMessages([
+                    'stay' => 'Không thể nhận phòng. Trạng thái phân phòng không hợp lệ.',
+                ]);
+            }
+
+            if ($lockedStay->actual_checkin_at !== null) {
+                throw ValidationException::withMessages([
+                    'stay' => 'Phòng đã được nhận phòng rồi.',
+                ]);
+            }
+
+            if ($lockedStay->planned_checkin_at !== null && now()->lt($lockedStay->planned_checkin_at)) {
+                throw ValidationException::withMessages([
+                    'stay' => 'Chưa đến thời gian nhận phòng dự kiến. Thời gian nhận phòng dự kiến: '
+                        . $lockedStay->planned_checkin_at->format('d/m/Y H:i') . '.',
+                ]);
+            }
+
+            $lockedStay->update([
                 'actual_checkin_at' => $actualCheckinAt ?? now(),
                 'status'            => StayStatus::CheckedIn,
                 'checked_in_by'     => Auth::id(),
             ]);
 
-            $stay->roomAssignment->update([
+            $assignment->update([
                 'status' => AssignmentStatus::CheckedIn,
             ]);
 
-            $this->folios->autoPostRoomCharge($stay->booking);
+            $this->folios->autoPostRoomCharge($lockedStay->booking);
+            $this->bookings->updateBookingStayStatus($lockedStay->booking);
 
-            $this->bookings->updateBookingStayStatus($stay->booking);
-
-            return $stay->refresh();
+            return $lockedStay->refresh();
         });
     }
 
     public function checkOut(Stay $stay, CarbonInterface|string|null $actualCheckoutAt = null): Stay
     {
         return DB::transaction(function () use ($stay, $actualCheckoutAt): Stay {
-            $stay->update([
+            $lockedStay = Stay::whereKey($stay->id)->lockForUpdate()->firstOrFail();
+            $assignment = RoomAssignment::whereKey($lockedStay->room_assignment_id)->lockForUpdate()->firstOrFail();
+
+            if ($assignment->status !== AssignmentStatus::CheckedIn) {
+                throw ValidationException::withMessages([
+                    'stay' => 'Không thể trả phòng. Trạng thái phân phòng không hợp lệ.',
+                ]);
+            }
+
+            if ($lockedStay->actual_checkin_at === null) {
+                throw ValidationException::withMessages([
+                    'stay' => 'Chưa nhận phòng nên không thể trả phòng.',
+                ]);
+            }
+
+            if ($lockedStay->actual_checkout_at !== null) {
+                throw ValidationException::withMessages([
+                    'stay' => 'Phòng đã được trả phòng rồi.',
+                ]);
+            }
+
+            $lockedStay->update([
                 'actual_checkout_at' => $actualCheckoutAt ?? now(),
                 'status' => StayStatus::CheckedOut,
                 'checked_out_by' => Auth::id(),
             ]);
 
-            $stay->roomAssignment->update([
+            $assignment->update([
                 'status' => AssignmentStatus::CheckedOut,
             ]);
 
-            $this->bookings->updateBookingStayStatus($stay->booking);
+            $this->bookings->updateBookingStayStatus($lockedStay->booking);
 
-            return $stay->refresh();
+            return $lockedStay->refresh();
         });
     }
 

@@ -24,6 +24,7 @@ class RolePermissionSeeder extends Seeder
         'booking.cancel',
         'room.assign',
         'room.unassign',
+        'room_availability.view',
         'stay.checkin',
         'stay.checkout',
         'payment.create',
@@ -61,6 +62,7 @@ class RolePermissionSeeder extends Seeder
             'booking.cancel',
             'room.assign',
             'room.unassign',
+            'room_availability.view',
             'stay.checkin',
             'stay.checkout',
             'payment.create',
@@ -80,6 +82,7 @@ class RolePermissionSeeder extends Seeder
             'booking.create',
             'booking.update',
             'booking.cancel',
+            'room_availability.view',
             'report.view',
             'rates.manage',
         ]);
@@ -90,6 +93,7 @@ class RolePermissionSeeder extends Seeder
             'booking.cancel',
             'room.assign',
             'room.unassign',
+            'room_availability.view',
             'stay.checkin',
             'stay.checkout',
             'payment.create',
@@ -105,6 +109,7 @@ class RolePermissionSeeder extends Seeder
         ]);
 
         Role::findByName('ACCOUNTANT')->syncPermissions([
+            'room_availability.view',
             'payment.create',
             'folio.view',
             'report.view',

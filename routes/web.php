@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\Booking\BookingController;
+use App\Http\Controllers\Admin\RoomAvailabilityController;
 use App\Http\Controllers\Admin\Booking\BookingPaymentController;
 use App\Http\Controllers\Admin\Booking\BookingRequirementController;
 use App\Http\Controllers\Admin\Booking\FolioController;
@@ -41,6 +42,7 @@ Route::middleware('auth')->group(function (): void {
     Route::get('audit-logs', [AuditLogController::class, 'index'])->name('audit-logs.index');
 
     Route::prefix('admin')->name('admin.')->group(function (): void {
+        Route::get('room-availability', [RoomAvailabilityController::class, 'index'])->name('room-availability.index');
         Route::resource('bookings', BookingController::class)->except(['destroy']);
         Route::post('bookings/{booking}/cancel', [BookingController::class, 'cancel'])->name('bookings.cancel');
         Route::post('bookings/{booking}/restore', [BookingController::class, 'restore'])->name('bookings.restore');
@@ -55,6 +57,7 @@ Route::middleware('auth')->group(function (): void {
         Route::patch('bookings/{booking}/folio/entries/{entry}', [FolioEntryController::class, 'void'])->name('bookings.folio.entries.void');
         Route::post('bookings/{booking}/assignments', [RoomAssignmentController::class, 'store'])->name('bookings.assignments.store');
         Route::post('bookings/{booking}/assignments/{assignment}/release', [RoomAssignmentController::class, 'release'])->name('bookings.assignments.release');
+        Route::post('bookings/{booking}/room-board/conflict/{assignment}/release', [RoomAssignmentController::class, 'releaseConflict'])->name('bookings.room-board.conflict.release');
         Route::post('bookings/{booking}/stays/{stay}/check-in', [StayController::class, 'checkIn'])->name('bookings.stays.check-in');
         Route::post('bookings/{booking}/stays/{stay}/check-out', [StayController::class, 'checkOut'])->name('bookings.stays.check-out');
     });
