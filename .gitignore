@@ -13,3 +13,10 @@
 .phpunit.result.cache
 npm-debug.log
 yarn-error.log
+# Office documents
+docs/*.docx
+docs/*.pdf
+
+# Temporary Office files
+docs/~$*
+docs/*.tmp
