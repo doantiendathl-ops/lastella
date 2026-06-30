@@ -34,7 +34,7 @@ class FolioEntryController extends Controller
         $this->authorize('void', $entry);
         abort_unless($entry->folio?->booking_id === $booking->id, 403);
 
-        $this->folios->voidEntry($entry, $request->validated('void_reason'));
+        $this->folios->voidEntry($entry, $request->validated('void_reason'), $request->user());
 
         return redirect()
             ->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'payments'])

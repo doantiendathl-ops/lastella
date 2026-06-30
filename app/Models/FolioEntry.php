@@ -16,6 +16,7 @@ class FolioEntry extends Model
 
     protected $fillable = [
         'folio_id',
+        'posting_key',
         'charge_type',
         'description',
         'quantity',

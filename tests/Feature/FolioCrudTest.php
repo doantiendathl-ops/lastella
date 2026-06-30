@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\AuditAction;
+use App\Enums\BookingStatus;
 use App\Enums\BookingType;
 use App\Enums\ChargeType;
 use App\Enums\CustomerType;
@@ -59,7 +60,7 @@ class FolioCrudTest extends TestCase
         $booking = $this->createBooking();
 
         $folio = $booking->fresh()->folio;
-        $this->assertMatchesRegularExpression('/^FLO-\d{8}-\d{4}$/', $folio->folio_number);
+        $this->assertMatchesRegularExpression('/^FLO-\d{8}-\d{6}$/', $folio->folio_number);
     }
 
     public function test_admin_can_add_charge_to_open_folio(): void
@@ -72,7 +73,6 @@ class FolioCrudTest extends TestCase
             'description' => 'Minibar items',
             'quantity' => 2,
             'unit_price' => 50000,
-            'amount' => 100000,
             'entry_date' => now()->toDateString(),
         ])->assertRedirect();
 
@@ -150,7 +150,6 @@ class FolioCrudTest extends TestCase
                 'description' => 'Test',
                 'quantity' => 1,
                 'unit_price' => 100000,
-                'amount' => 100000,
                 'entry_date' => now()->toDateString(),
             ])
             ->assertRedirect("/admin/bookings/{$booking->id}?tab=payments")
@@ -163,14 +162,13 @@ class FolioCrudTest extends TestCase
         $booking = $this->createBooking();
         $folio = $booking->fresh()->folio;
 
-        app(FolioService::class)->closeFolio($folio);
+        app(FolioService::class)->closeFolio($folio, $this->admin);
 
         $this->post("/admin/bookings/{$booking->id}/folio/entries", [
             'charge_type' => ChargeType::Other->value,
             'description' => 'Test charge',
             'quantity' => 1,
             'unit_price' => 50000,
-            'amount' => 50000,
             'entry_date' => now()->toDateString(),
         ])->assertForbidden();
     }
@@ -196,7 +194,7 @@ class FolioCrudTest extends TestCase
         $booking = $this->createBooking();
         $folio = $booking->fresh()->folio;
 
-        app(FolioService::class)->closeFolio($folio);
+        app(FolioService::class)->closeFolio($folio, $this->admin);
 
         $this->patch("/admin/bookings/{$booking->id}/folio/reopen")
             ->assertRedirect();
@@ -212,7 +210,7 @@ class FolioCrudTest extends TestCase
 
         $booking = $this->createBooking();
         $folio = $booking->fresh()->folio;
-        app(FolioService::class)->closeFolio($folio);
+        app(FolioService::class)->closeFolio($folio, $this->admin);
 
         $this->patch("/admin/bookings/{$booking->id}/folio/reopen")
             ->assertForbidden();
@@ -230,7 +228,6 @@ class FolioCrudTest extends TestCase
             'description' => 'Beer',
             'quantity' => 1,
             'unit_price' => 30000,
-            'amount' => 30000,
             'entry_date' => now()->toDateString(),
         ])->assertRedirect();
 
@@ -333,7 +330,6 @@ class FolioCrudTest extends TestCase
             'description' => 'Extra towels',
             'quantity' => 1,
             'unit_price' => 20000,
-            'amount' => 20000,
             'entry_date' => now()->toDateString(),
         ])->assertRedirect();
 
@@ -356,9 +352,265 @@ class FolioCrudTest extends TestCase
             'description' => 'Test',
             'quantity' => 1,
             'unit_price' => 20000,
-            'amount' => 20000,
             'entry_date' => now()->toDateString(),
         ])->assertForbidden();
+    }
+
+    // ─── Phase 3.1A: new tests ───────────────────────────────────────────────
+
+    public function test_folio_has_currency_code_vnd(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+
+        $this->assertDatabaseHas('folios', [
+            'booking_id'    => $booking->id,
+            'currency_code' => 'VND',
+        ]);
+    }
+
+    public function test_amount_is_prohibited_in_store_entry_request(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+
+        $this->from("/admin/bookings/{$booking->id}?tab=payments")
+            ->post("/admin/bookings/{$booking->id}/folio/entries", [
+                'charge_type' => ChargeType::Other->value,
+                'description' => 'Test',
+                'quantity'    => 1,
+                'unit_price'  => 50000,
+                'amount'      => 50000,
+                'entry_date'  => now()->toDateString(),
+            ])
+            ->assertRedirect()
+            ->assertSessionHasErrors('amount');
+    }
+
+    public function test_posting_key_is_prohibited_in_store_entry_request(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+
+        $this->from("/admin/bookings/{$booking->id}?tab=payments")
+            ->post("/admin/bookings/{$booking->id}/folio/entries", [
+                'posting_key' => 'MANUAL_KEY',
+                'charge_type' => ChargeType::Other->value,
+                'description' => 'Test',
+                'quantity'    => 1,
+                'unit_price'  => 50000,
+                'entry_date'  => now()->toDateString(),
+            ])
+            ->assertRedirect()
+            ->assertSessionHasErrors('posting_key');
+    }
+
+    public function test_amount_is_computed_server_side_from_quantity_and_unit_price(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+
+        $this->post("/admin/bookings/{$booking->id}/folio/entries", [
+            'charge_type' => ChargeType::Other->value,
+            'description' => 'Laundry',
+            'quantity'    => 3,
+            'unit_price'  => 25000,
+            'entry_date'  => now()->toDateString(),
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('folio_entries', [
+            'folio_id' => $booking->fresh()->folio->id,
+            'amount'   => 75000,
+        ]);
+    }
+
+    public function test_new_entry_has_null_posting_key(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+
+        $this->post("/admin/bookings/{$booking->id}/folio/entries", [
+            'charge_type' => ChargeType::Other->value,
+            'description' => 'Breakfast',
+            'quantity'    => 1,
+            'unit_price'  => 45000,
+            'entry_date'  => now()->toDateString(),
+        ])->assertRedirect();
+
+        $entry = $booking->fresh()->folio->folioEntries->first();
+        $this->assertNull($entry->posting_key);
+    }
+
+    public function test_calculate_guarded_folio_total_returns_requirements_when_no_system_charge(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking(); // requirement: 1 × 800000
+
+        $service = app(FolioService::class);
+        $total   = $service->calculateGuardedFolioTotal($booking->fresh());
+
+        // No system room charge posted → falls back to requirements estimate
+        $this->assertEquals(800000.0, $total);
+    }
+
+    public function test_calculate_guarded_folio_total_uses_raw_sum_when_system_charge_posted(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+
+        $service = app(FolioService::class);
+        $service->autoPostRoomCharge($booking, $this->admin);
+
+        // Add a non-room charge
+        FolioEntry::factory()->create([
+            'folio_id' => $booking->fresh()->folio->id,
+            'amount'   => 50000,
+            'voided_at' => null,
+        ]);
+
+        $total = $service->calculateGuardedFolioTotal($booking->fresh());
+
+        // System charge posted → raw sum: 800000 + 50000
+        $this->assertEquals(850000.0, $total);
+    }
+
+    public function test_calculate_guarded_folio_total_returns_zero_for_voided_folio(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+
+        $folio = $booking->fresh()->folio;
+        $folio->update(['status' => FolioStatus::Voided]);
+
+        $total = app(FolioService::class)->calculateGuardedFolioTotal($booking->fresh());
+
+        $this->assertEquals(0.0, $total);
+    }
+
+    public function test_auto_post_room_charge_creates_entry_with_posting_key(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+
+        $service = app(FolioService::class);
+        $entry   = $service->autoPostRoomCharge($booking, $this->admin);
+
+        $this->assertNotNull($entry);
+        $this->assertSame("ROOM_CHARGE_{$booking->id}_AGGREGATE", $entry->posting_key);
+        $this->assertEquals('800000.00', $entry->amount);
+    }
+
+    public function test_auto_post_room_charge_is_idempotent(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+
+        $service = app(FolioService::class);
+        $service->autoPostRoomCharge($booking, $this->admin);
+        $service->autoPostRoomCharge($booking, $this->admin); // second call is a no-op
+
+        $count = FolioEntry::where('folio_id', $booking->fresh()->folio->id)
+            ->where('posting_key', "ROOM_CHARGE_{$booking->id}_AGGREGATE")
+            ->count();
+
+        $this->assertSame(1, $count);
+    }
+
+    public function test_auto_close_folio_is_idempotent_on_already_closed(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+        $folio   = $booking->fresh()->folio;
+
+        $service = app(FolioService::class);
+        $service->closeFolio($folio, $this->admin);
+
+        // Calling autoCloseFolio on an already-closed folio must not throw
+        $service->autoCloseFolio($folio->fresh(), $this->admin);
+
+        $this->assertSame(FolioStatus::Closed, $folio->fresh()->status);
+    }
+
+    public function test_void_folio_on_cancellation_with_no_entries_voids_folio(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+        $folio   = $booking->fresh()->folio;
+
+        app(FolioService::class)->voidFolioOnCancellation($folio);
+
+        $this->assertSame(FolioStatus::Voided, $folio->fresh()->status);
+    }
+
+    public function test_void_folio_on_cancellation_with_active_entries_leaves_folio_open(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+        $folio   = $booking->fresh()->folio;
+
+        FolioEntry::factory()->create(['folio_id' => $folio->id, 'voided_at' => null]);
+
+        $this->expectException(\App\Exceptions\FolioHasActiveEntriesException::class);
+
+        app(FolioService::class)->voidFolioOnCancellation($folio);
+
+        $this->assertSame(FolioStatus::Open, $folio->fresh()->status);
+    }
+
+    public function test_cancelled_booking_with_no_entries_voids_folio(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+
+        app(BookingService::class)->cancelBooking($booking, 'Guest changed plans');
+
+        $folio = $booking->fresh()->folio;
+        $this->assertSame(FolioStatus::Voided, $folio->status);
+    }
+
+    public function test_cancelled_booking_with_active_entries_blocks_cancellation(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+        $folio   = $booking->fresh()->folio;
+
+        FolioEntry::factory()->create(['folio_id' => $folio->id, 'voided_at' => null]);
+
+        $this->expectException(\App\Exceptions\FolioHasActiveEntriesException::class);
+
+        app(BookingService::class)->cancelBooking($booking, 'Test');
+
+        // Booking must remain in original status (transaction rolled back)
+        $this->assertNotSame(BookingStatus::Cancelled, $booking->fresh()->status);
+    }
+
+    public function test_update_requirement_is_locked_after_room_charge_posted(): void
+    {
+        $this->actingAs($this->admin);
+        $booking     = $this->createBooking();
+        $requirement = $booking->bookingRequirements->first();
+
+        // Post the aggregate room charge
+        app(FolioService::class)->autoPostRoomCharge($booking, $this->admin);
+
+        $this->expectException(\App\Exceptions\RequirementLockedAfterRoomChargeException::class);
+
+        app(BookingService::class)->updateRequirement($requirement, ['room_price' => 900000]);
+    }
+
+    public function test_folio_number_sequence_is_atomic_and_unique(): void
+    {
+        $this->actingAs($this->admin);
+
+        $booking1 = $this->createBooking(['customer_name' => 'Guest A']);
+        $booking2 = $this->createBooking(['customer_name' => 'Guest B']);
+
+        $num1 = $booking1->fresh()->folio->folio_number;
+        $num2 = $booking2->fresh()->folio->folio_number;
+
+        $this->assertNotSame($num1, $num2);
+        $this->assertMatchesRegularExpression('/^FLO-\d{8}-\d{6}$/', $num1);
+        $this->assertMatchesRegularExpression('/^FLO-\d{8}-\d{6}$/', $num2);
     }
 
     private function createBooking(array $overrides = []): Booking

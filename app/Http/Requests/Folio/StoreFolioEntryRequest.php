@@ -16,11 +16,12 @@ class StoreFolioEntryRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'posting_key' => ['prohibited'],
+            'amount'      => ['prohibited'],
             'charge_type' => ['required', Rule::in(array_map(fn (ChargeType $t): string => $t->value, ChargeType::cases()))],
             'description' => ['required', 'string', 'max:255'],
             'quantity'    => ['required', 'numeric', 'min:0.01'],
             'unit_price'  => ['required', 'numeric', 'min:0'],
-            'amount'      => ['required', 'numeric', 'min:0.01'],
             'entry_date'  => ['required', 'date'],
             'note'        => ['nullable', 'string'],
         ];

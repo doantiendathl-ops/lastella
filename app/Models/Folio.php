@@ -18,6 +18,7 @@ class Folio extends Model
     protected $fillable = [
         'booking_id',
         'folio_number',
+        'currency_code',
         'status',
         'note',
         'created_by',

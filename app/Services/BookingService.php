@@ -6,8 +6,10 @@ use App\Enums\AssignmentStatus;
 use App\Enums\BookingStatus;
 use App\Enums\PaymentType;
 use App\Enums\StayStatus;
+use App\Exceptions\RequirementLockedAfterRoomChargeException;
 use App\Models\Booking;
 use App\Models\BookingRequirement;
+use App\Models\FolioEntry;
 use App\Models\Room;
 use App\Models\RoomAssignment;
 use App\Models\Stay;
@@ -99,10 +101,31 @@ class BookingService
 
     public function updateRequirement(BookingRequirement $requirement, array $data): BookingRequirement
     {
-        $requirement->update($data);
-        $this->updateBookingAssignmentStatus($requirement->booking);
+        return DB::transaction(function () use ($requirement, $data): BookingRequirement {
+            $booking = $requirement->booking;
+            $folioId = $booking->folio?->id;
 
-        return $requirement->refresh()->load('roomType');
+            if ($folioId !== null) {
+                $postingKey = "ROOM_CHARGE_{$booking->id}_AGGREGATE";
+
+                // ADR-4: lockForUpdate makes the existence check and the requirement
+                // update atomic against doPostRoomCharge()'s INSERT. InnoDB places
+                // a gap lock when no entry exists, blocking any concurrent insert
+                // of the same posting_key until this transaction commits.
+                if (FolioEntry::where('folio_id', $folioId)
+                    ->where('posting_key', $postingKey)
+                    ->whereNull('voided_at')
+                    ->lockForUpdate()
+                    ->exists()) {
+                    throw new RequirementLockedAfterRoomChargeException();
+                }
+            }
+
+            $requirement->update($data);
+            $this->updateBookingAssignmentStatus($booking);
+
+            return $requirement->refresh()->load('roomType');
+        });
     }
 
     public function deleteRequirement(BookingRequirement $requirement): void
@@ -352,6 +375,14 @@ class BookingService
                 'cancellation_reason' => $reason,
                 'updated_by' => Auth::id(),
             ]);
+
+            // ADR-36: void the folio when booking is cancelled.
+            // If the folio has active entries, FolioHasActiveEntriesException is thrown
+            // and the entire transaction rolls back — the booking stays active.
+            $folio = $booking->folio;
+            if ($folio !== null) {
+                $this->folios->voidFolioOnCancellation($folio);
+            }
 
             return $booking->refresh();
         });

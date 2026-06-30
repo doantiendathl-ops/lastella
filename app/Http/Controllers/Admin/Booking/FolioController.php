@@ -20,7 +20,7 @@ class FolioController extends Controller
         abort_if($folio === null, 404);
         $this->authorize('close', $folio);
 
-        $this->folios->closeFolio($folio);
+        $this->folios->closeFolio($folio, $request->user());
 
         return redirect()
             ->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'payments'])
