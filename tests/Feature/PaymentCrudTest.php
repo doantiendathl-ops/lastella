@@ -229,20 +229,20 @@ class PaymentCrudTest extends TestCase
         $this->assertSame(BookingStatus::CheckedIn, $booking->fresh()->status);
     }
 
-    public function test_deposit_does_not_downgrade_checked_out_booking_status(): void
+    public function test_deposit_blocked_on_checked_out_booking(): void
     {
         $booking = $this->createBooking();
         $booking->update(['status' => BookingStatus::CheckedOut]);
 
         $this->actingAs($this->admin);
 
+        $this->expectException(\App\Exceptions\BookingTerminalException::class);
+
         app(BookingPaymentService::class)->addDeposit($booking, [
             'amount' => 500000,
             'payment_method' => PaymentMethod::Cash->value,
             'payment_at' => now()->toDateTimeString(),
         ]);
-
-        $this->assertSame(BookingStatus::CheckedOut, $booking->fresh()->status);
     }
 
     public function test_delete_payment_logs_audit_entry(): void

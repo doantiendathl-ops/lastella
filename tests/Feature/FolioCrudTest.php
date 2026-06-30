@@ -278,9 +278,9 @@ class FolioCrudTest extends TestCase
     {
         $this->actingAs($this->admin);
         $booking = $this->createBooking();
-        $folio = $booking->fresh()->folio;
 
-        FolioEntry::factory()->create(['folio_id' => $folio->id, 'amount' => 800000, 'voided_at' => null]);
+        // ADR-43: post room charge so calculateGuardedFolioTotal uses raw sum (not estimate + non-room).
+        app(FolioService::class)->autoPostRoomCharge($booking, $this->admin);
 
         $booking->bookingPayments()->create([
             'payment_type' => 'DEPOSIT',

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\ChargeType;
 use App\Enums\FolioStatus;
 use App\Exceptions\AlreadyVoidedException;
+use App\Exceptions\BookingTerminalException;
 use App\Exceptions\FolioClosedException;
 use App\Exceptions\FolioHasActiveEntriesException;
 use App\Exceptions\FolioNumberOverflowException;
@@ -37,6 +38,12 @@ class FolioService
         return DB::transaction(function () use ($folio, $data): FolioEntry {
             // ADR-12: lock folio row before state check and entry creation
             $locked = Folio::lockForUpdate()->findOrFail($folio->id);
+
+            // ADR-44: terminal guard fires before folio status check (§13.3).
+            $booking = Booking::find($locked->booking_id);
+            if ($booking !== null && $booking->status->isTerminal()) {
+                throw new BookingTerminalException();
+            }
 
             if ($locked->status === FolioStatus::Voided) {
                 throw new FolioVoidedException();
@@ -162,11 +169,21 @@ class FolioService
 
     public function reopenFolio(Folio $folio): void
     {
-        $folio->update([
-            'status'    => FolioStatus::Open,
-            'closed_at' => null,
-            'closed_by' => null,
-        ]);
+        DB::transaction(function () use ($folio): void {
+            $locked = Folio::lockForUpdate()->findOrFail($folio->id);
+
+            // ADR-44: terminal booking guard — reopen is not allowed on terminal bookings.
+            $booking = Booking::find($locked->booking_id);
+            if ($booking !== null && $booking->status->isTerminal()) {
+                throw new BookingTerminalException();
+            }
+
+            $locked->update([
+                'status'    => FolioStatus::Open,
+                'closed_at' => null,
+                'closed_by' => null,
+            ]);
+        });
     }
 
     /**
@@ -274,7 +291,7 @@ class FolioService
      * trigger auto-close when balance reaches zero after a payment.
      * Locking contract: caller must hold the Folio row lock before calling.
      */
-    public function autoCloseFolio(Folio $folio, User $closedBy): void
+    public function autoCloseFolio(Folio $folio, ?User $closedBy): void
     {
         if ($folio->status === FolioStatus::Closed) {
             return;
@@ -287,7 +304,7 @@ class FolioService
         $folio->update([
             'status'    => FolioStatus::Closed,
             'closed_at' => now(),
-            'closed_by' => $closedBy->id,
+            'closed_by' => $closedBy?->id ?? Auth::id(),
         ]);
     }
 

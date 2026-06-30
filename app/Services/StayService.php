@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\AssignmentStatus;
 use App\Enums\StayStatus;
+use App\Models\Booking;
 use App\Models\RoomAssignment;
 use App\Models\Stay;
 use Carbon\CarbonInterface;
@@ -39,8 +40,10 @@ class StayService
     public function checkIn(Stay $stay, CarbonInterface|string|null $actualCheckinAt = null): Stay
     {
         return DB::transaction(function () use ($stay, $actualCheckinAt): Stay {
-            $lockedStay = Stay::whereKey($stay->id)->lockForUpdate()->firstOrFail();
-            $assignment = RoomAssignment::whereKey($lockedStay->room_assignment_id)->lockForUpdate()->firstOrFail();
+            // ADR-38: Booking lock FIRST — canonical order: Booking → Stay → RoomAssignment.
+            $lockedBooking = Booking::whereKey($stay->booking_id)->lockForUpdate()->firstOrFail();
+            $lockedStay    = Stay::whereKey($stay->id)->lockForUpdate()->firstOrFail();
+            $assignment    = RoomAssignment::whereKey($lockedStay->room_assignment_id)->lockForUpdate()->firstOrFail();
 
             if ($assignment->status !== AssignmentStatus::Assigned) {
                 throw ValidationException::withMessages([
@@ -71,8 +74,8 @@ class StayService
                 'status' => AssignmentStatus::CheckedIn,
             ]);
 
-            $this->folios->autoPostRoomCharge($lockedStay->booking);
-            $this->bookings->updateBookingStayStatus($lockedStay->booking);
+            $this->folios->autoPostRoomCharge($lockedBooking);
+            $this->bookings->updateBookingStayStatus($lockedBooking);
 
             return $lockedStay->refresh();
         });
@@ -81,8 +84,10 @@ class StayService
     public function checkOut(Stay $stay, CarbonInterface|string|null $actualCheckoutAt = null): Stay
     {
         return DB::transaction(function () use ($stay, $actualCheckoutAt): Stay {
-            $lockedStay = Stay::whereKey($stay->id)->lockForUpdate()->firstOrFail();
-            $assignment = RoomAssignment::whereKey($lockedStay->room_assignment_id)->lockForUpdate()->firstOrFail();
+            // ADR-38: Booking lock FIRST — canonical order: Booking → Stay → RoomAssignment.
+            $lockedBooking = Booking::whereKey($stay->booking_id)->lockForUpdate()->firstOrFail();
+            $lockedStay    = Stay::whereKey($stay->id)->lockForUpdate()->firstOrFail();
+            $assignment    = RoomAssignment::whereKey($lockedStay->room_assignment_id)->lockForUpdate()->firstOrFail();
 
             if ($assignment->status !== AssignmentStatus::CheckedIn) {
                 throw ValidationException::withMessages([
@@ -104,15 +109,25 @@ class StayService
 
             $lockedStay->update([
                 'actual_checkout_at' => $actualCheckoutAt ?? now(),
-                'status' => StayStatus::CheckedOut,
-                'checked_out_by' => Auth::id(),
+                'status'             => StayStatus::CheckedOut,
+                'checked_out_by'     => Auth::id(),
             ]);
 
             $assignment->update([
                 'status' => AssignmentStatus::CheckedOut,
             ]);
 
-            $this->bookings->updateBookingStayStatus($lockedStay->booking);
+            // ADR-49: Active stay = Reserved OR CheckedIn (own DML visible within transaction).
+            $remainingActive = Stay::where('booking_id', $lockedBooking->id)
+                ->whereIn('status', [StayStatus::Reserved, StayStatus::CheckedIn])
+                ->count();
+
+            if ($remainingActive === 0) {
+                // ADR-48: finalise runs inside caller's transaction; Booking lock already held.
+                $this->bookings->finaliseBookingCheckout($lockedBooking);
+            } else {
+                $this->bookings->updateBookingStayStatus($lockedBooking);
+            }
 
             return $lockedStay->refresh();
         });

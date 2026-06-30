@@ -6,13 +6,17 @@ use App\Enums\AssignmentStatus;
 use App\Enums\BookingStatus;
 use App\Enums\PaymentType;
 use App\Enums\StayStatus;
+use App\Exceptions\OutstandingBalanceException;
 use App\Exceptions\RequirementLockedAfterRoomChargeException;
 use App\Models\Booking;
+use App\Models\BookingPayment;
 use App\Models\BookingRequirement;
+use App\Models\Folio;
 use App\Models\FolioEntry;
 use App\Models\Room;
 use App\Models\RoomAssignment;
 use App\Models\Stay;
+use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Arr;
@@ -482,16 +486,16 @@ class BookingService
             return $booking;
         }
 
-        $checkedIn = $stays->where('status', StayStatus::CheckedIn)->count();
+        $checkedIn  = $stays->where('status', StayStatus::CheckedIn)->count();
         $checkedOut = $stays->where('status', StayStatus::CheckedOut)->count();
-        $remainingBalance = $this->paymentSummary($booking)['remaining_balance'];
 
+        // ADR-39: CheckedOut transition is handled exclusively by finaliseBookingCheckout.
+        // updateBookingStayStatus only drives intermediate transitions.
         $status = match (true) {
-            $checkedOut === $total && $remainingBalance <= 0 => BookingStatus::CheckedOut,
-            $checkedOut > 0 => BookingStatus::PartiallyCheckedOut,
+            $checkedOut > 0       => BookingStatus::PartiallyCheckedOut,
             $checkedIn === $total => BookingStatus::CheckedIn,
-            $checkedIn > 0 => BookingStatus::PartiallyCheckedIn,
-            default => $booking->status,
+            $checkedIn > 0        => BookingStatus::PartiallyCheckedIn,
+            default               => $booking->status,
         };
 
         $booking->update([
@@ -502,20 +506,72 @@ class BookingService
         return $booking->refresh();
     }
 
+    /**
+     * ADR-39/ADR-48: MUST be called within an existing DB::transaction. Does NOT open its own.
+     * ADR-48: Caller MUST hold Booking::lockForUpdate() on $booking before calling.
+     * ADR-40: Outstanding balance throws OutstandingBalanceException and rolls back the entire transaction.
+     * ADR-41: Folio is auto-closed atomically; caller acquires Folio lock here.
+     * ADR-42: autoPostRoomCharge() is idempotent — no-op if already posted.
+     * ADR-43: calculateGuardedFolioTotal() used for all balance decisions.
+     */
+    public function finaliseBookingCheckout(Booking $booking, ?User $user = null): void
+    {
+        /** @var User|null $actingUser */
+        $actingUser = $user ?? Auth::user();
+
+        // ADR-42: idempotent guard — no-op if room charge already posted.
+        $this->folios->autoPostRoomCharge($booking, $actingUser);
+
+        $folio = $booking->folio()->first();
+
+        if ($folio !== null) {
+            // ADR-48: canonical lock order — Booking (held by caller) → Folio.
+            $lockedFolio = Folio::lockForUpdate()->findOrFail($folio->id);
+
+            // ADR-43: authoritative total for balance decision.
+            $totalCharges = $this->folios->calculateGuardedFolioTotal($booking);
+
+            // ADR-46: current read of all payments under lock — serialises against concurrent INSERT (OI-7).
+            $payments = BookingPayment::where('booking_id', $booking->id)
+                ->lockForUpdate()
+                ->get(['payment_type', 'amount']);
+
+            $paidTotal = 0.0;
+            foreach ($payments as $payment) {
+                $paidTotal += match ($payment->payment_type) {
+                    PaymentType::Deposit,
+                    PaymentType::AdditionalDeposit,
+                    PaymentType::RoomPayment,
+                    PaymentType::ServicePayment,
+                    PaymentType::Adjustment => (float) $payment->amount,
+                    PaymentType::Refund     => -1.0 * (float) $payment->amount,
+                };
+            }
+
+            $balanceDue = (float) bcsub((string) $totalCharges, (string) $paidTotal, 2);
+
+            // ADR-40: outstanding balance is a hard block — throws and rolls back checkout.
+            if ($balanceDue > 0) {
+                throw new OutstandingBalanceException($balanceDue);
+            }
+
+            // ADR-41: auto-close folio atomically under the Folio lock already acquired.
+            $this->folios->autoCloseFolio($lockedFolio, $actingUser);
+        }
+
+        // Terminal status — Booking lock already held by caller (ADR-48).
+        $booking->update([
+            'status'     => BookingStatus::CheckedOut,
+            'updated_by' => $actingUser?->id ?? Auth::id(),
+        ]);
+    }
+
     public function paymentSummary(Booking $booking): array
     {
-        $requirements = $booking->bookingRequirements()->get(['room_price', 'quantity']);
-        $payments     = $booking->bookingPayments()->get(['payment_type', 'amount']);
+        $payments = $booking->bookingPayments()->get(['payment_type', 'amount']);
 
-        $requirementsTotal = (float) $requirements->sum(
-            fn (BookingRequirement $requirement): float => (float) $requirement->room_price * (int) $requirement->quantity,
-        );
-
-        $folioTotal = $this->folios->getFolioTotal($booking);
-
-        // Transition guard: use folio total when charges have been posted; fall back to
-        // requirements total for bookings that have not yet had a room charge posted.
-        $totalCharges = $folioTotal > 0.0 ? $folioTotal : $requirementsTotal;
+        // ADR-43: use calculateGuardedFolioTotal for all balance decisions.
+        $totalCharges = $this->folios->calculateGuardedFolioTotal($booking);
 
         $totalDeposit    = 0.0;
         $totalPayment    = 0.0;

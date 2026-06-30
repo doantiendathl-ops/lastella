@@ -25,6 +25,7 @@ use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoomSeeder;
 use Database\Seeders\RoomTypeSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use App\Exceptions\OutstandingBalanceException;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
@@ -280,9 +281,10 @@ class BookingEngineFoundationTest extends TestCase
 
         $stayService = app(StayService::class);
         $checkedIn = $stayService->checkIn($stay, '2026-07-01 15:00:00');
-        $stayService->checkOut($checkedIn, '2026-07-02 11:00:00');
 
-        $this->assertSame(BookingStatus::PartiallyCheckedOut, $assignment->booking->refresh()->status);
+        // ADR-40: outstanding balance blocks checkout — transaction rolls back entirely.
+        $this->expectException(OutstandingBalanceException::class);
+        $stayService->checkOut($checkedIn, '2026-07-02 11:00:00');
     }
 
     public function test_assigning_conflicting_room_throws_validation_exception(): void

@@ -774,6 +774,7 @@ class BookingManagementUiTest extends TestCase
         $stay = Stay::where('room_assignment_id', $assignment->id)->firstOrFail();
 
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-in")->assertRedirect();
+        $this->payInFull($booking);
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out")->assertRedirect();
 
         $this->assertSame(StayStatus::CheckedOut, $stay->refresh()->status);
@@ -894,6 +895,17 @@ class BookingManagementUiTest extends TestCase
             $booking,
             RoomAssignment::where('booking_id', $booking->id)->where('room_id', $room->id)->firstOrFail(),
         ];
+    }
+
+    private function payInFull(Booking $booking, int $amount = 1800): void
+    {
+        $booking->bookingPayments()->create([
+            'payment_type' => PaymentType::RoomPayment,
+            'amount'       => $amount,
+            'payment_method' => PaymentMethod::Cash->value,
+            'payment_at'   => now(),
+            'confirmed_by' => $this->admin->id,
+        ]);
     }
 
     private function createBooking(array $overrides = [], bool $withRequirements = true): Booking
@@ -1912,6 +1924,7 @@ class BookingManagementUiTest extends TestCase
 
         $stay = Stay::where('room_assignment_id', $assignment->id)->firstOrFail();
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-in")->assertRedirect();
+        $this->payInFull($booking);
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out")->assertRedirect();
 
         $this->post("/admin/bookings/{$booking->id}/assignments/{$assignment->id}/release", [])
@@ -1950,6 +1963,7 @@ class BookingManagementUiTest extends TestCase
 
         $stay = Stay::where('room_assignment_id', $assignment->id)->firstOrFail();
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-in")->assertRedirect();
+        $this->payInFull($booking);
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out")->assertRedirect();
 
         $this->get("/admin/bookings/{$booking->id}")
@@ -2074,6 +2088,7 @@ class BookingManagementUiTest extends TestCase
         $stay = Stay::where('room_assignment_id', $assignment->id)->firstOrFail();
 
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-in")->assertRedirect();
+        $this->payInFull($booking);
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out")->assertRedirect();
 
         // Attempt a second check-in after checkout.
@@ -2090,6 +2105,7 @@ class BookingManagementUiTest extends TestCase
         $stay = Stay::where('room_assignment_id', $assignment->id)->firstOrFail();
 
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-in")->assertRedirect();
+        $this->payInFull($booking);
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out")->assertRedirect();
 
         // Attempt a second checkout.
@@ -2373,6 +2389,7 @@ class BookingManagementUiTest extends TestCase
         $stay = Stay::where('room_assignment_id', $assignment->id)->firstOrFail();
 
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-in")->assertRedirect();
+        $this->payInFull($booking);
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out")->assertRedirect();
 
         $this->get("/admin/bookings/{$booking->id}?tab=room_map")
@@ -2489,6 +2506,7 @@ class BookingManagementUiTest extends TestCase
         $stay = Stay::where('room_assignment_id', $assignment->id)->firstOrFail();
 
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-in")->assertRedirect();
+        $this->payInFull($booking);
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out")->assertRedirect();
 
         $this->assertSame(StayStatus::CheckedOut, $stay->refresh()->status);
