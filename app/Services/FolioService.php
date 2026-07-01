@@ -10,6 +10,7 @@ use App\Exceptions\FolioClosedException;
 use App\Exceptions\FolioHasActiveEntriesException;
 use App\Exceptions\FolioNumberOverflowException;
 use App\Exceptions\FolioVoidedException;
+use App\Exceptions\SystemEntryVoidException;
 use App\Models\Booking;
 use App\Models\Folio;
 use App\Models\FolioEntry;
@@ -67,6 +68,12 @@ class FolioService
 
     public function voidEntry(FolioEntry $entry, string $reason, User $voidedBy): void
     {
+        // ADR-50: system entries are a domain invariant — never voidable by anyone.
+        // posting_key is immutable after creation — safe to read without a lock.
+        if ($entry->posting_key !== null) {
+            throw new SystemEntryVoidException();
+        }
+
         DB::transaction(function () use ($entry, $reason, $voidedBy): void {
             // ADR-12 canonical lock order: Folio before FolioEntry.
             // Lock Folio first to get a fresh (non-stale) status and to prevent

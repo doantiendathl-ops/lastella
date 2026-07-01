@@ -21,6 +21,6 @@ class AlreadyVoidedException extends RuntimeException
 
     public function render(): RedirectResponse
     {
-        return back()->withErrors(['entry' => $this->getMessage()]);
+        return back()->with('error', $this->getMessage());
     }
 }

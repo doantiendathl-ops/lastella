@@ -505,7 +505,7 @@ class BookingController extends Controller
             'folio_number' => $folio->folio_number,
             'status'       => $folio->status?->value,
             'can_close'    => request()->user()?->can('close', $folio) ?? false,
-            'can_reopen'   => request()->user()?->can('reopen', $folio) ?? false,
+            'can_reopen'   => (request()->user()?->can('reopen', $folio) ?? false) && ! $booking->status->isTerminal(),
             'entries'      => $folio->folioEntries->map(fn ($entry): array => [
                 'id'                => $entry->id,
                 'charge_type'       => $entry->charge_type?->value,
@@ -520,6 +520,7 @@ class BookingController extends Controller
                 'voided_by'         => $entry->voidedBy?->name,
                 'void_reason'       => $entry->void_reason,
                 'is_voided'         => $entry->voided_at !== null,
+                'is_system_entry'   => $entry->posting_key !== null,
                 'can_void'          => request()->user()?->can('void', $entry) ?? false,
             ])->values(),
         ];

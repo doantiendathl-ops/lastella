@@ -118,9 +118,10 @@ class FolioCrudTest extends TestCase
             'folio_id' => $folio->id,
         ]);
 
+        // Wave 2: AlreadyVoidedException::render() uses with('error', ...) not withErrors()
         $this->patch("/admin/bookings/{$booking->id}/folio/entries/{$entry->id}", [
             'void_reason' => 'Trying to void again',
-        ])->assertSessionHasErrors();
+        ])->assertSessionHas('error');
     }
 
     public function test_void_requires_reason_of_at_least_5_chars(): void

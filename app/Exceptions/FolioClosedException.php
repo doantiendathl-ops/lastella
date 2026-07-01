@@ -22,6 +22,6 @@ class FolioClosedException extends RuntimeException
 
     public function render(): RedirectResponse
     {
-        return back()->withErrors(['folio' => $this->getMessage()]);
+        return back()->with('error', $this->getMessage());
     }
 }

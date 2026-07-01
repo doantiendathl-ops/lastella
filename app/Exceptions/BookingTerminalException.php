@@ -22,6 +22,6 @@ class BookingTerminalException extends RuntimeException
 
     public function render(): RedirectResponse
     {
-        return back()->withErrors(['booking' => $this->getMessage()]);
+        return back()->with('error', $this->getMessage());
     }
 }

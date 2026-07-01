@@ -1,8 +1,10 @@
-<script setup>
+﻿<script setup>
 import AppLayout from '@/Layouts/AppLayout.vue';
+import FolioPanel from './Partials/FolioPanel.vue';
+import RoomBoardPanel from './Partials/RoomBoardPanel.vue';
 import { labelFor } from '@/Support/vietnameseLabels';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
-import { Banknote, BedDouble, CheckCircle, Eye, LogIn, LogOut, Pencil, Plus, RotateCcw, Trash2, Unlock, X, XCircle } from 'lucide-vue-next';
+import { BedDouble, CheckCircle, Eye, Pencil, Plus, RotateCcw, Trash2, X, XCircle } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 
 const props = defineProps({
@@ -18,10 +20,6 @@ const props = defineProps({
 const tab = ref(props.activeTab);
 const editingRequirementId = ref(null);
 const showCancelModal = ref(false);
-const showAddChargeForm = ref(false);
-const showVoidModal = ref(false);
-const voidingEntry = ref(null);
-const voidReasonInput = ref('');
 const selectedRoomIds = ref([]);
 const showConflictPanel = ref(false);
 const conflictPanelRoom = ref(null);
@@ -72,24 +70,9 @@ const emptyRequirement = () => ({
 
 const requirementForm = useForm(emptyRequirement());
 const editRequirementForm = useForm(emptyRequirement());
-const paymentForm = useForm({
-    payment_type: 'DEPOSIT',
-    amount: '',
-    payment_method: 'CASH',
-    payment_at: nowLocal(),
-    note: '',
-});
 const cancelForm = useForm({
     booking_code_confirmation: '',
     cancellation_reason: '',
-});
-const chargeForm = useForm({
-    charge_type: 'OTHER',
-    description: '',
-    quantity: 1,
-    unit_price: 0,
-    entry_date: new Date().toISOString().slice(0, 10),
-    amount: 0,
 });
 const assignmentForm = useForm({
     room_ids: [],
@@ -133,19 +116,6 @@ const deleteRequirement = (requirement) => {
     }
 
     router.delete(`/admin/bookings/${props.booking.id}/requirements/${requirement.id}`, { preserveScroll: true });
-};
-
-const submitPayment = () => {
-    paymentForm.post(`/admin/bookings/${props.booking.id}/payments`, {
-        preserveScroll: true,
-        onSuccess: () => paymentForm.defaults({
-            payment_type: 'DEPOSIT',
-            amount: '',
-            payment_method: 'CASH',
-            payment_at: nowLocal(),
-            note: '',
-        }).reset(),
-    });
 };
 
 const allBoardRooms = computed(() => props.roomBoard.floors?.flatMap((floor) => floor.rooms ?? []) ?? []);
@@ -504,19 +474,6 @@ const handleGlobalEsc = (event) => {
 onMounted(() => document.addEventListener('keydown', handleGlobalEsc));
 onBeforeUnmount(() => document.removeEventListener('keydown', handleGlobalEsc));
 
-const checkIn = (stay) => router.post(`/admin/bookings/${props.booking.id}/stays/${stay.id}/check-in`, {}, { preserveScroll: true });
-
-const checkoutWarningStay = ref(null);
-
-const checkOut = (stay) => {
-    const balance = props.booking.payment_summary?.balance_due ?? 0;
-    if (balance > 0) {
-        checkoutWarningStay.value = stay;
-        return;
-    }
-    router.post(`/admin/bookings/${props.booking.id}/stays/${stay.id}/check-out`, {}, { preserveScroll: true });
-};
-
 const releaseAll = () => {
     const releasable = props.booking.assignments.filter((a) => !a.is_released && a.can_release);
     if (!releasable.length) return;
@@ -530,47 +487,6 @@ const releaseAll = () => {
         );
     };
     doNext(0);
-};
-
-const checkInAll = () => {
-    const stays = activeStays.value.filter((s) => s.can_check_in);
-    if (!stays.length) return;
-    const doNext = (i) => {
-        if (i >= stays.length) return;
-        router.post(
-            `/admin/bookings/${props.booking.id}/stays/${stays[i].id}/check-in`,
-            {},
-            { preserveScroll: true, onSuccess: () => doNext(i + 1) },
-        );
-    };
-    doNext(0);
-};
-
-const checkOutAll = () => {
-    const stays = activeStays.value.filter((s) => s.can_check_out);
-    if (!stays.length) return;
-    const balance = props.booking.payment_summary?.balance_due ?? 0;
-    if (balance > 0 && !window.confirm(`Booking còn nợ. Vẫn trả tất cả phòng?`)) return;
-    const doNext = (i) => {
-        if (i >= stays.length) return;
-        router.post(
-            `/admin/bookings/${props.booking.id}/stays/${stays[i].id}/check-out`,
-            {},
-            { preserveScroll: true, onSuccess: () => doNext(i + 1) },
-        );
-    };
-    doNext(0);
-};
-
-const closeCheckoutWarning = () => {
-    checkoutWarningStay.value = null;
-};
-
-const confirmCheckoutWithWarning = () => {
-    if (!checkoutWarningStay.value) return;
-    const stayId = checkoutWarningStay.value.id;
-    checkoutWarningStay.value = null;
-    router.post(`/admin/bookings/${props.booking.id}/stays/${stayId}/check-out`, {}, { preserveScroll: true });
 };
 
 const canConfirmCancel = computed(() => cancelForm.booking_code_confirmation === props.booking.booking_code
@@ -605,20 +521,14 @@ const submitCancel = () => {
 
 const restoreBooking = () => router.post(`/admin/bookings/${props.booking.id}/restore`, {}, { preserveScroll: true });
 
-const deletePayment = (payment) => {
-    if (!window.confirm('Bạn có chắc muốn xóa giao dịch này? Hành động không thể hoàn tác.')) {
-        return;
-    }
-
-    router.delete(`/admin/bookings/${props.booking.id}/payments/${payment.id}`, { preserveScroll: true });
-};
-
 const visibleAssignments = computed(() => {
     if (showAssignmentHistory.value) return props.booking.assignments;
     return props.booking.assignments.filter((a) => !a.is_released);
 });
 
-const activeStays = computed(() => (props.booking.stays ?? []).filter((stay) => stay.status !== 'CANCELLED' && !stay.is_released));
+const hasActiveStays = computed(() =>
+    (props.booking.stays ?? []).some((stay) => stay.status !== 'CANCELLED' && !stay.is_released)
+);
 
 const roomTypeCapacity = {
     DOUBLE: { adults: 2, childrenUnder6: 2 },
@@ -660,76 +570,6 @@ const capacityWarning = computed(() => {
         isSufficient,
     };
 });
-
-const chargeBreakdown = computed(() => {
-    const entries = props.booking.folio?.entries ?? [];
-    const totals = {};
-    for (const entry of entries) {
-        if (entry.is_voided) continue;
-        const key = entry.charge_type_label ?? entry.charge_type;
-        totals[key] = (totals[key] ?? 0) + Number(entry.amount);
-    }
-    return Object.entries(totals).map(([label, amount]) => ({ label, amount }));
-});
-
-const roomChargeBreakdown = computed(() => {
-    const lines = (props.booking.requirements ?? [])
-        .filter((r) => Number(r.quantity) > 0)
-        .map((r) => ({
-            room_type: r.room_type ?? '—',
-            quantity: Number(r.quantity),
-            unit_price: Number(r.room_price),
-            subtotal: Number(r.room_price) * Number(r.quantity),
-        }));
-    const total = lines.reduce((sum, l) => sum + l.subtotal, 0);
-    return { lines, total };
-});
-
-const chargeFormTotal = computed(() => (parseFloat(chargeForm.quantity) || 0) * (parseFloat(chargeForm.unit_price) || 0));
-
-const submitCharge = () => {
-    chargeForm.amount = chargeFormTotal.value;
-    chargeForm.post(`/admin/bookings/${props.booking.id}/folio/entries`, {
-        preserveScroll: true,
-        onSuccess: () => {
-            showAddChargeForm.value = false;
-            chargeForm.reset();
-        },
-    });
-};
-
-const openVoidModal = (entry) => {
-    voidingEntry.value = entry;
-    voidReasonInput.value = '';
-    showVoidModal.value = true;
-};
-
-const closeVoidModal = () => {
-    showVoidModal.value = false;
-    voidingEntry.value = null;
-    voidReasonInput.value = '';
-};
-
-const confirmVoid = () => {
-    if (!voidingEntry.value || voidReasonInput.value.trim().length < 5) return;
-    router.patch(
-        `/admin/bookings/${props.booking.id}/folio/entries/${voidingEntry.value.id}`,
-        { void_reason: voidReasonInput.value },
-        { preserveScroll: true, onSuccess: closeVoidModal },
-    );
-};
-
-const closeFolio = () => {
-    if (!window.confirm('Đóng folio này? Sau khi đóng, không thể thêm phí mới.')) return;
-    router.patch(`/admin/bookings/${props.booking.id}/folio/close`, {}, { preserveScroll: true });
-};
-
-const reopenFolio = () => {
-    if (!window.confirm('Mở lại folio này?')) return;
-    router.patch(`/admin/bookings/${props.booking.id}/folio/reopen`, {}, { preserveScroll: true });
-};
-
-const folioStatusLabel = (status) => ({ OPEN: 'Đang mở', CLOSED: 'Đã đóng', VOIDED: 'Đã hủy' }[status] ?? status);
 
 const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-transparent text-steel hover:text-ink';
 </script>
@@ -967,304 +807,19 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                 </div>
             </div>
 
-            <div v-if="tab === 'payments'" class="space-y-5 p-5">
-                <!-- Room assignment mismatch warning -->
-                <div v-if="booking.room_assignment_mismatch?.has_mismatch" class="border border-amber-300 bg-amber-50 p-4">
-                    <div class="flex items-start gap-3">
-                        <span class="shrink-0 text-lg leading-none">⚠️</span>
-                        <div class="flex-1 min-w-0">
-                            <p class="text-sm font-semibold text-amber-800">Cảnh báo: Nhu cầu phòng và phòng đã gán chưa khớp. Vui lòng kiểm tra trước khi thu tiền.</p>
-                            <ul class="mt-2 space-y-1">
-                                <li v-for="item in booking.room_assignment_mismatch.items" :key="item.room_type_id" class="text-xs text-amber-700">
-                                    <span class="font-semibold">{{ item.room_type_name }}:</span>
-                                    Cần {{ item.required_quantity }}, đã gán {{ item.assigned_quantity }} —
-                                    <span v-if="item.status === 'missing'">còn thiếu {{ Math.abs(item.difference) }}</span>
-                                    <span v-else>gán vượt {{ item.difference }}</span>
-                                </li>
-                            </ul>
-                            <div class="mt-3 flex gap-4">
-                                <button type="button" class="text-xs font-semibold text-amber-800 underline underline-offset-2" @click="tab = 'room_map'">Xem sơ đồ phòng</button>
-                                <button type="button" class="text-xs font-semibold text-amber-800 underline underline-offset-2" @click="tab = 'info'">Xem thông tin booking</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Financial Summary Cards -->
-                <div class="grid gap-3 md:grid-cols-3">
-                    <div class="border border-gray-100 p-4">
-                        <div class="text-xs uppercase tracking-wide text-steel">Tổng phí phát sinh</div>
-                        <div class="mt-2 text-lg font-semibold">{{ formatCurrency(booking.payment_summary.total_charges) }}</div>
-                    </div>
-                    <div class="border border-gray-100 p-4">
-                        <div class="text-xs uppercase tracking-wide text-steel">Đã thu</div>
-                        <div class="mt-2 text-lg font-semibold">{{ formatCurrency(booking.payment_summary.paid_total) }}</div>
-                    </div>
-                    <div class="border border-gray-100 p-4">
-                        <div class="text-xs uppercase tracking-wide text-steel">Còn lại</div>
-                        <div class="mt-2 text-lg font-semibold" :class="booking.payment_summary.balance_due > 0 ? 'text-coral' : 'text-pine'">{{ formatCurrency(booking.payment_summary.balance_due) }}</div>
-                    </div>
-                </div>
-
-                <!-- Room charge breakdown table -->
-                <div v-if="roomChargeBreakdown.lines.length" class="border border-gray-100">
-                    <div class="border-b border-gray-100 bg-gray-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-steel">Tiền phòng</div>
-                    <table class="min-w-full text-sm">
-                        <thead>
-                            <tr class="border-b border-gray-100 text-xs uppercase tracking-wide text-steel">
-                                <th class="px-4 py-2 text-left font-medium">Loại phòng</th>
-                                <th class="px-4 py-2 text-right font-medium">Đơn giá</th>
-                                <th class="px-4 py-2 text-right font-medium">Số phòng</th>
-                                <th class="px-4 py-2 text-right font-medium">Thành tiền</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-50">
-                            <tr v-for="line in roomChargeBreakdown.lines" :key="line.room_type">
-                                <td class="px-4 py-2 font-medium">{{ line.room_type }}</td>
-                                <td class="px-4 py-2 text-right text-steel">{{ formatCurrency(line.unit_price) }}</td>
-                                <td class="px-4 py-2 text-right text-steel">{{ line.quantity }}</td>
-                                <td class="px-4 py-2 text-right font-semibold">{{ formatCurrency(line.subtotal) }}</td>
-                            </tr>
-                        </tbody>
-                        <tfoot>
-                            <tr class="border-t border-gray-200 bg-gray-50">
-                                <td colspan="3" class="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-steel">Tổng tiền phòng</td>
-                                <td class="px-4 py-2 text-right text-base font-bold text-ink">{{ formatCurrency(roomChargeBreakdown.total) }}</td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                </div>
-
-                <!-- Charge type breakdown chips -->
-                <div v-if="chargeBreakdown.length" class="flex flex-wrap gap-2 border border-gray-100 p-3">
-                    <span v-for="item in chargeBreakdown" :key="item.label" class="inline-flex items-center gap-1.5 border border-gray-200 bg-gray-50 px-2 py-1 text-xs">
-                        <span class="font-medium">{{ item.label }}</span>
-                        <span class="text-steel">{{ formatCurrency(item.amount) }}</span>
-                    </span>
-                </div>
-
-                <!-- Payment type breakdown row -->
-                <div class="grid grid-cols-2 gap-2 border border-gray-100 p-3 text-sm md:grid-cols-4">
-                    <div>
-                        <div class="text-xs text-steel">Đặt cọc</div>
-                        <div class="mt-1 font-semibold">{{ formatCurrency(booking.payment_summary.total_deposit) }}</div>
-                    </div>
-                    <div>
-                        <div class="text-xs text-steel">Thanh toán</div>
-                        <div class="mt-1 font-semibold">{{ formatCurrency(booking.payment_summary.total_payment) }}</div>
-                    </div>
-                    <div>
-                        <div class="text-xs text-steel">Hoàn tiền</div>
-                        <div class="mt-1 font-semibold" :class="booking.payment_summary.total_refund > 0 ? 'text-coral' : ''">{{ booking.payment_summary.total_refund > 0 ? '−' : '' }}{{ formatCurrency(booking.payment_summary.total_refund) }}</div>
-                    </div>
-                    <div>
-                        <div class="text-xs text-steel">Điều chỉnh</div>
-                        <div class="mt-1 font-semibold">{{ formatCurrency(booking.payment_summary.total_adjustment) }}</div>
-                    </div>
-                </div>
-
-                <!-- Charges section -->
-                <div class="space-y-3">
-                    <div class="flex items-center justify-between">
-                        <h3 class="text-sm font-semibold uppercase tracking-wide text-steel">Phí phát sinh</h3>
-                        <button
-                            v-if="can.createCharge && booking.folio?.status === 'OPEN'"
-                            type="button"
-                            class="inline-flex items-center gap-1 border border-gray-300 px-3 py-1.5 text-xs font-semibold text-steel hover:border-pine hover:text-pine"
-                            @click="showAddChargeForm = !showAddChargeForm"
-                        >
-                            <Plus class="h-3.5 w-3.5" />
-                            Thêm phí
-                        </button>
-                    </div>
-
-                    <!-- Add Charge inline form -->
-                    <form v-if="showAddChargeForm && can.createCharge" class="grid gap-3 border border-gray-100 p-4 md:grid-cols-5" @submit.prevent="submitCharge">
-                        <div>
-                            <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Loại phí</label>
-                            <select v-model="chargeForm.charge_type" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
-                                <option v-for="type in options.chargeTypes" :key="type.value" :value="type.value">{{ type.label }}</option>
-                            </select>
-                        </div>
-                        <div class="md:col-span-2">
-                            <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Mô tả</label>
-                            <input v-model="chargeForm.description" type="text" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Số lượng</label>
-                            <input v-model="chargeForm.quantity" type="number" min="0.01" step="0.01" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Đơn giá</label>
-                            <input v-model="chargeForm.unit_price" type="number" min="0" step="0.01" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Ngày phát sinh</label>
-                            <input v-model="chargeForm.entry_date" type="date" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
-                        </div>
-                        <div class="flex items-end gap-2">
-                            <div class="mr-auto text-sm">
-                                <div class="text-xs text-steel">Thành tiền</div>
-                                <div class="font-semibold">{{ formatCurrency(chargeFormTotal) }}</div>
-                            </div>
-                            <button type="button" class="border border-gray-300 px-3 py-2 text-sm font-semibold text-steel hover:text-ink" @click="showAddChargeForm = false">Hủy</button>
-                            <button type="submit" class="inline-flex items-center gap-2 bg-pine px-3 py-2 text-sm font-semibold text-white disabled:bg-gray-300" :disabled="chargeForm.processing">
-                                <Plus class="h-4 w-4" />
-                                Thêm
-                            </button>
-                        </div>
-                        <p v-if="Object.keys(chargeForm.errors).length" class="md:col-span-5 text-sm text-coral">{{ Object.values(chargeForm.errors)[0] }}</p>
-                    </form>
-
-                    <!-- Folio entries table -->
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200 text-left text-sm">
-                            <thead class="bg-gray-50 text-xs uppercase tracking-wide text-steel">
-                                <tr>
-                                    <th class="px-4 py-3">Ngày</th>
-                                    <th class="px-4 py-3">Loại phí</th>
-                                    <th class="px-4 py-3">Mô tả</th>
-                                    <th class="px-4 py-3">SL</th>
-                                    <th class="px-4 py-3">Đơn giá</th>
-                                    <th class="px-4 py-3">Thành tiền</th>
-                                    <th class="px-4 py-3">Người đăng</th>
-                                    <th v-if="can.voidCharge" class="px-4 py-3 text-right">Thao tác</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-gray-100">
-                                <tr v-for="entry in (booking.folio?.entries ?? [])" :key="entry.id" :class="entry.is_voided ? 'bg-gray-50' : ''">
-                                    <td class="whitespace-nowrap px-4 py-3" :class="entry.is_voided ? 'text-gray-400 line-through' : ''">{{ entry.entry_date }}</td>
-                                    <td class="whitespace-nowrap px-4 py-3" :class="entry.is_voided ? 'text-gray-400 line-through' : ''">{{ entry.charge_type_label }}</td>
-                                    <td class="px-4 py-3" :class="entry.is_voided ? 'text-gray-400 line-through' : ''">{{ entry.description }}</td>
-                                    <td class="whitespace-nowrap px-4 py-3" :class="entry.is_voided ? 'text-gray-400 line-through' : ''">{{ entry.quantity }}</td>
-                                    <td class="whitespace-nowrap px-4 py-3" :class="entry.is_voided ? 'text-gray-400 line-through' : ''">{{ formatCurrency(entry.unit_price) }}</td>
-                                    <td class="whitespace-nowrap px-4 py-3" :class="entry.is_voided ? 'text-gray-400 line-through' : ''">{{ formatCurrency(entry.amount) }}</td>
-                                    <td class="px-4 py-3">
-                                        <template v-if="entry.is_voided">
-                                            <span class="inline-flex items-center border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">VOIDED</span>
-                                            <div v-if="entry.voided_by" class="mt-0.5 text-xs text-gray-400">{{ entry.voided_by }}{{ entry.void_reason ? ' · ' + entry.void_reason : '' }}</div>
-                                        </template>
-                                        <template v-else>{{ entry.posted_by }}</template>
-                                    </td>
-                                    <td v-if="can.voidCharge" class="whitespace-nowrap px-4 py-3 text-right">
-                                        <button
-                                            v-if="entry.can_void"
-                                            type="button"
-                                            class="inline-flex h-8 items-center gap-1 border border-gray-200 px-2 text-xs font-semibold text-steel hover:border-coral hover:text-coral"
-                                            @click="openVoidModal(entry)"
-                                        >
-                                            <XCircle class="h-3.5 w-3.5" />
-                                            Hủy
-                                        </button>
-                                    </td>
-                                </tr>
-                                <tr v-if="!(booking.folio?.entries ?? []).length">
-                                    <td :colspan="can.voidCharge ? 8 : 7" class="px-4 py-10 text-center text-sm text-steel">Chưa có phí phát sinh.</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <!-- Folio metadata + status controls -->
-                    <div v-if="booking.folio" class="flex flex-wrap items-center justify-between gap-2 border border-gray-100 px-3 py-2 text-sm">
-                        <div class="text-steel">
-                            Folio <span class="font-mono font-medium text-ink">{{ booking.folio.folio_number }}</span>
-                            · Trạng thái:
-                            <span class="font-medium" :class="booking.folio.status === 'OPEN' ? 'text-pine' : 'text-steel'">{{ folioStatusLabel(booking.folio.status) }}</span>
-                        </div>
-                        <div class="flex gap-2">
-                            <button
-                                v-if="booking.folio.can_close"
-                                type="button"
-                                class="border border-gray-300 px-3 py-1.5 text-xs font-semibold text-steel hover:border-ink hover:text-ink"
-                                @click="closeFolio"
-                            >
-                                Đóng folio
-                            </button>
-                            <button
-                                v-if="booking.folio.can_reopen"
-                                type="button"
-                                class="border border-pine px-3 py-1.5 text-xs font-semibold text-pine hover:bg-pine hover:text-white"
-                                @click="reopenFolio"
-                            >
-                                Mở lại
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Payments section -->
-                <div class="space-y-3">
-                    <h3 class="text-sm font-semibold uppercase tracking-wide text-steel">Thanh toán</h3>
-
-                    <form v-if="can.addPayment" class="grid gap-3 border border-gray-100 p-4 md:grid-cols-5" @submit.prevent="submitPayment">
-                        <div>
-                            <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Loại thanh toán</label>
-                            <select v-model="paymentForm.payment_type" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
-                                <option v-for="type in options.paymentTypes" :key="type.value" :value="type.value">{{ labelFor('paymentType', type.value) }}</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Số tiền</label>
-                            <input v-model="paymentForm.amount" type="number" min="0.01" step="0.01" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Phương thức</label>
-                            <select v-model="paymentForm.payment_method" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
-                                <option v-for="method in options.paymentMethods" :key="method.value" :value="method.value">{{ labelFor('paymentMethod', method.value) }}</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Thời gian thanh toán</label>
-                            <input v-model="paymentForm.payment_at" type="datetime-local" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Ghi chú</label>
-                            <input v-model="paymentForm.note" type="text" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
-                        </div>
-                        <button type="submit" class="inline-flex items-center justify-center gap-2 bg-pine px-3 py-2 text-sm font-semibold text-white">
-                            <Banknote class="h-4 w-4" />
-                            Thêm thanh toán
-                        </button>
-                        <p v-if="Object.keys(paymentForm.errors).length" class="md:col-span-5 text-sm text-coral">{{ Object.values(paymentForm.errors)[0] }}</p>
-                    </form>
-
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200 text-left text-sm">
-                            <thead class="bg-gray-50 text-xs uppercase tracking-wide text-steel">
-                                <tr>
-                                    <th class="px-4 py-3">Loại</th>
-                                    <th class="px-4 py-3">Số tiền</th>
-                                    <th class="px-4 py-3">Phương thức</th>
-                                    <th class="px-4 py-3">Thời gian thanh toán</th>
-                                    <th class="px-4 py-3">Xác nhận bởi</th>
-                                    <th class="px-4 py-3">Ghi chú</th>
-                                    <th v-if="can.deletePayment" class="px-4 py-3 text-right">Thao tác</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-gray-100">
-                                <tr v-for="payment in booking.payments" :key="payment.id">
-                                    <td class="px-4 py-3">{{ labelFor('paymentType', payment.payment_type) }}</td>
-                                    <td class="px-4 py-3" :class="payment.payment_type === 'REFUND' ? 'text-coral' : ''">{{ payment.payment_type === 'REFUND' ? '−' : '' }}{{ formatCurrency(payment.amount) }}</td>
-                                    <td class="px-4 py-3">{{ labelFor('paymentMethod', payment.payment_method) }}</td>
-                                    <td class="px-4 py-3">{{ payment.payment_at }}</td>
-                                    <td class="px-4 py-3">{{ payment.confirmed_by }}</td>
-                                    <td class="px-4 py-3">{{ payment.note }}</td>
-                                    <td v-if="can.deletePayment" class="px-4 py-3 text-right">
-                                        <button v-if="payment.can_delete" type="button" class="inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-coral hover:text-coral" :title="'Xóa giao dịch'" @click="deletePayment(payment)">
-                                            <Trash2 class="h-4 w-4" />
-                                        </button>
-                                    </td>
-                                </tr>
-                                <tr v-if="booking.payments.length === 0">
-                                    <td :colspan="can.deletePayment ? 7 : 6" class="px-4 py-10 text-center text-sm text-steel">Chưa có thanh toán.</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
+            <FolioPanel
+                v-if="tab === 'payments'"
+                :booking="booking"
+                :payment-summary="booking.payment_summary"
+                :options="options"
+                :can="{
+                    createCharge: can.createCharge,
+                    voidCharge: can.voidCharge,
+                    addPayment: can.addPayment,
+                    deletePayment: can.deletePayment,
+                }"
+                :has-active-stays="hasActiveStays"
+            />
             <div v-if="tab === 'room_map'" class="space-y-5 p-5">
                 <div v-if="assignmentSummaryWithSelection.length" class="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                     <div
@@ -1585,52 +1140,12 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                 </div>
             </div>
 
-            <div v-if="tab === 'room_map'" class="p-5">
-                <div class="flex items-center justify-between gap-2 border-b-2 border-pine/30 pb-2">
-                    <div class="flex items-center gap-2">
-                        <div class="h-5 w-1 bg-pine"></div>
-                        <span class="text-sm font-bold uppercase tracking-wide">Nhận phòng - Trả phòng</span>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <button
-                            v-if="can.checkIn && activeStays.some(s => s.can_check_in)"
-                            type="button"
-                            class="inline-flex items-center gap-1.5 border border-gray-300 px-3 py-1 text-xs font-semibold text-steel hover:border-pine hover:text-pine"
-                            @click="checkInAll"
-                        ><LogIn class="h-3.5 w-3.5" /> Nhận tất cả phòng</button>
-                        <button
-                            v-if="can.checkOut && activeStays.some(s => s.can_check_out)"
-                            type="button"
-                            class="inline-flex items-center gap-1.5 border border-gray-300 px-3 py-1 text-xs font-semibold text-steel hover:border-pine hover:text-pine"
-                            @click="checkOutAll"
-                        ><LogOut class="h-3.5 w-3.5" /> Trả tất cả phòng</button>
-                    </div>
-                </div>
-                <div class="mt-3 overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200 text-left text-sm">
-                    <thead class="bg-gray-50 text-xs uppercase tracking-wide text-steel">
-                        <tr><th class="px-4 py-3">Phòng</th><th class="px-4 py-3">Dự kiến nhận phòng</th><th class="px-4 py-3">Dự kiến trả phòng</th><th class="px-4 py-3">Thực nhận phòng</th><th class="px-4 py-3">Thực trả phòng</th><th class="px-4 py-3">Trạng thái</th><th class="px-4 py-3 text-right">Thao tác</th></tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-100">
-                        <tr v-for="stay in activeStays" :key="stay.id">
-                            <td class="px-4 py-3">{{ stay.room_number }}</td>
-                            <td class="px-4 py-3">{{ stay.planned_checkin_at }}</td>
-                            <td class="px-4 py-3">{{ stay.planned_checkout_at }}</td>
-                            <td class="px-4 py-3">{{ stay.actual_checkin_at }}</td>
-                            <td class="px-4 py-3">{{ stay.actual_checkout_at }}</td>
-                            <td class="px-4 py-3">{{ labelFor('stayStatus', stay.status) }}</td>
-                            <td class="whitespace-nowrap px-4 py-3 text-right">
-                                <button v-if="can.checkIn && stay.can_check_in" type="button" class="mr-2 inline-flex items-center gap-2 border border-gray-300 px-3 py-1 text-xs font-semibold text-steel hover:border-pine hover:text-pine" @click="checkIn(stay)"><LogIn class="h-3.5 w-3.5" /> Nhận phòng</button>
-                                <span v-else-if="can.checkIn && stay.checkin_too_early" class="mr-2 text-[10px] text-amber-600" :title="`Thời gian nhận phòng dự kiến: ${stay.planned_checkin_label}`">Chưa đến giờ nhận phòng</span>
-                                <button v-if="can.checkOut && stay.can_check_out" type="button" class="inline-flex items-center gap-2 border border-gray-300 px-3 py-1 text-xs font-semibold text-steel hover:border-pine hover:text-pine" @click="checkOut(stay)"><LogOut class="h-3.5 w-3.5" /> Trả phòng</button>
-                                <CheckCircle v-if="stay.status === 'CHECKED_OUT'" class="ml-auto h-4 w-4 text-pine" />
-                            </td>
-                        </tr>
-                        <tr v-if="activeStays.length === 0"><td colspan="7" class="px-4 py-10 text-center text-sm text-steel">Chưa có lưu trú đang hoạt động.</td></tr>
-                    </tbody>
-                </table>
-                </div>
-            </div>
+            <RoomBoardPanel
+                v-if="tab === 'room_map'"
+                :booking="booking"
+                :can="can"
+                :payment-summary="booking.payment_summary"
+            />
 
             <div v-if="tab === 'history'" class="p-5 text-sm text-steel">
                 Lịch sử booking sẽ được hiển thị ở giai đoạn sau.
@@ -1793,40 +1308,6 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
             </div>
         </div>
 
-        <!-- Void Entry Modal -->
-        <div v-if="showVoidModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-            <div class="w-full max-w-md border border-gray-200 bg-white p-5 shadow-xl">
-                <div class="flex items-start justify-between gap-4">
-                    <div>
-                        <h2 class="text-lg font-semibold">Hủy phí phát sinh</h2>
-                        <p class="mt-1 text-sm text-steel">Nhập lý do hủy trước khi xác nhận.</p>
-                    </div>
-                    <button type="button" class="text-steel hover:text-ink" @click="closeVoidModal">
-                        <X class="h-5 w-5" />
-                    </button>
-                </div>
-                <div v-if="voidingEntry" class="mt-4 border border-gray-100 p-3 text-sm">
-                    <div class="font-medium">{{ voidingEntry.charge_type_label }} — {{ voidingEntry.description }}</div>
-                    <div class="mt-1 text-steel">{{ formatCurrency(voidingEntry.amount) }} · {{ voidingEntry.entry_date }}</div>
-                </div>
-                <div class="mt-4">
-                    <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Lý do hủy</label>
-                    <textarea v-model="voidReasonInput" rows="3" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm focus:border-pine focus:outline-none focus:ring-1 focus:ring-pine" placeholder="Tối thiểu 5 ký tự" />
-                </div>
-                <div class="mt-5 flex justify-end gap-2">
-                    <button type="button" class="border border-gray-300 px-3 py-2 text-sm font-semibold text-steel hover:text-ink" @click="closeVoidModal">Đóng</button>
-                    <button
-                        type="button"
-                        class="bg-coral px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300"
-                        :disabled="voidReasonInput.trim().length < 5"
-                        @click="confirmVoid"
-                    >
-                        Xác nhận hủy
-                    </button>
-                </div>
-            </div>
-        </div>
-
         <!-- Release Assignment Dialog -->
         <div v-if="releaseDialogAssignment" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" @mousedown.self="closeReleaseDialog">
             <form class="w-full max-w-md border border-gray-200 bg-white p-5 shadow-xl" @click.stop @submit.prevent="confirmRelease">
@@ -1848,28 +1329,6 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                     <button type="submit" class="bg-coral px-3 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:bg-gray-300" :disabled="releaseForm.processing">Xác nhận giải phóng</button>
                 </div>
             </form>
-        </div>
-
-        <!-- Checkout Payment Warning -->
-        <div v-if="checkoutWarningStay" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-            <div class="w-full max-w-md border border-gray-200 bg-white p-5 shadow-xl">
-                <div class="flex items-start justify-between gap-4">
-                    <h2 class="text-lg font-semibold">Cảnh báo thanh toán</h2>
-                    <button type="button" class="text-steel hover:text-ink" @click="closeCheckoutWarning">
-                        <X class="h-5 w-5" />
-                    </button>
-                </div>
-                <div class="mt-4 border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                    Booking chưa được thanh toán đầy đủ. Vui lòng kiểm tra thanh toán trước khi hoàn tất trả phòng.
-                </div>
-                <div class="mt-3 text-sm text-steel">
-                    Còn lại: <span class="font-semibold text-coral">{{ formatCurrency(booking.payment_summary?.balance_due ?? 0) }}</span>
-                </div>
-                <div class="mt-5 flex justify-end gap-2">
-                    <button type="button" class="border border-gray-300 px-3 py-2 text-sm font-semibold text-steel hover:text-ink" @click="closeCheckoutWarning">Hủy trả phòng</button>
-                    <button type="button" class="bg-pine px-3 py-2 text-sm font-semibold text-white hover:opacity-90" @click="confirmCheckoutWithWarning">Tiếp tục trả phòng</button>
-                </div>
-            </div>
         </div>
 
         <div v-if="showCancelModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin\Booking;
 
+use App\Exceptions\OutstandingBalanceException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Booking\CheckInStayRequest;
 use App\Http\Requests\Booking\CheckOutStayRequest;
@@ -31,7 +32,14 @@ class StayController extends Controller
         $this->authorize('checkOut', $stay);
         abort_unless($stay->booking_id === $booking->id, 404);
 
-        $this->stays->checkOut($stay, $request->validated('actual_checkout_at'));
+        try {
+            $this->stays->checkOut($stay, $request->validated('actual_checkout_at'));
+        } catch (OutstandingBalanceException $e) {
+            // ADR-53: caught per-controller; redirects to payments tab (most actionable destination).
+            return redirect()
+                ->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'payments'])
+                ->with('error', 'Không thể trả phòng: ' . $e->getMessage() . ' Vui lòng thanh toán trên tab Tài chính.');
+        }
 
         return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'room_map'])->with('success', 'Đã trả phòng.');
     }
