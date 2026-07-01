@@ -120,7 +120,7 @@ class LastellaQaSeederV2 extends Seeder
         BookingRequirement::whereIn('booking_id', $qaBookingIds)->delete();
         Booking::whereIn('id', $qaBookingIds)->delete();
 
-        Room::where('status', RoomStatus::OutOfOrder)->update(['status' => RoomStatus::VacantClean]);
+        Room::where('room_number', '101')->update(['status' => RoomStatus::VacantClean]);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -141,13 +141,13 @@ class LastellaQaSeederV2 extends Seeder
 
     private function markOneRoomOutOfOrder(): void
     {
-        $room = Room::where('room_number', '802')->first();
+        $room = Room::where('room_number', '101')->first();
         if ($room) {
             $room->update(['status' => RoomStatus::OutOfOrder]);
             $typeCode = $this->typeCodeById($room->room_type_id);
             $this->roomsByType[$typeCode] = $this->roomsByType[$typeCode]
                 ->reject(fn (Room $r) => $r->id === $room->id)->values();
-            $this->command->info("  Room 802 set to OutOfOrder.");
+            $this->command->info("  Room 101 set to OutOfOrder.");
         }
     }
 
@@ -206,13 +206,13 @@ class LastellaQaSeederV2 extends Seeder
         // Totals: 6D + 7T + 8TR + 6TF + 5F = 32 rooms.
         $specs = [
             ['mix' => ['TRIP' => 1, 'TRIP_FAMILY' => 1, 'FAMILY' => 1], 'past' => 1, 'future' => 2, 'type' => CustomerType::Company],
-            ['mix' => ['DOUBLE' => 1, 'TWIN' => 1, 'TRIP' => 1],       'past' => 0, 'future' => 3, 'type' => CustomerType::Group],
+            ['mix' => ['DOUBLE' => 1, 'TWIN' => 1, 'TRIP' => 1],       'past' => 1, 'future' => 3, 'type' => CustomerType::Group],
             ['mix' => ['TRIP_FAMILY' => 1, 'FAMILY' => 1, 'TRIP' => 1], 'past' => 2, 'future' => 1, 'type' => CustomerType::Company],
             ['mix' => ['DOUBLE' => 1, 'TWIN' => 1, 'TRIP' => 1, 'TRIP_FAMILY' => 1], 'past' => 1, 'future' => 2, 'type' => CustomerType::Group],
-            ['mix' => ['DOUBLE' => 1, 'TWIN' => 1, 'FAMILY' => 1],     'past' => 0, 'future' => 1, 'type' => CustomerType::Individual],
+            ['mix' => ['DOUBLE' => 1, 'TWIN' => 1, 'FAMILY' => 1],     'past' => 1, 'future' => 1, 'type' => CustomerType::Individual],
             ['mix' => ['TRIP' => 1, 'TRIP_FAMILY' => 1, 'TWIN' => 1],  'past' => 1, 'future' => 3, 'type' => CustomerType::Group],
             ['mix' => ['DOUBLE' => 1, 'FAMILY' => 1, 'TRIP' => 1],     'past' => 2, 'future' => 2, 'type' => CustomerType::Tour],
-            ['mix' => ['TWIN' => 1, 'TRIP_FAMILY' => 1, 'DOUBLE' => 1], 'past' => 0, 'future' => 2, 'type' => CustomerType::Group],
+            ['mix' => ['TWIN' => 1, 'TRIP_FAMILY' => 1, 'DOUBLE' => 1], 'past' => 1, 'future' => 2, 'type' => CustomerType::Group],
             ['mix' => ['DOUBLE' => 1, 'TWIN' => 1, 'TRIP' => 1, 'FAMILY' => 1], 'past' => 1, 'future' => 1, 'type' => CustomerType::Company],
             ['mix' => ['TWIN' => 1, 'TRIP' => 1, 'TRIP_FAMILY' => 1],  'past' => 1, 'future' => 3, 'type' => CustomerType::Group],
         ];
@@ -350,8 +350,8 @@ class LastellaQaSeederV2 extends Seeder
 
             $assignments = $this->assignAllRooms($booking, $checkin, $checkout);
             $this->checkInAllAssignments($assignments, $checkin);
-            $this->checkOutAllAssignments($assignments, $checkout);
 
+            // ADR-40: checkout is blocked when balance_due > 0 — pay before checkout.
             $totalCharge = $booking->bookingRequirements()
                 ->get()
                 ->sum(fn ($r) => $r->room_price * $r->quantity);
@@ -362,6 +362,8 @@ class LastellaQaSeederV2 extends Seeder
                 'payment_at' => $checkout,
                 'confirmed_by' => $this->admin->id,
             ]);
+
+            $this->checkOutAllAssignments($assignments, $checkout);
             $this->bookingService->updateBookingStayStatus($booking->refresh());
         }
     }
