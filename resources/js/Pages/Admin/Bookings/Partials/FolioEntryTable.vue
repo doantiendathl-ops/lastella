@@ -1,9 +1,14 @@
 <script setup lang="ts">
-import VoidEntryDialog from './VoidEntryDialog.vue';
-import { XCircle } from 'lucide-vue-next';
-import { ref } from 'vue';
+import VoidEntryDialog from './VoidEntryDialog.vue'
+import { XCircle } from 'lucide-vue-next'
+import { computed, ref } from 'vue'
 
-defineProps<{
+interface CheckableStay {
+    id: number
+    room_number: string
+}
+
+const props = defineProps<{
     entries: {
         id: number
         charge_type: string
@@ -20,15 +25,37 @@ defineProps<{
         void_reason: string | null
         is_system_entry: boolean
         can_void: boolean
+        stay_id: number | null
+        posting_source: string | null
     }[]
     bookingId: number
     canVoidCharge: boolean
+    checkableStays?: CheckableStay[]
 }>()
 
 const openVoidId = ref<number | null>(null)
 
+const colCount = computed(() => (props.canVoidCharge ? 9 : 8))
+
 const formatCurrency = (value: number) =>
     `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Number(value) || 0)} đ`
+
+const roomNumberForStay = (stayId: number | null): string | null => {
+    if (!stayId || !props.checkableStays) return null
+    return props.checkableStays.find(s => s.id === stayId)?.room_number ?? null
+}
+
+const sourceBadgeClass = (source: string | null) => {
+    if (source === 'NIGHT_AUDIT') return 'bg-indigo-50 border-indigo-200 text-indigo-700'
+    if (source === 'SYSTEM_AUTO') return 'bg-amber-50 border-amber-200 text-amber-700'
+    return 'bg-gray-50 border-gray-200 text-gray-500'
+}
+
+const sourceBadgeLabel = (source: string | null) => {
+    if (source === 'NIGHT_AUDIT') return 'Audit'
+    if (source === 'SYSTEM_AUTO') return 'Auto'
+    return 'Manual'
+}
 </script>
 
 <template>
@@ -42,6 +69,8 @@ const formatCurrency = (value: number) =>
                     <th class="px-4 py-3">SL</th>
                     <th class="px-4 py-3">Đơn giá</th>
                     <th class="px-4 py-3">Thành tiền</th>
+                    <th class="px-4 py-3">Phòng</th>
+                    <th class="px-4 py-3">Nguồn</th>
                     <th class="px-4 py-3">Người đăng</th>
                     <th v-if="canVoidCharge" class="px-4 py-3 text-right">Thao tác</th>
                 </tr>
@@ -55,6 +84,17 @@ const formatCurrency = (value: number) =>
                         <td class="whitespace-nowrap px-4 py-3" :class="entry.is_voided ? 'text-gray-400 line-through' : ''">{{ entry.quantity }}</td>
                         <td class="whitespace-nowrap px-4 py-3" :class="entry.is_voided ? 'text-gray-400 line-through' : ''">{{ formatCurrency(entry.unit_price) }}</td>
                         <td class="whitespace-nowrap px-4 py-3" :class="entry.is_voided ? 'text-gray-400 line-through' : ''">{{ formatCurrency(entry.amount) }}</td>
+                        <td class="whitespace-nowrap px-4 py-3 text-xs text-steel">
+                            {{ entry.stay_id ? (roomNumberForStay(entry.stay_id) ?? `#${entry.stay_id}`) : '—' }}
+                        </td>
+                        <td class="whitespace-nowrap px-4 py-3">
+                            <span
+                                class="inline-flex items-center border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                                :class="sourceBadgeClass(entry.posting_source)"
+                            >
+                                {{ sourceBadgeLabel(entry.posting_source) }}
+                            </span>
+                        </td>
                         <td class="px-4 py-3">
                             <template v-if="entry.is_voided">
                                 <span class="inline-flex items-center border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">VOIDED</span>
@@ -78,7 +118,7 @@ const formatCurrency = (value: number) =>
                         </td>
                     </tr>
                     <tr v-if="openVoidId === entry.id" :key="`void-${entry.id}`">
-                        <td :colspan="canVoidCharge ? 8 : 7" class="px-4 pb-3">
+                        <td :colspan="colCount" class="px-4 pb-3">
                             <VoidEntryDialog
                                 :entry="entry"
                                 :booking-id="bookingId"
@@ -88,7 +128,7 @@ const formatCurrency = (value: number) =>
                     </tr>
                 </template>
                 <tr v-if="!entries.length">
-                    <td :colspan="canVoidCharge ? 8 : 7" class="px-4 py-10 text-center text-sm text-steel">Chưa có phí phát sinh.</td>
+                    <td :colspan="colCount" class="px-4 py-10 text-center text-sm text-steel">Chưa có phí phát sinh.</td>
                 </tr>
             </tbody>
         </table>

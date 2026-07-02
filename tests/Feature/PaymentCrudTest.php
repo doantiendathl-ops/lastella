@@ -8,8 +8,10 @@ use App\Enums\BookingType;
 use App\Enums\CustomerType;
 use App\Enums\PaymentMethod;
 use App\Enums\PaymentType;
+use App\Enums\ChargeType;
 use App\Models\Booking;
 use App\Models\BookingPayment;
+use App\Models\FolioEntry;
 use App\Models\RoomType;
 use App\Models\User;
 use App\Services\BookingPaymentService;
@@ -271,6 +273,13 @@ class PaymentCrudTest extends TestCase
             'requirements' => [
                 ['room_type_id' => $twin->id, 'quantity' => 1, 'adults' => 2, 'children_under_6' => 0, 'children_over_6' => 0, 'room_price' => 1000000, 'price_source' => 'MANUAL'],
             ],
+        ]);
+
+        FolioEntry::factory()->for($booking->folio)->create([
+            'charge_type' => ChargeType::Room,
+            'amount'      => 1000000,
+            'unit_price'  => 1000000,
+            'quantity'    => 1,
         ]);
 
         $booking->bookingPayments()->createMany([

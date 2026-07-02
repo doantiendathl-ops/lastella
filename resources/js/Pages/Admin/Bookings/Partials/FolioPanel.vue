@@ -35,6 +35,8 @@ const props = defineProps<{
                 void_reason: string | null
                 is_system_entry: boolean
                 can_void: boolean
+                stay_id: number | null
+                posting_source: string | null
             }[]
         } | null
         payments: {
@@ -73,6 +75,8 @@ const props = defineProps<{
         deletePayment: boolean
     }
     hasActiveStays: boolean
+    serviceRates?: { id: number; name: string; charge_type: string; unit_price: number; unit_label: string }[]
+    checkableStays?: { id: number; room_number: string }[]
 }>()
 
 const showAddChargeForm = ref(false)
@@ -148,6 +152,8 @@ const reopenFolio = () => {
                 v-if="showAddChargeForm && can.createCharge"
                 :booking-id="booking.id"
                 :charge-types="options.chargeTypes"
+                :service-rates="serviceRates ?? []"
+                :checkable-stays="checkableStays ?? []"
                 @cancel="showAddChargeForm = false"
             />
 
@@ -155,6 +161,7 @@ const reopenFolio = () => {
                 :entries="booking.folio?.entries ?? []"
                 :booking-id="booking.id"
                 :can-void-charge="can.voidCharge"
+                :checkable-stays="checkableStays ?? []"
             />
 
             <!-- Folio metadata + status controls -->

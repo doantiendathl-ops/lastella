@@ -1,6 +1,9 @@
 <?php
 
 use App\Http\Controllers\Admin\AuditLogController;
+use App\Http\Controllers\Admin\HotelSettingsController;
+use App\Http\Controllers\Admin\NightAuditController;
+use App\Http\Controllers\Admin\ServiceRateController;
 use App\Http\Controllers\Admin\Booking\BookingController;
 use App\Http\Controllers\Admin\RoomAvailabilityController;
 use App\Http\Controllers\Admin\Booking\BookingPaymentController;
@@ -42,6 +45,17 @@ Route::middleware('auth')->group(function (): void {
     Route::get('audit-logs', [AuditLogController::class, 'index'])->name('audit-logs.index');
 
     Route::prefix('admin')->name('admin.')->group(function (): void {
+        Route::get('hotel-settings', [HotelSettingsController::class, 'index'])->name('hotel-settings.index');
+        Route::patch('hotel-settings', [HotelSettingsController::class, 'update'])->name('hotel-settings.update');
+
+        Route::get('service-rates', [ServiceRateController::class, 'index'])->name('service-rates.index');
+        Route::post('service-rates', [ServiceRateController::class, 'store'])->name('service-rates.store');
+        Route::patch('service-rates/{serviceRate}', [ServiceRateController::class, 'update'])->name('service-rates.update');
+        Route::patch('service-rates/{serviceRate}/toggle', [ServiceRateController::class, 'toggleActive'])->name('service-rates.toggle');
+
+        Route::get('night-audit', [NightAuditController::class, 'index'])->name('night-audit.index');
+        Route::post('night-audit/run', [NightAuditController::class, 'run'])->name('night-audit.run');
+
         Route::get('room-availability', [RoomAvailabilityController::class, 'index'])->name('room-availability.index');
         Route::resource('bookings', BookingController::class)->except(['destroy']);
         Route::post('bookings/{booking}/cancel', [BookingController::class, 'cancel'])->name('bookings.cancel');

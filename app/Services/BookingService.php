@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\AssignmentStatus;
 use App\Enums\BookingStatus;
+use App\Enums\ChargeType;
 use App\Enums\PaymentType;
 use App\Enums\StayStatus;
 use App\Exceptions\OutstandingBalanceException;
@@ -110,14 +111,8 @@ class BookingService
             $folioId = $booking->folio?->id;
 
             if ($folioId !== null) {
-                $postingKey = "ROOM_CHARGE_{$booking->id}_AGGREGATE";
-
-                // ADR-4: lockForUpdate makes the existence check and the requirement
-                // update atomic against doPostRoomCharge()'s INSERT. InnoDB places
-                // a gap lock when no entry exists, blocking any concurrent insert
-                // of the same posting_key until this transaction commits.
                 if (FolioEntry::where('folio_id', $folioId)
-                    ->where('posting_key', $postingKey)
+                    ->where('charge_type', ChargeType::Room->value)
                     ->whereNull('voided_at')
                     ->lockForUpdate()
                     ->exists()) {
@@ -511,16 +506,11 @@ class BookingService
      * ADR-48: Caller MUST hold Booking::lockForUpdate() on $booking before calling.
      * ADR-40: Outstanding balance throws OutstandingBalanceException and rolls back the entire transaction.
      * ADR-41: Folio is auto-closed atomically; caller acquires Folio lock here.
-     * ADR-42: autoPostRoomCharge() is idempotent — no-op if already posted.
-     * ADR-43: calculateGuardedFolioTotal() used for all balance decisions.
      */
     public function finaliseBookingCheckout(Booking $booking, ?User $user = null): void
     {
         /** @var User|null $actingUser */
         $actingUser = $user ?? Auth::user();
-
-        // ADR-42: idempotent guard — no-op if room charge already posted.
-        $this->folios->autoPostRoomCharge($booking, $actingUser);
 
         $folio = $booking->folio()->first();
 
@@ -528,8 +518,7 @@ class BookingService
             // ADR-48: canonical lock order — Booking (held by caller) → Folio.
             $lockedFolio = Folio::lockForUpdate()->findOrFail($folio->id);
 
-            // ADR-43: authoritative total for balance decision.
-            $totalCharges = $this->folios->calculateGuardedFolioTotal($booking);
+            $totalCharges = $this->folios->getFolioTotal($booking);
 
             // ADR-46: current read of all payments under lock — serialises against concurrent INSERT (OI-7).
             $payments = BookingPayment::where('booking_id', $booking->id)
@@ -570,8 +559,7 @@ class BookingService
     {
         $payments = $booking->bookingPayments()->get(['payment_type', 'amount']);
 
-        // ADR-43: use calculateGuardedFolioTotal for all balance decisions.
-        $totalCharges = $this->folios->calculateGuardedFolioTotal($booking);
+        $totalCharges = $this->folios->getFolioTotal($booking);
 
         $totalDeposit    = 0.0;
         $totalPayment    = 0.0;

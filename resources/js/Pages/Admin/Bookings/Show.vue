@@ -15,6 +15,9 @@ const props = defineProps({
     roomBoard: { type: Object, default: () => ({ floors: [] }) },
     options: { type: Object, required: true },
     can: { type: Object, required: true },
+    serviceRates: { type: Array, default: () => [] },
+    checkableStays: { type: Array, default: () => [] },
+    currentBusinessDate: { type: String, default: '' },
 });
 
 const tab = ref(props.activeTab);
@@ -819,6 +822,8 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                     deletePayment: can.deletePayment,
                 }"
                 :has-active-stays="hasActiveStays"
+                :service-rates="serviceRates"
+                :checkable-stays="checkableStays"
             />
             <div v-if="tab === 'room_map'" class="space-y-5 p-5">
                 <div v-if="assignmentSummaryWithSelection.length" class="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">

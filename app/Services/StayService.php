@@ -8,6 +8,10 @@ use App\Exceptions\FinalCheckoutConfirmationRequiredException;
 use App\Models\Booking;
 use App\Models\RoomAssignment;
 use App\Models\Stay;
+use App\Services\Posting\EarlyCheckinFeePostingJob;
+use App\Services\Posting\LateCheckoutFeePostingJob;
+use App\Services\Posting\PostingContext;
+use App\Services\Posting\RoomChargePostingJob;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -18,6 +22,10 @@ class StayService
     public function __construct(
         private readonly BookingService $bookings,
         private readonly FolioService $folios,
+        private readonly BusinessDateService $businessDate,
+        private readonly RoomChargePostingJob $roomChargeJob,
+        private readonly LateCheckoutFeePostingJob $lateCheckoutJob,
+        private readonly EarlyCheckinFeePostingJob $earlyCheckinJob,
     ) {
     }
 
@@ -75,7 +83,19 @@ class StayService
                 'status' => AssignmentStatus::CheckedIn,
             ]);
 
-            $this->folios->autoPostRoomCharge($lockedBooking);
+            $folio = $lockedBooking->folio;
+            if ($folio !== null) {
+                $context = new PostingContext(
+                    booking:      $lockedBooking,
+                    folio:        $folio,
+                    businessDate: $this->businessDate->currentBusinessDate(),
+                    stay:         $lockedStay,
+                    postedBy:     Auth::user(),
+                );
+                $this->roomChargeJob->execute($context);
+                $this->earlyCheckinJob->execute($context);
+            }
+
             $this->bookings->updateBookingStayStatus($lockedBooking);
 
             return $lockedStay->refresh();
@@ -129,6 +149,19 @@ class StayService
             $assignment->update([
                 'status' => AssignmentStatus::CheckedOut,
             ]);
+
+            $folio = $lockedBooking->folio;
+            if ($folio !== null) {
+                $lockedStay->refresh();
+                $checkoutContext = new PostingContext(
+                    booking:      $lockedBooking,
+                    folio:        $folio,
+                    businessDate: $this->businessDate->currentBusinessDate(),
+                    stay:         $lockedStay,
+                    postedBy:     Auth::user(),
+                );
+                $this->lateCheckoutJob->execute($checkoutContext);
+            }
 
             // ADR-49: Active stay = Reserved OR CheckedIn (own DML visible within transaction).
             $remainingActive = Stay::where('booking_id', $lockedBooking->id)

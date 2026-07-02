@@ -280,8 +280,13 @@ class FolioCrudTest extends TestCase
         $this->actingAs($this->admin);
         $booking = $this->createBooking();
 
-        // ADR-43: post room charge so calculateGuardedFolioTotal uses raw sum (not estimate + non-room).
-        app(FolioService::class)->autoPostRoomCharge($booking, $this->admin);
+        $folio = $booking->fresh()->folio;
+        FolioEntry::factory()->for($folio)->create([
+            'charge_type' => \App\Enums\ChargeType::Room,
+            'amount'      => 800000,
+            'unit_price'  => 800000,
+            'quantity'    => 1,
+        ]);
 
         $booking->bookingPayments()->create([
             'payment_type' => 'DEPOSIT',
@@ -442,81 +447,6 @@ class FolioCrudTest extends TestCase
         $this->assertNull($entry->posting_key);
     }
 
-    public function test_calculate_guarded_folio_total_returns_requirements_when_no_system_charge(): void
-    {
-        $this->actingAs($this->admin);
-        $booking = $this->createBooking(); // requirement: 1 × 800000
-
-        $service = app(FolioService::class);
-        $total   = $service->calculateGuardedFolioTotal($booking->fresh());
-
-        // No system room charge posted → falls back to requirements estimate
-        $this->assertEquals(800000.0, $total);
-    }
-
-    public function test_calculate_guarded_folio_total_uses_raw_sum_when_system_charge_posted(): void
-    {
-        $this->actingAs($this->admin);
-        $booking = $this->createBooking();
-
-        $service = app(FolioService::class);
-        $service->autoPostRoomCharge($booking, $this->admin);
-
-        // Add a non-room charge
-        FolioEntry::factory()->create([
-            'folio_id' => $booking->fresh()->folio->id,
-            'amount'   => 50000,
-            'voided_at' => null,
-        ]);
-
-        $total = $service->calculateGuardedFolioTotal($booking->fresh());
-
-        // System charge posted → raw sum: 800000 + 50000
-        $this->assertEquals(850000.0, $total);
-    }
-
-    public function test_calculate_guarded_folio_total_returns_zero_for_voided_folio(): void
-    {
-        $this->actingAs($this->admin);
-        $booking = $this->createBooking();
-
-        $folio = $booking->fresh()->folio;
-        $folio->update(['status' => FolioStatus::Voided]);
-
-        $total = app(FolioService::class)->calculateGuardedFolioTotal($booking->fresh());
-
-        $this->assertEquals(0.0, $total);
-    }
-
-    public function test_auto_post_room_charge_creates_entry_with_posting_key(): void
-    {
-        $this->actingAs($this->admin);
-        $booking = $this->createBooking();
-
-        $service = app(FolioService::class);
-        $entry   = $service->autoPostRoomCharge($booking, $this->admin);
-
-        $this->assertNotNull($entry);
-        $this->assertSame("ROOM_CHARGE_{$booking->id}_AGGREGATE", $entry->posting_key);
-        $this->assertEquals('800000.00', $entry->amount);
-    }
-
-    public function test_auto_post_room_charge_is_idempotent(): void
-    {
-        $this->actingAs($this->admin);
-        $booking = $this->createBooking();
-
-        $service = app(FolioService::class);
-        $service->autoPostRoomCharge($booking, $this->admin);
-        $service->autoPostRoomCharge($booking, $this->admin); // second call is a no-op
-
-        $count = FolioEntry::where('folio_id', $booking->fresh()->folio->id)
-            ->where('posting_key', "ROOM_CHARGE_{$booking->id}_AGGREGATE")
-            ->count();
-
-        $this->assertSame(1, $count);
-    }
-
     public function test_auto_close_folio_is_idempotent_on_already_closed(): void
     {
         $this->actingAs($this->admin);
@@ -591,8 +521,16 @@ class FolioCrudTest extends TestCase
         $booking     = $this->createBooking();
         $requirement = $booking->bookingRequirements->first();
 
-        // Post the aggregate room charge
-        app(FolioService::class)->autoPostRoomCharge($booking, $this->admin);
+        // Create a per-night room charge entry to trigger the lock
+        FolioEntry::factory()->create([
+            'folio_id'    => $booking->fresh()->folio->id,
+            'charge_type' => \App\Enums\ChargeType::Room,
+            'posting_key' => "ROOM_NIGHT_1_" . now()->toDateString(),
+            'amount'      => 800000,
+            'unit_price'  => 800000,
+            'quantity'    => 1,
+            'voided_at'   => null,
+        ]);
 
         $this->expectException(\App\Exceptions\RequirementLockedAfterRoomChargeException::class);
 

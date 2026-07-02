@@ -35,6 +35,10 @@ class RolePermissionSeeder extends Seeder
         'charge.void',
         'report.view',
         'settings.manage',
+        'hotel_settings.manage',
+        'service_rates.manage',
+        'night_audit.run',
+        'night_audit.view',
         'users.manage',
         'roles.manage',
         'rooms.manage',
@@ -73,6 +77,9 @@ class RolePermissionSeeder extends Seeder
             'charge.void',
             'report.view',
             'settings.manage',
+            'service_rates.manage',
+            'night_audit.run',
+            'night_audit.view',
             'rooms.manage',
             'room_types.manage',
             'rates.manage',
@@ -113,6 +120,7 @@ class RolePermissionSeeder extends Seeder
             'payment.create',
             'folio.view',
             'report.view',
+            'night_audit.view',
         ]);
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();

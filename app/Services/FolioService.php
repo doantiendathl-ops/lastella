@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Enums\ChargeType;
 use App\Enums\FolioStatus;
 use App\Exceptions\AlreadyVoidedException;
 use App\Exceptions\BookingTerminalException;
@@ -55,9 +54,10 @@ class FolioService
             }
 
             // ADR-16: amount is always computed server-side, never accepted from HTTP
-            $data['amount']     = bcmul((string) $data['quantity'], (string) $data['unit_price'], 2);
-            $data['posted_by']  = $data['posted_by'] ?? Auth::id();
-            $data['entry_date'] = $data['entry_date'] ?? today()->toDateString();
+            $data['amount']          = bcmul((string) $data['quantity'], (string) $data['unit_price'], 2);
+            $data['posted_by']       = $data['posted_by'] ?? Auth::id();
+            $data['entry_date']      = $data['entry_date'] ?? today()->toDateString();
+            $data['posting_source']  = $data['posting_source'] ?? 'MANUAL';
 
             /** @var FolioEntry $entry */
             $entry = $locked->folioEntries()->create($data);
@@ -105,59 +105,6 @@ class FolioService
                 'void_reason' => $reason,
             ]);
         });
-    }
-
-    /**
-     * ADR-27: the only public entry point for system room charge posting.
-     * doPostRoomCharge() is private and must never be called directly.
-     * Shared foundation for Phase 3.1B checkout flow.
-     * Concurrency contract: doPostRoomCharge() holds the folio lock.
-     *
-     * Nights are derived from booking.checkin_at → booking.checkout_at using
-     * calendar-day difference (startOfDay) so that Jun-30 14:00 → Jul-02 12:00
-     * correctly yields 2 nights rather than the 47-hour truncation that plain
-     * diffInDays would produce. Minimum 1 prevents a zero-amount entry for
-     * same-day (day-use) bookings.
-     */
-    public function autoPostRoomCharge(Booking $booking, ?User $postedBy = null): ?FolioEntry
-    {
-        $folio = $booking->folio;
-        if ($folio === null) {
-            return null;
-        }
-
-        $booking->loadMissing('bookingRequirements');
-
-        // ADR-16: amount computed server-side using bcmath.
-        // per-night total = sum over all requirements of (room_price × room_qty).
-        $perNightTotal = $booking->bookingRequirements->reduce(
-            fn (string $carry, $r): string => bcadd(
-                $carry,
-                bcmul((string) $r->room_price, (string) $r->quantity, 2),
-                2
-            ),
-            '0.00'
-        );
-
-        if (bccomp($perNightTotal, '0.00', 2) <= 0) {
-            return null;
-        }
-
-        // Calendar-day difference so that early checkouts (before the check-in
-        // hour) still count as full nights — hotel convention, not clock hours.
-        $nights = 1;
-        if ($booking->checkin_at !== null && $booking->checkout_at !== null) {
-            $nights = max(
-                1,
-                (int) $booking->checkin_at->copy()->startOfDay()->diffInDays(
-                    $booking->checkout_at->copy()->startOfDay()
-                )
-            );
-        }
-
-        $totalAmount = bcmul($perNightTotal, (string) $nights, 2);
-
-        return $this->doPostRoomCharge($folio, $booking, $perNightTotal, $nights, $totalAmount, $postedBy);
     }
 
     public function getFolioTotal(Booking $booking): float
@@ -263,72 +210,6 @@ class FolioService
     }
 
     /**
-     * ADR-32: canonical method for ALL balance decisions. Must be used anywhere
-     * balance_due is computed (not getFolioTotal which is display-only).
-     * ADR-37: VOIDED folio always returns 0.00 — no balance is owed.
-     * ADR-11: transition guard — when the system aggregate room charge has not
-     * yet been posted, fall back to requirements_estimate + non_room_active_entries
-     * to avoid understating the balance during the check-in window.
-     * Shared foundation for Phase 3.1B paymentSummary() refactor.
-     * No lock required — reads only, called outside mutating transactions.
-     */
-    public function calculateGuardedFolioTotal(Booking $booking): float
-    {
-        $folio = $booking->folio;
-
-        if ($folio === null || $folio->status === FolioStatus::Voided) {
-            return 0.0;
-        }
-
-        $postingKey = "ROOM_CHARGE_{$booking->id}_AGGREGATE";
-
-        $systemRoomPosted = FolioEntry::where('folio_id', $folio->id)
-            ->where('posting_key', $postingKey)
-            ->whereNull('voided_at')
-            ->exists();
-
-        if ($systemRoomPosted) {
-            return (float) FolioEntry::where('folio_id', $folio->id)
-                ->whereNull('voided_at')
-                ->sum('amount');
-        }
-
-        // ADR-11: system room charge absent — use estimate to avoid understatement.
-        // The estimate must match what autoPostRoomCharge() will post: per-night
-        // total × nights. Using only per-night total (the pre-3.1.1 bug) caused
-        // the displayed balance to understate multi-night charges by (nights-1) nights.
-        $booking->loadMissing('bookingRequirements');
-
-        $perNightEstimate = $booking->bookingRequirements->reduce(
-            fn (string $carry, $r): string => bcadd(
-                $carry,
-                bcmul((string) $r->room_price, (string) $r->quantity, 2),
-                2
-            ),
-            '0.00'
-        );
-
-        $nights = 1;
-        if ($booking->checkin_at !== null && $booking->checkout_at !== null) {
-            $nights = max(
-                1,
-                (int) $booking->checkin_at->copy()->startOfDay()->diffInDays(
-                    $booking->checkout_at->copy()->startOfDay()
-                )
-            );
-        }
-
-        $estimate = bcmul($perNightEstimate, (string) $nights, 2);
-
-        $nonRoomSum = (string) FolioEntry::where('folio_id', $folio->id)
-            ->where('charge_type', '!=', ChargeType::Room->value)
-            ->whereNull('voided_at')
-            ->sum('amount');
-
-        return (float) bcadd($estimate, $nonRoomSum, 2);
-    }
-
-    /**
      * ADR-35: idempotent — calling on an already-CLOSED folio is a no-op.
      * ADR-29: public (not controller-routed) so BookingPaymentService can
      * trigger auto-close when balance reaches zero after a payment.
@@ -388,55 +269,4 @@ class FolioService
         $locked->update(['status' => FolioStatus::Voided]);
     }
 
-    /**
-     * ADR-27: private — only callable via autoPostRoomCharge().
-     * Posts the aggregate system room charge entry with idempotency via posting_key.
-     * ADR-12: locks the Folio row before state check and entry creation.
-     * ADR-13: posting_key is set internally; never accepted from HTTP.
-     *
-     * quantity  = number of nights (calendar days between check-in and check-out)
-     * unit_price = per-night total for all rooms in the booking
-     * amount    = quantity × unit_price (computed by caller via bcmath, ADR-16)
-     */
-    private function doPostRoomCharge(
-        Folio $folio,
-        Booking $booking,
-        string $perNightTotal,
-        int $nights,
-        string $totalAmount,
-        ?User $postedBy,
-    ): ?FolioEntry {
-        return DB::transaction(function () use ($folio, $booking, $perNightTotal, $nights, $totalAmount, $postedBy): ?FolioEntry {
-            $locked = Folio::lockForUpdate()->findOrFail($folio->id);
-
-            if ($locked->status !== FolioStatus::Open) {
-                return null;
-            }
-
-            $postingKey = "ROOM_CHARGE_{$booking->id}_AGGREGATE";
-
-            // Idempotency check inside the lock — prevents duplicate on concurrent calls
-            if (FolioEntry::where('folio_id', $locked->id)
-                ->where('posting_key', $postingKey)
-                ->lockForUpdate()
-                ->exists()) {
-                return null;
-            }
-
-            /** @var FolioEntry $entry */
-            $entry = FolioEntry::create([
-                'folio_id'    => $locked->id,
-                'posting_key' => $postingKey,
-                'charge_type' => ChargeType::Room,
-                'description' => "Tiền phòng (tổng hợp - {$nights} đêm)",
-                'quantity'    => (string) $nights,
-                'unit_price'  => $perNightTotal,
-                'amount'      => $totalAmount,
-                'entry_date'  => today()->toDateString(),
-                'posted_by'   => $postedBy?->id ?? Auth::id(),
-            ]);
-
-            return $entry;
-        });
-    }
 }

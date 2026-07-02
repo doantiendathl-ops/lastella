@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\ChargeType;
+use App\Models\Stay;
 use Database\Factories\FolioEntryFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -16,7 +17,9 @@ class FolioEntry extends Model
 
     protected $fillable = [
         'folio_id',
+        'stay_id',
         'posting_key',
+        'posting_source',
         'charge_type',
         'description',
         'quantity',
@@ -44,6 +47,11 @@ class FolioEntry extends Model
     public function folio(): BelongsTo
     {
         return $this->belongsTo(Folio::class);
+    }
+
+    public function stay(): BelongsTo
+    {
+        return $this->belongsTo(Stay::class);
     }
 
     public function postedBy(): BelongsTo

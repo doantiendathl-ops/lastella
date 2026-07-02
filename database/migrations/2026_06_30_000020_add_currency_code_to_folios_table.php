@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasColumn('folios', 'currency_code')) {
+            return;
+        }
+
         Schema::table('folios', function (Blueprint $table): void {
             $table->char('currency_code', 3)->default('VND')->after('folio_number');
         });

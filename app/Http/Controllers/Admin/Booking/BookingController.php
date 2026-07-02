@@ -20,10 +20,13 @@ use App\Http\Requests\Booking\UpdateBookingRequest;
 use App\Models\Booking;
 use App\Models\Room;
 use App\Models\RoomType;
+use App\Models\Stay;
 use App\Models\User;
 use App\Services\BookingService;
+use App\Services\BusinessDateService;
 use App\Services\RoomAssignmentService;
 use App\Services\RoomRateService;
+use App\Services\ServiceRateService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -105,7 +108,7 @@ class BookingController extends Controller
         return redirect()->route('admin.bookings.show', $booking)->with('success', 'Đã tạo đặt phòng.');
     }
 
-    public function show(Request $request, Booking $booking, RoomAssignmentService $assignments): Response
+    public function show(Request $request, Booking $booking, RoomAssignmentService $assignments, ServiceRateService $serviceRates, BusinessDateService $businessDate): Response
     {
         $this->authorize('view', $booking);
 
@@ -124,13 +127,34 @@ class BookingController extends Controller
             'stays.roomAssignment',
         ]);
 
+        $currentBusinessDate = $businessDate->currentBusinessDate();
+
+        $activeRates = $serviceRates->activeRatesGrouped($currentBusinessDate);
+
+        $checkableStays = $booking->stays
+            ->filter(fn (Stay $stay): bool => $stay->status === StayStatus::CheckedIn)
+            ->map(fn (Stay $stay): array => [
+                'id'          => $stay->id,
+                'room_number' => $stay->room?->room_number ?? "Stay #{$stay->id}",
+            ])
+            ->values();
+
         return Inertia::render('Admin/Bookings/Show', [
-            'booking' => $this->bookingPayload($booking),
-            'activeTab' => $this->normalizeDetailTab((string) $request->query('tab', 'info')),
-            'tabs' => $this->detailTabs(),
-            'assignmentSummary' => $assignments->getAssignmentSummary($booking),
-            'roomBoard' => $assignments->getRoomBoard($booking),
-            'options' => $this->options(includeRooms: true, booking: $booking),
+            'booking'             => $this->bookingPayload($booking),
+            'activeTab'           => $this->normalizeDetailTab((string) $request->query('tab', 'info')),
+            'tabs'                => $this->detailTabs(),
+            'assignmentSummary'   => $assignments->getAssignmentSummary($booking),
+            'roomBoard'           => $assignments->getRoomBoard($booking),
+            'options'             => $this->options(includeRooms: true, booking: $booking),
+            'serviceRates'        => array_values(array_map(fn ($rate): array => [
+                'id'          => $rate->id,
+                'name'        => $rate->name,
+                'charge_type' => $rate->charge_type,
+                'unit_price'  => (float) $rate->unit_price,
+                'unit_label'  => $rate->unit_label,
+            ], $activeRates)),
+            'checkableStays'      => $checkableStays,
+            'currentBusinessDate' => $currentBusinessDate->toDateString(),
             'can' => $this->permissions() + [
                 'editBooking' => $this->canEdit($booking, $request->user()) && $request->user()?->can('booking.update'),
                 'editDisabledReason' => $this->canEdit($booking, $request->user()) ? null : self::CLOSED_BOOKING_EDIT_MESSAGE,
@@ -522,6 +546,8 @@ class BookingController extends Controller
                 'is_voided'         => $entry->voided_at !== null,
                 'is_system_entry'   => $entry->posting_key !== null,
                 'can_void'          => request()->user()?->can('void', $entry) ?? false,
+                'stay_id'           => $entry->stay_id,
+                'posting_source'    => $entry->posting_source,
             ])->values(),
         ];
     }
