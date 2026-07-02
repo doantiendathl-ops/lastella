@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\AssignmentStatus;
 use App\Enums\StayStatus;
+use App\Exceptions\FinalCheckoutConfirmationRequiredException;
 use App\Models\Booking;
 use App\Models\RoomAssignment;
 use App\Models\Stay;
@@ -81,9 +82,9 @@ class StayService
         });
     }
 
-    public function checkOut(Stay $stay, CarbonInterface|string|null $actualCheckoutAt = null): Stay
+    public function checkOut(Stay $stay, CarbonInterface|string|null $actualCheckoutAt = null, bool $confirmed = false): Stay
     {
-        return DB::transaction(function () use ($stay, $actualCheckoutAt): Stay {
+        return DB::transaction(function () use ($stay, $actualCheckoutAt, $confirmed): Stay {
             // ADR-38: Booking lock FIRST — canonical order: Booking → Stay → RoomAssignment.
             $lockedBooking = Booking::whereKey($stay->booking_id)->lockForUpdate()->firstOrFail();
             $lockedStay    = Stay::whereKey($stay->id)->lockForUpdate()->firstOrFail();
@@ -105,6 +106,18 @@ class StayService
                 throw ValidationException::withMessages([
                     'stay' => 'Phòng đã được trả phòng rồi.',
                 ]);
+            }
+
+            // ADR-55: Final checkout gate — determined pre-DML under the booking lock.
+            // Count stays that will still be active after this one checks out.
+            // Reserved stays count as active (ADR-49) so a Reserved sibling keeps this non-final.
+            $remainingOtherActive = Stay::where('booking_id', $lockedBooking->id)
+                ->whereIn('status', [StayStatus::Reserved, StayStatus::CheckedIn])
+                ->where('id', '!=', $lockedStay->id)
+                ->count();
+
+            if ($remainingOtherActive === 0 && !$confirmed) {
+                throw new FinalCheckoutConfirmationRequiredException();
             }
 
             $lockedStay->update([
@@ -144,12 +157,12 @@ class StayService
         return $checkedIn;
     }
 
-    public function checkOutMany(iterable $stays): array
+    public function checkOutMany(iterable $stays, bool $confirmed = false): array
     {
         $checkedOut = [];
 
         foreach ($stays as $stay) {
-            $checkedOut[] = $this->checkOut($stay);
+            $checkedOut[] = $this->checkOut($stay, null, $confirmed);
         }
 
         return $checkedOut;

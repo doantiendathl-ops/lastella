@@ -15,7 +15,8 @@ class CheckOutStayRequest extends FormRequest
     {
         return [
             'actual_checkout_at' => ['nullable', 'date'],
-            'note' => ['nullable', 'string'],
+            'note'               => ['nullable', 'string'],
+            'confirmed'          => ['nullable', 'boolean'],
         ];
     }
 }

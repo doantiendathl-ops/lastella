@@ -325,7 +325,7 @@ class RoomChargeHotfixTest extends TestCase
         ]);
 
         $this->travelTo('2026-07-02 11:00:00');
-        app(StayService::class)->checkOut($stay);
+        app(StayService::class)->checkOut($stay, null, true);
 
         $this->assertSame(BookingStatus::CheckedOut, $booking->fresh()->status);
     }
@@ -368,7 +368,7 @@ class RoomChargeHotfixTest extends TestCase
         $this->expectException(OutstandingBalanceException::class);
 
         $this->travelTo('2026-07-02 11:00:00');
-        app(StayService::class)->checkOut($stay);
+        app(StayService::class)->checkOut($stay, null, true);
     }
 
     // ── Issue 2: Checkout all / multi-stay ───────────────────────────────────
@@ -401,7 +401,7 @@ class RoomChargeHotfixTest extends TestCase
 
         // Simulate checkOutAll: sequential individual checkouts
         app(StayService::class)->checkOut($stay1);
-        app(StayService::class)->checkOut($stay2); // last stay → finaliseBookingCheckout
+        app(StayService::class)->checkOut($stay2, null, true); // last stay → finaliseBookingCheckout
 
         $this->assertSame(BookingStatus::CheckedOut, $booking->fresh()->status);
         $this->assertSame(FolioStatus::Closed, $booking->folio->fresh()->status);
@@ -436,7 +436,7 @@ class RoomChargeHotfixTest extends TestCase
 
         // Last stay checkout throws OBE — this is what the UI disabled state prevents
         $this->expectException(OutstandingBalanceException::class);
-        app(StayService::class)->checkOut($stay2);
+        app(StayService::class)->checkOut($stay2, null, true);
     }
 
     public function test_partial_checkout_booking_can_checkout_remaining_rooms_after_payment(): void
@@ -469,7 +469,7 @@ class RoomChargeHotfixTest extends TestCase
         ]);
 
         // stay2 can now complete checkout
-        app(StayService::class)->checkOut($stay2);
+        app(StayService::class)->checkOut($stay2, null, true);
 
         $this->assertSame(BookingStatus::CheckedOut, $booking->fresh()->status);
     }
@@ -521,8 +521,8 @@ class RoomChargeHotfixTest extends TestCase
 
         $this->assertSame(StayStatus::CheckedOut, $stay1->fresh()->status);
 
-        // Last stay checkout redirects to payments tab with error (OBE caught by StayController)
-        $response = $this->post(route('admin.bookings.stays.check-out', [$booking, $stay2]));
+        // Last stay checkout with confirmed=true: reaches OBE → redirects to payments tab with error
+        $response = $this->post(route('admin.bookings.stays.check-out', [$booking, $stay2]), ['confirmed' => true]);
         $response->assertRedirect(route('admin.bookings.show', ['booking' => $booking->id, 'tab' => 'payments']));
         $response->assertSessionHas('error');
 
@@ -558,7 +558,7 @@ class RoomChargeHotfixTest extends TestCase
         $response1 = $this->post(route('admin.bookings.stays.check-out', [$booking, $stay1]));
         $response1->assertRedirect(route('admin.bookings.show', ['booking' => $booking->id, 'tab' => 'room_map']));
 
-        $response2 = $this->post(route('admin.bookings.stays.check-out', [$booking, $stay2]));
+        $response2 = $this->post(route('admin.bookings.stays.check-out', [$booking, $stay2]), ['confirmed' => true]);
         $response2->assertRedirect(route('admin.bookings.show', ['booking' => $booking->id, 'tab' => 'room_map']));
 
         $this->assertSame(BookingStatus::CheckedOut, $booking->fresh()->status);

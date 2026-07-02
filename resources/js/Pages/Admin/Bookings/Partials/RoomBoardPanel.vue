@@ -1,14 +1,16 @@
 <script setup>
 import { labelFor } from '@/Support/vietnameseLabels';
-import { router } from '@inertiajs/vue3';
+import { router, usePage } from '@inertiajs/vue3';
 import { CheckCircle, LogIn, LogOut } from 'lucide-vue-next';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 
 const props = defineProps({
     booking: { type: Object, required: true },
     can: { type: Object, required: true },
     paymentSummary: { type: Object, required: true },
 })
+
+const page = usePage()
 
 const activeStays = computed(() =>
     (props.booking.stays ?? []).filter((s) => s.status !== 'CANCELLED' && !s.is_released)
@@ -25,6 +27,7 @@ const checkoutDisabled = (stay) =>
 
 const lastStayConfirmTarget = ref(null)
 const checkoutWarningStay = ref(null)
+const checkOutAllConfirming = ref(false)
 
 const checkIn = (stay) =>
     router.post(`/admin/bookings/${props.booking.id}/stays/${stay.id}/check-in`, {}, { preserveScroll: true })
@@ -32,30 +35,42 @@ const checkIn = (stay) =>
 const checkOut = (stay) => {
     const balance = props.paymentSummary?.balance_due ?? 0
 
-    if (isLastCheckedIn(stay)) {
-        // last stay + zero balance → confirmation modal
-        if (balance === 0) {
-            lastStayConfirmTarget.value = stay
-        }
-        // last stay + balance > 0 → button is disabled; cannot reach here via normal UI
-        return
-    }
-
-    // non-last stay: if balance, warn but don't block
-    if (balance > 0) {
+    // Non-last stay with outstanding balance — warn before proceeding (UX only; checkout will succeed)
+    if (!isLastCheckedIn(stay) && balance > 0) {
         checkoutWarningStay.value = stay
         return
     }
 
+    // ADR-55: for final checkouts, backend is authoritative. Send without confirmed; if backend
+    // fires FinalCheckoutConfirmationRequiredException the flash watcher shows the dialog.
     router.post(`/admin/bookings/${props.booking.id}/stays/${stay.id}/check-out`, {}, { preserveScroll: true })
 }
 
+// ADR-55: resend with confirmed=true after user approves the charge-review dialog
 const confirmLastStayCheckout = () => {
     if (!lastStayConfirmTarget.value) return
     const stayId = lastStayConfirmTarget.value.id
     lastStayConfirmTarget.value = null
-    router.post(`/admin/bookings/${props.booking.id}/stays/${stayId}/check-out`, {}, { preserveScroll: true })
+    router.post(
+        `/admin/bookings/${props.booking.id}/stays/${stayId}/check-out`,
+        { confirmed: true },
+        { preserveScroll: true },
+    )
 }
+
+// ADR-55: watch the flash object (not the scalar key) so the watcher re-fires after
+// dismiss-then-retry — Inertia replaces the flash object by reference on each navigation,
+// guaranteeing a change even when the stay ID is the same integer as the previous redirect.
+watch(
+    () => page.props.flash,
+    (flash) => {
+        const stayId = flash?.final_checkout_confirmation_required
+        if (!stayId) return
+        const stay = (props.booking.stays ?? []).find((s) => s.id === stayId)
+        if (stay) lastStayConfirmTarget.value = stay
+    },
+    { immediate: true },
+)
 
 const confirmCheckoutWithWarning = () => {
     if (!checkoutWarningStay.value) return
@@ -78,19 +93,24 @@ const checkInAll = () => {
     doNext(0)
 }
 
-// ADR-52 compatible: balance_due > 0 disables the button in the template;
-// this function is only reached when balance is clear.
-// Never attempt checkOutAll when balance > 0 — the last stay's checkout
-// will be blocked by OutstandingBalanceException on the server, producing
-// a partial checkout state (N-1 rooms checked out, last room still active).
+// Show the pre-checkout confirmation dialog before sending any requests
+const requestCheckOutAll = () => {
+    const stays = activeStays.value.filter((s) => s.can_check_out)
+    if (!stays.length) return
+    checkOutAllConfirming.value = true
+}
+
+// ADR-55: send confirmed=true on ALL requests; backend ignores it for non-final stays
+// and accepts it for the final stay — avoids frontend tracking which stay is last.
 const checkOutAll = () => {
+    checkOutAllConfirming.value = false
     const stays = activeStays.value.filter((s) => s.can_check_out)
     if (!stays.length) return
     const doNext = (i) => {
         if (i >= stays.length) return
         router.post(
             `/admin/bookings/${props.booking.id}/stays/${stays[i].id}/check-out`,
-            {},
+            { confirmed: true },
             { preserveScroll: true, onSuccess: () => doNext(i + 1) },
         )
     }
@@ -128,7 +148,7 @@ const checkOutAllDisabled = computed(() => (props.paymentSummary?.balance_due ??
                     v-else-if="can.checkOut && activeStays.some(s => s.can_check_out)"
                     type="button"
                     class="inline-flex items-center gap-1.5 border border-gray-300 px-3 py-1 text-xs font-semibold text-steel hover:border-pine hover:text-pine"
-                    @click="checkOutAll"
+                    @click="requestCheckOutAll"
                 >
                     <LogOut class="h-3.5 w-3.5" /> Trả tất cả phòng
                 </button>
@@ -198,16 +218,64 @@ const checkOutAllDisabled = computed(() => (props.paymentSummary?.balance_due ??
         </div>
     </div>
 
-    <!-- Last-stay checkout confirmation modal (ADR-52: UX only guard) -->
+    <!-- ADR-55: Final checkout charge-review confirmation dialog (backend-driven) -->
     <div v-if="lastStayConfirmTarget" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-        <div class="w-full max-w-sm border border-gray-200 bg-white p-5 shadow-xl">
+        <div class="w-full max-w-md border border-gray-200 bg-white p-5 shadow-xl">
             <h2 class="text-base font-semibold">Xác nhận trả phòng cuối cùng</h2>
             <p class="mt-2 text-sm text-steel">
-                Phòng <strong>{{ lastStayConfirmTarget.room_number }}</strong> là phòng đang lưu trú cuối cùng. Trả phòng sẽ kết thúc toàn bộ booking.
+                Bạn đang trả phòng <strong>{{ lastStayConfirmTarget.room_number }}</strong> — phòng đang lưu trú cuối cùng của booking này.
             </p>
-            <div class="mt-4 flex justify-end gap-2">
-                <button type="button" class="border border-gray-300 px-4 py-2 text-sm font-semibold text-steel hover:text-ink" @click="lastStayConfirmTarget = null">Hủy</button>
-                <button type="button" class="border border-pine bg-pine px-4 py-2 text-sm font-semibold text-white hover:bg-pine/90" @click="confirmLastStayCheckout">Xác nhận trả phòng</button>
+            <p class="mt-3 text-sm text-steel">Sau khi trả phòng:</p>
+            <ul class="mt-1.5 space-y-1 text-sm text-steel">
+                <li>• Phí vận hành (minibar, giặt ủi, nhà hàng…) <strong>sẽ không thể thêm hoặc huỷ nữa.</strong></li>
+                <li>• Vui lòng đảm bảo tất cả phí phát sinh đã được nhập trước khi tiếp tục.</li>
+            </ul>
+            <div class="mt-5 flex justify-end gap-2">
+                <button
+                    type="button"
+                    class="border border-gray-300 px-4 py-2 text-sm font-semibold text-steel hover:text-ink"
+                    @click="lastStayConfirmTarget = null"
+                >
+                    Quay lại Tài chính
+                </button>
+                <button
+                    type="button"
+                    class="border border-pine bg-pine px-4 py-2 text-sm font-semibold text-white hover:bg-pine/90"
+                    @click="confirmLastStayCheckout"
+                >
+                    Xác nhận trả phòng cuối cùng
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ADR-55: CheckOutAll charge-review confirmation dialog (pre-sequence) -->
+    <div v-if="checkOutAllConfirming" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+        <div class="w-full max-w-md border border-gray-200 bg-white p-5 shadow-xl">
+            <h2 class="text-base font-semibold">Xác nhận trả tất cả phòng</h2>
+            <p class="mt-2 text-sm text-steel">
+                Bạn đang trả tất cả các phòng còn đang lưu trú. Đây là hành động trả phòng cuối cùng của booking.
+            </p>
+            <p class="mt-3 text-sm text-steel">Sau khi trả phòng:</p>
+            <ul class="mt-1.5 space-y-1 text-sm text-steel">
+                <li>• Phí vận hành (minibar, giặt ủi, nhà hàng…) <strong>sẽ không thể thêm hoặc huỷ nữa.</strong></li>
+                <li>• Vui lòng đảm bảo tất cả phí phát sinh đã được nhập trước khi tiếp tục.</li>
+            </ul>
+            <div class="mt-5 flex justify-end gap-2">
+                <button
+                    type="button"
+                    class="border border-gray-300 px-4 py-2 text-sm font-semibold text-steel hover:text-ink"
+                    @click="checkOutAllConfirming = false"
+                >
+                    Quay lại Tài chính
+                </button>
+                <button
+                    type="button"
+                    class="border border-pine bg-pine px-4 py-2 text-sm font-semibold text-white hover:bg-pine/90"
+                    @click="checkOutAll"
+                >
+                    Xác nhận trả phòng cuối cùng
+                </button>
             </div>
         </div>
     </div>

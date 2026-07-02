@@ -61,7 +61,8 @@ class CheckoutUiTest extends TestCase
 
         // No payment — balance outstanding
 
-        $response = $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out");
+        // Pass confirmed=true to reach the OBE guard (confirmation gate fires before OBE).
+        $response = $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out", ['confirmed' => true]);
 
         $response->assertRedirect(route('admin.bookings.show', [
             'booking' => $booking->id,
@@ -76,7 +77,8 @@ class CheckoutUiTest extends TestCase
     {
         [$booking, $stay] = $this->bookingWithCheckedInStay();
 
-        $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out");
+        // Pass confirmed=true so the OBE guard is reached and the booking stays unchanged.
+        $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out", ['confirmed' => true]);
 
         $this->assertNotSame(BookingStatus::CheckedOut, $booking->fresh()->status);
     }
@@ -94,7 +96,7 @@ class CheckoutUiTest extends TestCase
             'payment_at'     => now()->toDateTimeString(),
         ]);
 
-        $response = $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out");
+        $response = $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out", ['confirmed' => true]);
 
         $response->assertRedirect(route('admin.bookings.show', [
             'booking' => $booking->id,

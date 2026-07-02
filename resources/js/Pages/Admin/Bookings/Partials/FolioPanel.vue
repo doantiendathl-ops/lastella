@@ -124,6 +124,14 @@ const reopenFolio = () => {
                 <div class="flex items-center gap-2">
                     <h3 class="text-sm font-semibold uppercase tracking-wide text-steel">Phí phát sinh</h3>
                     <FolioStatusBadge v-if="booking.folio" :status="booking.folio.status" />
+                    <!-- ADR-56: charge lock badge — derived from booking terminal status, no new DB column -->
+                    <span
+                        v-if="booking.status === 'CHECKED_OUT'"
+                        class="inline-flex items-center gap-1 border border-gray-300 bg-gray-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500"
+                        title="Tất cả phòng đã trả. Phí phát sinh đã được khóa."
+                    >
+                        Charges Locked
+                    </span>
                 </div>
                 <button
                     v-if="can.createCharge && booking.folio?.status === 'OPEN'"

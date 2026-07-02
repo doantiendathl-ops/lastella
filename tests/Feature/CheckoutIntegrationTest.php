@@ -73,7 +73,7 @@ class CheckoutIntegrationTest extends TestCase
             'payment_at' => now()->toDateTimeString(),
         ]);
 
-        app(StayService::class)->checkOut($stay);
+        app(StayService::class)->checkOut($stay, null, true);
 
         $this->assertSame(BookingStatus::CheckedOut, $booking->fresh()->status);
     }
@@ -88,7 +88,7 @@ class CheckoutIntegrationTest extends TestCase
             'payment_at' => now()->toDateTimeString(),
         ]);
 
-        app(StayService::class)->checkOut($stay);
+        app(StayService::class)->checkOut($stay, null, true);
 
         $this->assertSame(FolioStatus::Closed, $booking->folio()->first()->status);
     }
@@ -103,7 +103,7 @@ class CheckoutIntegrationTest extends TestCase
 
         $this->expectException(OutstandingBalanceException::class);
 
-        app(StayService::class)->checkOut($stay);
+        app(StayService::class)->checkOut($stay, null, true);
     }
 
     public function test_checkout_blocked_with_partial_payment(): void
@@ -118,7 +118,7 @@ class CheckoutIntegrationTest extends TestCase
 
         $this->expectException(OutstandingBalanceException::class);
 
-        app(StayService::class)->checkOut($stay);
+        app(StayService::class)->checkOut($stay, null, true);
     }
 
     public function test_checkout_blocked_leaves_booking_and_folio_unchanged(): void
@@ -126,7 +126,7 @@ class CheckoutIntegrationTest extends TestCase
         [$booking, $stay] = $this->bookingWithCheckedInStay();
 
         try {
-            app(StayService::class)->checkOut($stay);
+            app(StayService::class)->checkOut($stay, null, true);
         } catch (OutstandingBalanceException) {
             // expected
         }
@@ -209,7 +209,7 @@ class CheckoutIntegrationTest extends TestCase
             'payment_method' => PaymentMethod::Cash->value,
             'payment_at' => now()->toDateTimeString(),
         ]);
-        app(StayService::class)->checkOut($stay);
+        app(StayService::class)->checkOut($stay, null, true);
 
         $folio = $booking->folio()->first();
         // Manually reopen folio to isolate addCharge guard (not testing autoClose here)
@@ -234,7 +234,7 @@ class CheckoutIntegrationTest extends TestCase
             'payment_method' => PaymentMethod::Cash->value,
             'payment_at' => now()->toDateTimeString(),
         ]);
-        app(StayService::class)->checkOut($stay);
+        app(StayService::class)->checkOut($stay, null, true);
 
         $folio = $booking->folio()->first();
 

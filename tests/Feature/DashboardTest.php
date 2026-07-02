@@ -127,7 +127,7 @@ class DashboardTest extends TestCase
             'occupied_rooms' => 1,
         ]);
 
-        app(StayService::class)->checkOut($checkedIn, '2026-06-15 11:00:00');
+        app(StayService::class)->checkOut($checkedIn, '2026-06-15 11:00:00', true);
 
         $this->assertDashboardMetrics([
             'available_rooms' => $totalRooms,

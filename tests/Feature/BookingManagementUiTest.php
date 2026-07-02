@@ -775,7 +775,7 @@ class BookingManagementUiTest extends TestCase
 
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-in")->assertRedirect();
         $this->payInFull($booking);
-        $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out")->assertRedirect();
+        $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out", ['confirmed' => true])->assertRedirect();
 
         $this->assertSame(StayStatus::CheckedOut, $stay->refresh()->status);
         $this->assertNotNull($stay->actual_checkout_at);
@@ -1925,7 +1925,7 @@ class BookingManagementUiTest extends TestCase
         $stay = Stay::where('room_assignment_id', $assignment->id)->firstOrFail();
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-in")->assertRedirect();
         $this->payInFull($booking);
-        $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out")->assertRedirect();
+        $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out", ['confirmed' => true])->assertRedirect();
 
         $this->post("/admin/bookings/{$booking->id}/assignments/{$assignment->id}/release", [])
             ->assertSessionHasErrors(['assignment']);
@@ -1964,7 +1964,7 @@ class BookingManagementUiTest extends TestCase
         $stay = Stay::where('room_assignment_id', $assignment->id)->firstOrFail();
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-in")->assertRedirect();
         $this->payInFull($booking);
-        $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out")->assertRedirect();
+        $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out", ['confirmed' => true])->assertRedirect();
 
         $this->get("/admin/bookings/{$booking->id}")
             ->assertOk()
@@ -2089,7 +2089,7 @@ class BookingManagementUiTest extends TestCase
 
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-in")->assertRedirect();
         $this->payInFull($booking);
-        $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out")->assertRedirect();
+        $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out", ['confirmed' => true])->assertRedirect();
 
         // Attempt a second check-in after checkout.
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-in")
@@ -2106,7 +2106,7 @@ class BookingManagementUiTest extends TestCase
 
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-in")->assertRedirect();
         $this->payInFull($booking);
-        $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out")->assertRedirect();
+        $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out", ['confirmed' => true])->assertRedirect();
 
         // Attempt a second checkout.
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out")
@@ -2390,7 +2390,7 @@ class BookingManagementUiTest extends TestCase
 
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-in")->assertRedirect();
         $this->payInFull($booking);
-        $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out")->assertRedirect();
+        $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out", ['confirmed' => true])->assertRedirect();
 
         $this->get("/admin/bookings/{$booking->id}?tab=room_map")
             ->assertOk()
@@ -2507,7 +2507,7 @@ class BookingManagementUiTest extends TestCase
 
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-in")->assertRedirect();
         $this->payInFull($booking);
-        $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out")->assertRedirect();
+        $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out", ['confirmed' => true])->assertRedirect();
 
         $this->assertSame(StayStatus::CheckedOut, $stay->refresh()->status);
     }
@@ -3172,7 +3172,7 @@ class BookingManagementUiTest extends TestCase
             'confirmed_by' => $this->admin->id,
         ]);
 
-        $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out")->assertRedirect();
+        $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out", ['confirmed' => true])->assertRedirect();
 
         $this->put("/admin/bookings/{$booking->id}", [
             ...$this->bookingPayload(),

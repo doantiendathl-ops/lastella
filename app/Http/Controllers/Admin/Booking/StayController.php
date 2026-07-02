@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin\Booking;
 
+use App\Exceptions\FinalCheckoutConfirmationRequiredException;
 use App\Exceptions\OutstandingBalanceException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Booking\CheckInStayRequest;
@@ -33,7 +34,17 @@ class StayController extends Controller
         abort_unless($stay->booking_id === $booking->id, 404);
 
         try {
-            $this->stays->checkOut($stay, $request->validated('actual_checkout_at'));
+            $this->stays->checkOut(
+                $stay,
+                $request->validated('actual_checkout_at'),
+                $request->boolean('confirmed', false),
+            );
+        } catch (FinalCheckoutConfirmationRequiredException) {
+            // ADR-55: final checkout gate — redirect back to room_map so the frontend
+            // shows the charge-review confirmation dialog and retries with confirmed=true.
+            return redirect()
+                ->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'room_map'])
+                ->with('final_checkout_confirmation_required', $stay->id);
         } catch (OutstandingBalanceException $e) {
             // ADR-53: caught per-controller; redirects to payments tab (most actionable destination).
             return redirect()

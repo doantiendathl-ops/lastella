@@ -266,7 +266,7 @@ class BookingEngineFoundationTest extends TestCase
 
         $stayService = app(StayService::class);
         $checkedIn = $stayService->checkIn($stay, '2026-07-01 15:00:00');
-        $checkedOut = $stayService->checkOut($checkedIn, '2026-07-02 11:00:00');
+        $checkedOut = $stayService->checkOut($checkedIn, '2026-07-02 11:00:00', true);
 
         $this->assertSame(StayStatus::CheckedOut, $checkedOut->status);
         $this->assertSame(AssignmentStatus::CheckedOut, $assignment->refresh()->status);
@@ -284,7 +284,7 @@ class BookingEngineFoundationTest extends TestCase
 
         // ADR-40: outstanding balance blocks checkout — transaction rolls back entirely.
         $this->expectException(OutstandingBalanceException::class);
-        $stayService->checkOut($checkedIn, '2026-07-02 11:00:00');
+        $stayService->checkOut($checkedIn, '2026-07-02 11:00:00', true);
     }
 
     public function test_assigning_conflicting_room_throws_validation_exception(): void
