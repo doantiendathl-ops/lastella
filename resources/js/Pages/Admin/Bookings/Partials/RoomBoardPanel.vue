@@ -78,11 +78,14 @@ const checkInAll = () => {
     doNext(0)
 }
 
+// ADR-52 compatible: balance_due > 0 disables the button in the template;
+// this function is only reached when balance is clear.
+// Never attempt checkOutAll when balance > 0 — the last stay's checkout
+// will be blocked by OutstandingBalanceException on the server, producing
+// a partial checkout state (N-1 rooms checked out, last room still active).
 const checkOutAll = () => {
     const stays = activeStays.value.filter((s) => s.can_check_out)
     if (!stays.length) return
-    const balance = props.paymentSummary?.balance_due ?? 0
-    if (balance > 0 && !window.confirm('Booking còn nợ. Vẫn trả tất cả phòng?')) return
     const doNext = (i) => {
         if (i >= stays.length) return
         router.post(
@@ -93,6 +96,8 @@ const checkOutAll = () => {
     }
     doNext(0)
 }
+
+const checkOutAllDisabled = computed(() => (props.paymentSummary?.balance_due ?? 0) > 0)
 </script>
 
 <template>
@@ -111,8 +116,16 @@ const checkOutAll = () => {
                 >
                     <LogIn class="h-3.5 w-3.5" /> Nhận tất cả phòng
                 </button>
+                <!-- ADR-52: disabled when balance > 0 — last-stay checkout would throw OBE -->
+                <span
+                    v-if="can.checkOut && activeStays.some(s => s.can_check_out) && checkOutAllDisabled"
+                    class="inline-flex cursor-not-allowed items-center gap-1.5 border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-400"
+                    title="Còn số dư cần thanh toán trước khi trả tất cả phòng"
+                >
+                    <LogOut class="h-3.5 w-3.5" /> Trả tất cả phòng
+                </span>
                 <button
-                    v-if="can.checkOut && activeStays.some(s => s.can_check_out)"
+                    v-else-if="can.checkOut && activeStays.some(s => s.can_check_out)"
                     type="button"
                     class="inline-flex items-center gap-1.5 border border-gray-300 px-3 py-1 text-xs font-semibold text-steel hover:border-pine hover:text-pine"
                     @click="checkOutAll"
