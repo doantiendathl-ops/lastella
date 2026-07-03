@@ -81,6 +81,11 @@ class Booking extends Model
         return $this->hasMany(Stay::class);
     }
 
+    public function packageFlags(): HasMany
+    {
+        return $this->hasMany(BookingPackageFlag::class);
+    }
+
     public function salesUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'sales_user_id');

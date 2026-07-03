@@ -11,6 +11,7 @@ use App\Http\Controllers\Admin\Booking\BookingRequirementController;
 use App\Http\Controllers\Admin\Booking\FolioController;
 use App\Http\Controllers\Admin\Booking\FolioEntryController;
 use App\Http\Controllers\Admin\Booking\RoomAssignmentController;
+use App\Http\Controllers\Admin\Booking\BookingPackageController;
 use App\Http\Controllers\Admin\Booking\StayController;
 use App\Http\Controllers\Admin\FloorController;
 use App\Http\Controllers\Admin\PermissionController;
@@ -77,5 +78,7 @@ Route::middleware('auth')->group(function (): void {
         Route::post('bookings/{booking}/room-board/conflict/{assignment}/release', [RoomAssignmentController::class, 'releaseConflict'])->name('bookings.room-board.conflict.release');
         Route::post('bookings/{booking}/stays/{stay}/check-in', [StayController::class, 'checkIn'])->name('bookings.stays.check-in');
         Route::post('bookings/{booking}/stays/{stay}/check-out', [StayController::class, 'checkOut'])->name('bookings.stays.check-out');
+        Route::post('bookings/{booking}/packages', [BookingPackageController::class, 'enroll'])->name('bookings.packages.enroll');
+        Route::delete('bookings/{booking}/packages/{packageKey}', [BookingPackageController::class, 'unenroll'])->name('bookings.packages.unenroll');
     });
 });

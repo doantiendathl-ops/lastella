@@ -1,6 +1,7 @@
 ﻿<script setup>
 import AppLayout from '@/Layouts/AppLayout.vue';
 import FolioPanel from './Partials/FolioPanel.vue';
+import PackagePanel from './Partials/PackagePanel.vue';
 import RoomBoardPanel from './Partials/RoomBoardPanel.vue';
 import { labelFor } from '@/Support/vietnameseLabels';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
@@ -808,6 +809,12 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                         </tbody>
                     </table>
                 </div>
+
+                <PackagePanel
+                    :booking-id="booking.id"
+                    :package-flags="booking.packageFlags ?? []"
+                    :can-manage="can.managePackage"
+                />
             </div>
 
             <FolioPanel

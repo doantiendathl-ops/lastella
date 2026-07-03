@@ -125,6 +125,7 @@ class BookingController extends Controller
             'roomAssignments.stay',
             'stays.room',
             'stays.roomAssignment',
+            'packageFlags',
         ]);
 
         $currentBusinessDate = $businessDate->currentBusinessDate();
@@ -306,8 +307,12 @@ class BookingController extends Controller
                 'price_source' => $requirement->price_source?->value,
                 'note' => $requirement->note,
             ])->values(),
-            'payment_summary' => $this->bookings->paymentSummary($booking),
-            'folio'           => $this->folioPayload($booking),
+            'payment_summary'  => $this->bookings->paymentSummary($booking),
+            'folio'            => $this->folioPayload($booking),
+            'packageFlags'     => $booking->packageFlags->map(fn ($flag): array => [
+                'package_key' => $flag->package_key,
+                'created_at'  => $flag->created_at?->format('Y-m-d H:i'),
+            ])->values(),
             'payments' => $booking->bookingPayments->map(fn ($payment): array => [
                 'id' => $payment->id,
                 'payment_type' => $payment->payment_type?->value,
@@ -570,6 +575,7 @@ class BookingController extends Controller
             'releaseRoom'   => $user?->can('room.unassign') ?? false,
             'checkIn'       => $user?->can('stay.checkin') ?? false,
             'checkOut'      => $user?->can('stay.checkout') ?? false,
+            'managePackage' => $user?->can('booking.package.manage') ?? false,
         ];
     }
 }
