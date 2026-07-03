@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\AuditLogController;
+use App\Http\Controllers\Admin\RevenueReportController;
 use App\Http\Controllers\Admin\HotelSettingsController;
 use App\Http\Controllers\Admin\NightAuditController;
 use App\Http\Controllers\Admin\ServiceRateController;
@@ -61,6 +62,9 @@ Route::middleware('auth')->group(function (): void {
         Route::post('night-audit/{nightAuditRun}/retry', [NightAuditController::class, 'retry'])->name('night-audit.retry');
 
         Route::get('room-availability', [RoomAvailabilityController::class, 'index'])->name('room-availability.index');
+
+        Route::get('reports/revenue', [RevenueReportController::class, 'index'])->name('reports.revenue.index');
+        Route::get('reports/revenue/export', [RevenueReportController::class, 'export'])->name('reports.revenue.export');
         Route::resource('bookings', BookingController::class)->except(['destroy']);
         Route::post('bookings/{booking}/cancel', [BookingController::class, 'cancel'])->name('bookings.cancel');
         Route::post('bookings/{booking}/restore', [BookingController::class, 'restore'])->name('bookings.restore');

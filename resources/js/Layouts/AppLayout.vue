@@ -14,6 +14,7 @@ import {
     Settings,
     Shield,
     Tags,
+    TrendingUp,
     Users,
 } from 'lucide-vue-next';
 import { computed } from 'vue';
@@ -30,6 +31,7 @@ const navItems = computed(() => [
     { label: 'Đặt phòng', href: '/admin/bookings', icon: CalendarCheck, show: can('booking.create') || can('booking.update') || can('booking.cancel') || can('report.view') },
     { label: 'Kiểm tra phòng', href: '/admin/room-availability', icon: Search, show: can('room_availability.view') },
     { label: 'Night Audit', href: '/admin/night-audit', icon: Moon, show: can('night_audit.view') },
+    { label: 'Doanh thu', href: '/admin/reports/revenue', icon: TrendingUp, show: can('revenue.view') },
     { label: 'Người dùng', href: '/users', icon: Users, show: can('users.manage') },
     { label: 'Vai trò', href: '/roles', icon: Shield, show: can('roles.manage') },
     { label: 'Quyền', href: '/permissions', icon: KeyRound, show: can('roles.manage') },

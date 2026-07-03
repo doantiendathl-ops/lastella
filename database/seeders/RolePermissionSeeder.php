@@ -40,6 +40,7 @@ class RolePermissionSeeder extends Seeder
         'night_audit.run',
         'night_audit.view',
         'booking.package.manage',
+        'revenue.view',
         'users.manage',
         'roles.manage',
         'rooms.manage',
@@ -82,6 +83,7 @@ class RolePermissionSeeder extends Seeder
             'night_audit.run',
             'night_audit.view',
             'booking.package.manage',
+            'revenue.view',
             'rooms.manage',
             'room_types.manage',
             'rates.manage',
@@ -122,6 +124,7 @@ class RolePermissionSeeder extends Seeder
             'payment.create',
             'folio.view',
             'report.view',
+            'revenue.view',
             'night_audit.view',
         ]);
 
