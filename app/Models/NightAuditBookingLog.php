@@ -2,11 +2,15 @@
 
 namespace App\Models;
 
+use Database\Factories\NightAuditBookingLogFactory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class NightAuditBookingLog extends Model
 {
+    /** @use HasFactory<NightAuditBookingLogFactory> */
+    use HasFactory;
     protected $fillable = [
         'run_id',
         'booking_id',

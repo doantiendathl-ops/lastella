@@ -54,7 +54,10 @@ Route::middleware('auth')->group(function (): void {
         Route::patch('service-rates/{serviceRate}/toggle', [ServiceRateController::class, 'toggleActive'])->name('service-rates.toggle');
 
         Route::get('night-audit', [NightAuditController::class, 'index'])->name('night-audit.index');
+        Route::get('night-audit/{nightAuditRun}', [NightAuditController::class, 'show'])->name('night-audit.show');
         Route::post('night-audit/run', [NightAuditController::class, 'run'])->name('night-audit.run');
+        Route::post('night-audit/trigger', [NightAuditController::class, 'trigger'])->name('night-audit.trigger');
+        Route::post('night-audit/{nightAuditRun}/retry', [NightAuditController::class, 'retry'])->name('night-audit.retry');
 
         Route::get('room-availability', [RoomAvailabilityController::class, 'index'])->name('room-availability.index');
         Route::resource('bookings', BookingController::class)->except(['destroy']);
