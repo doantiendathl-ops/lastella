@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\AuditLogController;
+use App\Http\Controllers\Admin\ReconciliationController;
 use App\Http\Controllers\Admin\RevenueReportController;
 use App\Http\Controllers\Admin\HotelSettingsController;
 use App\Http\Controllers\Admin\NightAuditController;
@@ -65,6 +66,11 @@ Route::middleware('auth')->group(function (): void {
 
         Route::get('reports/revenue', [RevenueReportController::class, 'index'])->name('reports.revenue.index');
         Route::get('reports/revenue/export', [RevenueReportController::class, 'export'])->name('reports.revenue.export');
+
+        Route::get('reconciliation', [ReconciliationController::class, 'index'])->name('reconciliation.index');
+        Route::get('reconciliation/voids', [ReconciliationController::class, 'voids'])->name('reconciliation.voids');
+        Route::get('reconciliation/export', [ReconciliationController::class, 'exportOutstanding'])->name('reconciliation.export');
+        Route::get('reconciliation/voids/export', [ReconciliationController::class, 'exportVoids'])->name('reconciliation.voids-export');
         Route::resource('bookings', BookingController::class)->except(['destroy']);
         Route::post('bookings/{booking}/cancel', [BookingController::class, 'cancel'])->name('bookings.cancel');
         Route::post('bookings/{booking}/restore', [BookingController::class, 'restore'])->name('bookings.restore');
