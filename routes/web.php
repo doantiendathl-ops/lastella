@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\AuditLogController;
+use App\Http\Controllers\Admin\PostingTimelineController;
 use App\Http\Controllers\Admin\ReconciliationController;
 use App\Http\Controllers\Admin\RevenueReportController;
 use App\Http\Controllers\Admin\HotelSettingsController;
@@ -55,6 +56,7 @@ Route::middleware('auth')->group(function (): void {
         Route::post('service-rates', [ServiceRateController::class, 'store'])->name('service-rates.store');
         Route::patch('service-rates/{serviceRate}', [ServiceRateController::class, 'update'])->name('service-rates.update');
         Route::patch('service-rates/{serviceRate}/toggle', [ServiceRateController::class, 'toggleActive'])->name('service-rates.toggle');
+        Route::get('service-rates/history/{chargeType}', [ServiceRateController::class, 'history'])->name('service-rates.history');
 
         Route::get('night-audit', [NightAuditController::class, 'index'])->name('night-audit.index');
         Route::get('night-audit/{nightAuditRun}', [NightAuditController::class, 'show'])->name('night-audit.show');
@@ -72,6 +74,7 @@ Route::middleware('auth')->group(function (): void {
         Route::get('reconciliation/export', [ReconciliationController::class, 'exportOutstanding'])->name('reconciliation.export');
         Route::get('reconciliation/voids/export', [ReconciliationController::class, 'exportVoids'])->name('reconciliation.voids-export');
         Route::resource('bookings', BookingController::class)->except(['destroy']);
+        Route::get('bookings/{booking}/timeline', [PostingTimelineController::class, 'show'])->name('bookings.timeline');
         Route::post('bookings/{booking}/cancel', [BookingController::class, 'cancel'])->name('bookings.cancel');
         Route::post('bookings/{booking}/restore', [BookingController::class, 'restore'])->name('bookings.restore');
         Route::post('bookings/{booking}/requirements', [BookingRequirementController::class, 'store'])->name('bookings.requirements.store');

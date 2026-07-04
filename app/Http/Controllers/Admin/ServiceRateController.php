@@ -98,4 +98,39 @@ class ServiceRateController extends Controller
             ->route('admin.service-rates.index')
             ->with('success', $message);
     }
+
+    public function history(string $chargeType): Response
+    {
+        $this->authorize('viewAny', ServiceRate::class);
+
+        $type = ChargeType::tryFrom(strtoupper($chargeType));
+        abort_if($type === null, 422, 'Invalid charge type.');
+
+        $rates = ServiceRate::where('charge_type', $type->value)
+            ->with('createdBy')
+            ->orderByDesc('effective_from')
+            ->orderByDesc('id')
+            ->limit(500)
+            ->get()
+            ->map(fn (ServiceRate $rate): array => [
+                'id'              => $rate->id,
+                'charge_type'     => $rate->charge_type,
+                'charge_label'    => $type->label(),
+                'name'            => $rate->name,
+                'unit_price'      => (float) $rate->unit_price,
+                'effective_from'  => $rate->effective_from->toDateString(),
+                'is_active'       => $rate->is_active,
+                'tax_rate'        => (float) $rate->tax_rate,
+                'gl_account_code' => $rate->gl_account_code,
+                'created_by'      => $rate->createdBy?->name ?? '—',
+                'created_at'      => $rate->created_at->format('Y-m-d H:i'),
+            ])
+            ->all();
+
+        return Inertia::render('Admin/ServiceRates/History', [
+            'chargeType'  => $type->value,
+            'chargeLabel' => $type->label(),
+            'rates'       => $rates,
+        ]);
+    }
 }

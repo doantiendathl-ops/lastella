@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import AppLayout from '@/Layouts/AppLayout.vue'
-import { Head, router, useForm } from '@inertiajs/vue3'
+import { Head, Link, router, useForm } from '@inertiajs/vue3'
 import { Plus, ToggleLeft, ToggleRight } from 'lucide-vue-next'
 import { ref } from 'vue'
 
@@ -180,6 +180,12 @@ const toggleActive = (rate: ServiceRate) => {
                                     <button @click="toggleActive(rate)" class="text-xs text-gray-500 hover:underline">
                                         {{ rate.is_active ? 'Tắt' : 'Bật' }}
                                     </button>
+                                    <Link
+                                        :href="route('admin.service-rates.history', rate.charge_type)"
+                                        class="text-xs text-gray-400 hover:text-gray-600 hover:underline"
+                                    >
+                                        Lịch sử
+                                    </Link>
                                 </div>
                             </td>
                         </tr>
