@@ -8,6 +8,9 @@ use App\Models\NightAuditBookingLog;
 use App\Models\NightAuditRun;
 use App\Models\User;
 use App\Services\BusinessDateService;
+use App\Services\Posting\BreakfastPostingJob;
+use App\Services\Posting\ExtraPersonPostingJob;
+use App\Services\Posting\RoomChargePostingJob;
 use Carbon\Carbon;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -157,6 +160,80 @@ class NightAuditOperationsTest extends TestCase
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->where('run.can_retry', false)
+            );
+    }
+
+    public function test_show_page_includes_job_summary_with_new_job_types(): void
+    {
+        // Arrange
+        $run = NightAuditRun::factory()->create([
+            'business_date' => '2026-07-01',
+            'status'        => 'COMPLETED',
+        ]);
+
+        NightAuditBookingLog::factory()->create([
+            'run_id'    => $run->id,
+            'job_class' => RoomChargePostingJob::class,
+            'result'    => 'POSTED',
+        ]);
+        NightAuditBookingLog::factory()->create([
+            'run_id'    => $run->id,
+            'job_class' => BreakfastPostingJob::class,
+            'result'    => 'SKIPPED',
+        ]);
+        NightAuditBookingLog::factory()->create([
+            'run_id'    => $run->id,
+            'job_class' => ExtraPersonPostingJob::class,
+            'result'    => 'POSTED',
+        ]);
+
+        // Act & Assert
+        $this->actingAs($this->admin)
+            ->get(route('admin.night-audit.show', $run))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->has('job_summary')
+                ->has('job_summary.RoomChargePostingJob')
+                ->has('job_summary.BreakfastPostingJob')
+                ->has('job_summary.ExtraPersonPostingJob')
+            );
+    }
+
+    public function test_job_summary_correctly_counts_posted_and_skipped_per_job(): void
+    {
+        // Arrange
+        $run = NightAuditRun::factory()->create([
+            'business_date' => '2026-07-01',
+            'status'        => 'COMPLETED',
+        ]);
+
+        NightAuditBookingLog::factory()->count(2)->create([
+            'run_id'    => $run->id,
+            'job_class' => BreakfastPostingJob::class,
+            'result'    => 'POSTED',
+        ]);
+        NightAuditBookingLog::factory()->count(3)->create([
+            'run_id'    => $run->id,
+            'job_class' => BreakfastPostingJob::class,
+            'result'    => 'SKIPPED',
+        ]);
+        NightAuditBookingLog::factory()->count(1)->create([
+            'run_id'    => $run->id,
+            'job_class' => ExtraPersonPostingJob::class,
+            'result'    => 'ALREADY_POSTED',
+        ]);
+
+        // Act & Assert
+        $this->actingAs($this->admin)
+            ->get(route('admin.night-audit.show', $run))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('job_summary.BreakfastPostingJob.posted', 2)
+                ->where('job_summary.BreakfastPostingJob.skipped', 3)
+                ->where('job_summary.BreakfastPostingJob.already_posted', 0)
+                ->where('job_summary.BreakfastPostingJob.failed', 0)
+                ->where('job_summary.ExtraPersonPostingJob.already_posted', 1)
+                ->where('job_summary.ExtraPersonPostingJob.posted', 0)
             );
     }
 

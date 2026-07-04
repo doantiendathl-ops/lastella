@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\TriggerNightAuditRequest;
+use App\Models\NightAuditBookingLog;
 use App\Models\NightAuditRun;
 use App\Services\BusinessDateService;
 use App\Services\NightAuditOperationsService;
@@ -48,6 +49,20 @@ class NightAuditController extends Controller
         $summary = $ops->getRunSummary($nightAuditRun);
         $logs    = $ops->getBookingLogs($nightAuditRun);
 
+        $jobSummary = NightAuditBookingLog::where('run_id', $nightAuditRun->id)
+            ->selectRaw('job_class, result, COUNT(*) as count')
+            ->groupBy('job_class', 'result')
+            ->get()
+            ->groupBy('job_class')
+            ->mapWithKeys(fn ($rows, string $jobClass): array => [
+                class_basename($jobClass) => [
+                    'posted'         => (int) ($rows->firstWhere('result', 'POSTED')?->count ?? 0),
+                    'already_posted' => (int) ($rows->firstWhere('result', 'ALREADY_POSTED')?->count ?? 0),
+                    'skipped'        => (int) ($rows->firstWhere('result', 'SKIPPED')?->count ?? 0),
+                    'failed'         => (int) ($rows->firstWhere('result', 'FAILED')?->count ?? 0),
+                ],
+            ]);
+
         return Inertia::render('Admin/NightAudit/Show', [
             'run' => [
                 'id'               => $nightAuditRun->id,
@@ -62,8 +77,9 @@ class NightAuditController extends Controller
                 'error_message'    => $nightAuditRun->error_message,
                 'can_retry'        => $nightAuditRun->isFailed() && request()->user()?->can('night_audit.run'),
             ],
-            'summary' => $summary,
-            'logs'    => $logs->map(fn ($log): array => [
+            'summary'     => $summary,
+            'job_summary' => $jobSummary,
+            'logs'        => $logs->map(fn ($log): array => [
                 'id'          => $log->id,
                 'booking_id'  => $log->booking_id,
                 'booking_ref' => $log->booking?->booking_code ?? "#{$log->booking_id}",

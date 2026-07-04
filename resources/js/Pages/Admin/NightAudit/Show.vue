@@ -38,9 +38,17 @@ interface BookingLog {
     message: string | null
 }
 
+interface JobSummaryEntry {
+    posted: number
+    already_posted: number
+    skipped: number
+    failed: number
+}
+
 const props = defineProps<{
     run: Run
     summary: Summary
+    job_summary: Record<string, JobSummaryEntry>
     logs: BookingLog[]
 }>()
 
@@ -79,6 +87,22 @@ const filterOptions = [
     { label: 'Bỏ qua', value: 'SKIPPED' },
     { label: 'Lỗi', value: 'FAILED' },
 ]
+
+const JOB_LABELS: Record<string, string> = {
+    RoomChargePostingJob:   'Tiền phòng',
+    BreakfastPostingJob:    'Ăn sáng',
+    ExtraPersonPostingJob:  'Người thêm',
+    ExtraBedPostingJob:     'Giường phụ',
+    CityTaxPostingJob:      'Thuế du lịch',
+}
+
+const jobSummaryRows = computed(() =>
+    Object.entries(props.job_summary).map(([cls, counts]) => ({
+        label: JOB_LABELS[cls] ?? cls,
+        ...counts,
+        total: counts.posted + counts.already_posted + counts.skipped + counts.failed,
+    }))
+)
 
 const activeFilter = ref<string | null>(null)
 
@@ -190,6 +214,48 @@ const retryRun = () => {
                     <div class="text-xs font-semibold uppercase tracking-wide text-gray-400">Bỏ qua</div>
                     <div class="mt-1 text-xl font-bold text-gray-400">{{ run.entries_skipped }}</div>
                 </div>
+            </div>
+
+            <!-- Per-job summary table -->
+            <div v-if="jobSummaryRows.length > 0" class="mb-6 overflow-x-auto rounded border border-gray-200">
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-50">
+                        <tr class="text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            <th class="px-4 py-3">Loại phí</th>
+                            <th class="px-4 py-3 text-right">Đã ghi</th>
+                            <th class="px-4 py-3 text-right">Bỏ qua</th>
+                            <th class="px-4 py-3 text-right">Đã ghi trước</th>
+                            <th class="px-4 py-3 text-right">Lỗi</th>
+                            <th class="px-4 py-3 text-right">Tổng</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr
+                            v-for="row in jobSummaryRows"
+                            :key="row.label"
+                            class="border-t border-gray-100"
+                        >
+                            <td class="px-4 py-2.5 font-medium text-gray-800">{{ row.label }}</td>
+                            <td class="px-4 py-2.5 text-right">
+                                <span v-if="row.posted > 0" class="font-semibold text-green-700">{{ row.posted }}</span>
+                                <span v-else class="text-gray-300">—</span>
+                            </td>
+                            <td class="px-4 py-2.5 text-right">
+                                <span v-if="row.skipped > 0" class="text-gray-500">{{ row.skipped }}</span>
+                                <span v-else class="text-gray-300">—</span>
+                            </td>
+                            <td class="px-4 py-2.5 text-right">
+                                <span v-if="row.already_posted > 0" class="text-blue-600">{{ row.already_posted }}</span>
+                                <span v-else class="text-gray-300">—</span>
+                            </td>
+                            <td class="px-4 py-2.5 text-right">
+                                <span v-if="row.failed > 0" class="font-semibold text-red-600">{{ row.failed }}</span>
+                                <span v-else class="text-gray-300">—</span>
+                            </td>
+                            <td class="px-4 py-2.5 text-right text-gray-600">{{ row.total }}</td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
 
             <!-- Filter tabs -->
