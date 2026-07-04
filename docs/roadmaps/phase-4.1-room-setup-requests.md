@@ -125,25 +125,29 @@ CREATE TABLE booking_special_requests (
     status           VARCHAR(32)     NOT NULL DEFAULT 'pending',
                                                     -- pending | acknowledged | fulfilled | cancelled
 
-    requested_by     BIGINT UNSIGNED NULL,           -- user who recorded the request
+    requested_by     BIGINT UNSIGNED NOT NULL,        -- user who recorded the request (always staff; ADR-83)
     acknowledged_by  BIGINT UNSIGNED NULL,
     acknowledged_at  TIMESTAMP       NULL,
     fulfilled_by     BIGINT UNSIGNED NULL,
     fulfilled_at     TIMESTAMP       NULL,
+    cancelled_by     BIGINT UNSIGNED NULL,            -- actor tracking for terminal cancel state (ADR-80)
+    cancelled_at     TIMESTAMP       NULL,
 
     created_at       TIMESTAMP       NULL,
     updated_at       TIMESTAMP       NULL,
 
-    CONSTRAINT fk_bsr_booking  FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
-    CONSTRAINT fk_bsr_stay     FOREIGN KEY (stay_id)    REFERENCES stays(id)    ON DELETE SET NULL,
-    CONSTRAINT fk_bsr_req_by   FOREIGN KEY (requested_by)    REFERENCES users(id) ON DELETE SET NULL,
-    CONSTRAINT fk_bsr_ack_by   FOREIGN KEY (acknowledged_by) REFERENCES users(id) ON DELETE SET NULL,
-    CONSTRAINT fk_bsr_ful_by   FOREIGN KEY (fulfilled_by)    REFERENCES users(id) ON DELETE SET NULL,
+    CONSTRAINT fk_bsr_booking  FOREIGN KEY (booking_id)    REFERENCES bookings(id) ON DELETE RESTRICT,  -- ADR-82
+    CONSTRAINT fk_bsr_stay     FOREIGN KEY (stay_id)       REFERENCES stays(id)    ON DELETE SET NULL,
+    CONSTRAINT fk_bsr_req_by   FOREIGN KEY (requested_by)  REFERENCES users(id)    ON DELETE RESTRICT,
+    CONSTRAINT fk_bsr_ack_by   FOREIGN KEY (acknowledged_by) REFERENCES users(id)  ON DELETE SET NULL,
+    CONSTRAINT fk_bsr_ful_by   FOREIGN KEY (fulfilled_by)  REFERENCES users(id)    ON DELETE SET NULL,
+    CONSTRAINT fk_bsr_can_by   FOREIGN KEY (cancelled_by)  REFERENCES users(id)    ON DELETE SET NULL,
 
-    INDEX idx_bsr_booking (booking_id),
-    INDEX idx_bsr_stay    (stay_id),
-    INDEX idx_bsr_status  (status),
-    INDEX idx_bsr_category (category)
+    INDEX idx_bsr_booking        (booking_id),
+    INDEX idx_bsr_stay           (stay_id),
+    INDEX idx_bsr_status         (status),
+    INDEX idx_bsr_category       (category),
+    INDEX idx_bsr_booking_status (booking_id, status)
 );
 ```
 
@@ -161,6 +165,15 @@ Most requests are binary (baby cot: 1, wheelchair: 1) but some are countable (ex
 **`stay_id` ON DELETE SET NULL**
 If a stay is cancelled or released, the request should remain on the booking unattributed rather than be deleted. The request may be re-linked to the new stay when a replacement assignment is made.
 
+**`booking_id` ON DELETE RESTRICT** *(ADR-82)*
+Consistent with `folios.booking_id` convention. Hard-deleting a booking is blocked while requests exist. Bookings in production are always cancelled (status change), never hard-deleted.
+
+**`requested_by` NOT NULL** *(ADR-83)*
+Every request is always created by a logged-in staff member (ADMIN, MANAGER, RECEPTION). No system-automated creation path exists in Phase 4.1. `Auth::id()` is always available at creation time.
+
+**`cancelled_by` / `cancelled_at`** *(ADR-80)*
+Cancel is a terminal state that must track who cancelled and when — consistent with Phase 3 actor-tracking pattern (`folio_entries.voided_by/voided_at`, `room_assignments.released_by/released_at`).
+
 **No `amount` or pricing fields**
 These are operational requests, not billable items. If a request incurs a charge (e.g., a flower decoration that costs money), the charge is separately entered via `FolioService::addCharge()`. The request and the charge are independent records.
 
@@ -169,14 +182,16 @@ These are operational requests, not billable items. If a request incurs a charge
 **`BookingSpecialRequest`**
 ```php
 fillable:      booking_id, stay_id, category, request_type, quantity, note, status,
-               requested_by, acknowledged_by, acknowledged_at, fulfilled_by, fulfilled_at
+               requested_by, acknowledged_by, acknowledged_at, fulfilled_by, fulfilled_at,
+               cancelled_by, cancelled_at
 casts:         category → RequestCategory enum; status → RequestStatus enum;
-               acknowledged_at, fulfilled_at → datetime
+               acknowledged_at, fulfilled_at, cancelled_at → datetime
 relationships: booking (BelongsTo), stay (BelongsTo, nullable),
-               requestedBy (BelongsTo User), acknowledgedBy (BelongsTo User), fulfilledBy (BelongsTo User)
+               requestedBy (BelongsTo User), acknowledgedBy (BelongsTo User),
+               fulfilledBy (BelongsTo User), cancelledBy (BelongsTo User)
 scopes:        scopePending() → WHERE status = 'pending'
                scopeActive()  → WHERE status NOT IN (fulfilled, cancelled)
-observers:     AuditObserver
+observers:     AuditObserver — register in AppServiceProvider.php after Stay::observe()
 ```
 
 ---
@@ -364,15 +379,29 @@ This page is outside Phase 4.1 scope. Phase 4.1 provides the data foundation for
 
 | UI Surface | Visible to |
 |---|---|
-| Yêu cầu tab in Booking Detail | ADMIN, MANAGER, RECEPTION |
+| Yêu cầu tab — full access (create, acknowledge, fulfill, cancel) | ADMIN, MANAGER |
+| Yêu cầu tab — create + cancel (not fulfill) | RECEPTION |
+| Yêu cầu tab — restricted mode (view, acknowledge, fulfill only) *(ADR-81)* | HOUSEKEEPING |
 | Room Board indicator | ADMIN, MANAGER, RECEPTION, HOUSEKEEPING |
 | Finance / Folio tab | Not shown (requests are not financial) |
 | Payment section | Not shown |
 | Sales / external reports | Not shown |
 
+**HOUSEKEEPING Restricted Mode** *(ADR-81 — Option A)*
+
+HOUSEKEEPING accesses the "Yêu cầu" tab in read + fulfill mode:
+- ✅ View all requests for the booking
+- ✅ Acknowledge a pending request (`pending → acknowledged`)
+- ✅ Fulfill an acknowledged request (`acknowledged → fulfilled`)
+- ❌ Cannot create requests
+- ❌ Cannot cancel requests
+- ❌ Cannot edit request details
+
+UI renders action buttons conditionally via `hasPermission()` check. Backend `BookingSpecialRequestPolicy` enforces all permission gates server-side regardless of UI state.
+
 New permissions:
 - `special_request.create` → ADMIN, MANAGER, RECEPTION
-- `special_request.fulfill` → ADMIN, MANAGER, HOUSEKEEPING
+- `special_request.fulfill` → ADMIN, MANAGER, HOUSEKEEPING *(covers both acknowledge and fulfill transitions; no separate `special_request.acknowledge` permission)*
 - `special_request.cancel` → ADMIN, MANAGER
 
 ---
@@ -437,11 +466,11 @@ Future Housekeeping module phases can build on top:
 
 | Phase | Capability | Depends on |
 |---|---|---|
-| 4.1 | Room Setup Requests (this doc) | Phase 3.3 complete |
+| 4.1 | Room Setup Requests (this doc) | Phase 3.3 complete ✅ |
 | 4.2 | Housekeeping Board — daily task view per room | Phase 4.1 data |
 | 4.3 | Room Cleaning Status — clean/dirty/inspected per room | Phase 4.1 data |
-| 4.4 | Night Audit — nightly room charge posting | Phase 4.1 infrastructure |
-| 4.5 | Housekeeping Assignments — assign tasks to staff | Phase 4.2 Board |
+| ~~4.4~~ | ~~Night Audit — nightly room charge posting~~ | **DELIVERED IN PHASE 3.2** — not a Phase 4 item |
+| 4.4 | Housekeeping Assignments — assign tasks to staff | Phase 4.2 Board |
 
 Phase 4.1 does NOT implement the Housekeeping Board, cleaning status, or task assignment. It provides the requests data that those features display.
 
@@ -485,42 +514,53 @@ Phase 4.1 does NOT implement the Housekeeping Board, cleaning status, or task as
 
 ### Pre-conditions
 
-- [ ] Phase 3.3 Service Charges complete and committed
-- [ ] All Phase 3.x tests passing
-- [ ] Architecture review approved
+- [x] Phase 3.3 Service Charges complete and committed *(done: commit 9935423, tag phase-3.3.6.3)*
+- [x] All Phase 3.x tests passing *(553 tests / 26 files / 311 assertions)*
+- [x] Architecture review approved *(PASS — 2026-07-04)*
 
 ### Phase 4.1.1 — Backend Foundation (1 day)
 
-1. Migration: `create_booking_special_requests_table`
+1. Migration: `create_booking_special_requests_table` — use finalised DDL from §4 (ADR-80, ADR-82, ADR-83)
 2. Enum: `RequestCategory` (bed_config, extra_item, decoration, accessibility, general)
 3. Enum: `RequestStatus` (pending, acknowledged, fulfilled, cancelled)
-4. Model: `BookingSpecialRequest` — fillable, casts, relationships, scopes, AuditObserver
-5. Model: `Booking` — add `hasMany(BookingSpecialRequest::class)` relationship
-6. Model: `Stay` — add `hasMany(BookingSpecialRequest::class)` relationship
-7. Policy: `BookingSpecialRequestPolicy` (create, fulfill, cancel per permission matrix)
-8. Service: `SpecialRequestService` — `addRequest()`, `linkToStay()`, `acknowledge()`, `fulfill()`, `cancel()`, `autoCancelForBooking()`
-9. Controller: `BookingSpecialRequestController` — store, update (status change), destroy (cancel)
-10. Requests: `StoreBookingSpecialRequestRequest` (validates category, request_type against catalog, quantity ≥ 1)
-11. Routes: nested under `/bookings/{booking}/special-requests`
-12. Wire cancel hook: `BookingService::cancelBooking()` calls `SpecialRequestService::autoCancelForBooking()`
-13. Wire auto-link hook: `StayService::createStayFromAssignment()` calls `SpecialRequestService::autoLinkSingleStayRequests()`
-14. Seed: `payment.delete` pattern → `special_request.create`, `special_request.fulfill`, `special_request.cancel`
-15. Tests: `SpecialRequestCrudTest` (≥ 12 tests)
+4. Model: `BookingSpecialRequest` — fillable, casts, relationships, scopes
+5. **Register AuditObserver:** add `BookingSpecialRequest::observe(AuditObserver::class)` in `AppServiceProvider.php` after `Stay::observe()` (line 92)
+6. Model: `Booking` — add `hasMany(BookingSpecialRequest::class)` relationship
+7. Model: `Stay` — add `hasMany(BookingSpecialRequest::class)` relationship
+8. Policy: `BookingSpecialRequestPolicy` (create, fulfill, cancel per ADR-81 permission matrix)
+9. Service: `SpecialRequestService` — `addRequest()`, `linkToStay()`, `acknowledge()`, `fulfill()`, `cancel()`, `autoCancelForBooking()`, `autoLinkSingleStayRequests()`
+   - `addRequest()` MUST guard terminal booking statuses (CHECKED_OUT, CANCELLED, NO_SHOW) — follow `BookingPaymentService` pattern
+   - `autoLinkSingleStayRequests()` MUST be non-throwing: wrap in try/catch, log on failure, never propagate exception to `StayService::createStayFromAssignment()`
+10. Controller: `BookingSpecialRequestController` — store, update (status change: acknowledge/fulfill), destroy (cancel)
+11. Requests: `StoreBookingSpecialRequestRequest` (validates category, request_type against catalog, quantity ≥ 1, terminal booking guard)
+12. Routes: nested under `/bookings/{booking}/special-requests`
+13. Wire cancel hook: `BookingService::cancelBooking()` calls `SpecialRequestService::autoCancelForBooking()` **inside the existing DB::transaction**
+14. Wire auto-link hook: `StayService::createStayFromAssignment()` calls `SpecialRequestService::autoLinkSingleStayRequests()` after `firstOrCreate` — non-throwing (see item 9)
+15. Seed: `special_request.create` → ADMIN, MANAGER, RECEPTION; `special_request.fulfill` → ADMIN, MANAGER, HOUSEKEEPING; `special_request.cancel` → ADMIN, MANAGER
+16. Backend: add pending request count query for Room Board — a scope or query method that returns `[room_id => pending_count]` for all rooms with active stays
+17. Tests: `SpecialRequestCrudTest` (≥ 12 tests)
 
 ### Phase 4.1.2 — Frontend (1 day)
 
-1. New Yêu cầu tab in `Show.vue` (visible to ADMIN, MANAGER, RECEPTION)
+1. New Yêu cầu tab in `Show.vue` — visible to ADMIN, MANAGER, RECEPTION, HOUSEKEEPING (all roles)
+   - Render "Add Request" form only if `hasPermission('special_request.create')` (ADMIN, MANAGER, RECEPTION)
+   - Render acknowledge/fulfill actions only if `hasPermission('special_request.fulfill')` (ADMIN, MANAGER, HOUSEKEEPING)
+   - Render cancel action only if `hasPermission('special_request.cancel')` (ADMIN, MANAGER)
+   - HOUSEKEEPING sees restricted mode: view + acknowledge + fulfill only (ADR-81)
 2. Request list table (category, type label, quantity, room, status, actions)
 3. Add Request form (category selector → filtered type selector, quantity, optional stay, note)
-4. Request status badges with color coding
-5. Room Board indicator badge for pending requests (small count badge on room card)
-6. Stay summary line: inline request list with status icons
+4. Request status badges: pending (yellow), acknowledged (blue), fulfilled (green), cancelled (gray)
+5. Room Board: indicator badge showing pending request count per room — consumed from item 16 backend query
+6. Stay summary line: inline request list with status icons (✓ fulfilled, ⏳ pending/acknowledged, ✗ cancelled)
 
 ### Phase 4.1.3 — Tests and Polish (0.5 day)
 
 1. Policy unit tests: `BookingSpecialRequestPolicyTest`
+   - HOUSEKEEPING can fulfill/acknowledge; cannot create/cancel (ADR-81)
+   - RECEPTION can create; cannot cancel/fulfill
 2. Feature tests: cancellation auto-cancel, auto-link single stay, multi-stay no-auto-link
-3. E2E: add request → link to stay → fulfill → verify status in room board
+3. Feature test: `autoLinkSingleStayRequests()` failure does not abort stay creation
+4. E2E: add request (RECEPTION) → acknowledge (HOUSEKEEPING) → fulfill (HOUSEKEEPING) → verify status in Room Board
 
 ### Total Estimated Effort: 2.5 days
 
@@ -528,13 +568,15 @@ Phase 4.1 does NOT implement the Housekeeping Board, cleaning status, or task as
 
 ## 12. Ready for Implementation
 
-**NO — Phase 4.1 is not ready for implementation yet.**
+**YES — Phase 4.1 is ready for implementation.**
 
-Blockers:
-- [ ] Phase 3.1 (Payment Foundation) must be implemented and committed first
-- [ ] Phase 3.2 (Folio Foundation) must be implemented and committed first
-- [ ] Phase 3.3 (Service Charges) must be implemented and committed first
+All prerequisites are met as of 2026-07-04:
 
-Phase 4.1 has no financial dependencies, but the team should complete the Phase 3 financial track before context-switching to operational modules. Room Setup Requests do not block any current capability.
+- [x] Phase 3.1 (Payment Foundation) — complete, commit `68abffa`, tag `phase-3.1`
+- [x] Phase 3.2 (Folio Foundation + Night Audit Pipeline) — complete, commit `e1ac762`, tag `phase-3.2`
+- [x] Phase 3.3 (Service Charges + Extra Charges Pipeline) — complete, commit `9935423`, tag `phase-3.3.6.3`
+- [x] Architecture Review — **PASS** (2026-07-04)
+- [x] ADR-80 through ADR-83 — accepted
+- [x] All architecture blockers resolved
 
-**When Phase 3.3 is done:** Phase 4.1 can begin immediately. It is self-contained, non-breaking, and adds no risk to existing financial flows.
+Phase 4.1 is self-contained, non-breaking, and adds no risk to existing financial flows. It may begin immediately.
