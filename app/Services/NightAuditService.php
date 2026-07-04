@@ -4,6 +4,9 @@ namespace App\Services;
 
 use App\Models\NightAuditRun;
 use App\Services\Posting\BreakfastPostingJob;
+use App\Services\Posting\CityTaxPostingJob;
+use App\Services\Posting\ExtraBedPostingJob;
+use App\Services\Posting\ExtraPersonPostingJob;
 use App\Services\Posting\RoomChargePostingJob;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -14,6 +17,9 @@ class NightAuditService
         private readonly NightAuditPipeline $pipeline,
         private readonly RoomChargePostingJob $roomChargeJob,
         private readonly BreakfastPostingJob $breakfastJob,
+        private readonly ExtraPersonPostingJob $extraPersonJob,
+        private readonly ExtraBedPostingJob $extraBedJob,
+        private readonly CityTaxPostingJob $cityTaxJob,
         private readonly BusinessDateService $businessDate,
     ) {}
 
@@ -36,6 +42,9 @@ class NightAuditService
         $this->pipeline
             ->register($this->roomChargeJob)
             ->register($this->breakfastJob)
+            ->register($this->extraPersonJob)
+            ->register($this->extraBedJob)
+            ->register($this->cityTaxJob)
             ->run($auditRun, $businessDate);
 
         return $auditRun->refresh();

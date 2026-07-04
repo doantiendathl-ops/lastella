@@ -17,6 +17,7 @@ enum ChargeType: string
     case ExtraBed         = 'EXTRA_BED';
     case ExtraPerson      = 'EXTRA_PERSON';
     case AirportTransfer  = 'AIRPORT_TRANSFER';
+    case CityTax         = 'CITY_TAX';
 
     public function label(): string
     {
@@ -34,6 +35,7 @@ enum ChargeType: string
             self::ExtraBed        => 'Giường phụ',
             self::ExtraPerson     => 'Người thêm',
             self::AirportTransfer => 'Đưa đón sân bay',
+            self::CityTax         => 'Thuế du lịch',
         };
     }
 

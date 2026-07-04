@@ -20,6 +20,8 @@ class HotelSettingsService
         'currency_code'                  => ['value' => 'VND',   'type' => 'string', 'description' => 'Mã tiền tệ ISO 4217'],
         'currency_precision'             => ['value' => '0',     'type' => 'int',    'description' => 'Số chữ số thập phân hiển thị tiền tệ'],
         'audit_window_days'              => ['value' => '7',     'type' => 'int',    'description' => 'Số ngày tối đa cho phép kích hoạt Night Audit thủ công so với ngày kế toán hiện tại'],
+        'city_tax_enabled'               => ['value' => 'false', 'type' => 'bool',   'description' => 'Tự động ghi thuế du lịch cho mọi khách đang lưu trú trong Kiểm toán đêm'],
+        'city_tax_quantity'              => ['value' => '1',     'type' => 'int',    'description' => 'Số đơn vị thuế du lịch mỗi đêm (mặc định 1; tăng nếu khách sạn áp theo số phòng)'],
     ];
 
     public function get(string $key, mixed $default = null): mixed
