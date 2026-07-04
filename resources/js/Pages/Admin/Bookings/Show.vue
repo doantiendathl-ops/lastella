@@ -589,6 +589,9 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                     <p class="truncate text-sm text-steel">{{ booking.customer_name }} - {{ labelFor('bookingStatus', booking.status) }}</p>
                 </div>
                 <div class="flex gap-2">
+                    <Link :href="`/admin/bookings/${booking.id}/packages`" class="inline-flex items-center gap-2 border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-steel hover:text-ink">
+                        Gói dịch vụ
+                    </Link>
                     <Link v-if="can.editBooking" :href="`/admin/bookings/${booking.id}/edit`" class="inline-flex items-center gap-2 border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-steel hover:text-ink">
                         <Pencil class="h-4 w-4" />
                         Sửa
