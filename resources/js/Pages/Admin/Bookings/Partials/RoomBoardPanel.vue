@@ -118,6 +118,31 @@ const checkOutAll = () => {
 }
 
 const checkOutAllDisabled = computed(() => (props.paymentSummary?.balance_due ?? 0) > 0)
+
+const REQUEST_TYPE_EMOJI = {
+    twin_keep: '🛏', twin_to_double: '🛏', separate_beds: '🛏', extra_bed: '🛏',
+    baby_cot: '👶', extra_pillow: '🛌', non_feather_pillow: '🛌', extra_blanket: '🛌',
+    extra_towel: '🛁', welcome_fruit: '🍎', welcome_amenity: '🎁',
+    anniversary: '💍', honeymoon: '🌹', birthday: '🎂', vip_setup: '⭐', flower_arrangement: '🌸',
+    wheelchair: '♿', non_smoking_prep: '🚭', ground_floor: '🏠', near_elevator: '🛗',
+    late_arrival: '🌙', airport_pickup: '✈️', connecting_room: '🚪', other: '📝',
+}
+
+function requestEmoji(type) {
+    return REQUEST_TYPE_EMOJI[type] ?? '📋'
+}
+
+function requestStatusIcon(status) {
+    if (status === 'fulfilled') return '✓'
+    if (status === 'cancelled') return '✕'
+    return '⏳'
+}
+
+function requestStatusClass(status) {
+    if (status === 'fulfilled') return 'text-green-600'
+    if (status === 'cancelled') return 'text-gray-400 line-through'
+    return 'text-amber-600'
+}
 </script>
 
 <template>
@@ -169,7 +194,18 @@ const checkOutAllDisabled = computed(() => (props.paymentSummary?.balance_due ??
                 </thead>
                 <tbody class="divide-y divide-gray-100">
                     <tr v-for="stay in activeStays" :key="stay.id">
-                        <td class="px-4 py-3">{{ stay.room_number }}</td>
+                        <td class="px-4 py-3">
+                            <div>{{ stay.room_number }}</div>
+                            <div v-if="stay.special_requests?.length" class="mt-1 flex flex-wrap gap-1">
+                                <span
+                                    v-for="(req, i) in stay.special_requests"
+                                    :key="i"
+                                    class="inline-flex items-center gap-0.5 text-xs"
+                                    :class="requestStatusClass(req.status)"
+                                    :title="req.request_type"
+                                >{{ requestEmoji(req.request_type) }}{{ requestStatusIcon(req.status) }}</span>
+                            </div>
+                        </td>
                         <td class="px-4 py-3">{{ stay.planned_checkin_at }}</td>
                         <td class="px-4 py-3">{{ stay.planned_checkout_at }}</td>
                         <td class="px-4 py-3">{{ stay.actual_checkin_at }}</td>

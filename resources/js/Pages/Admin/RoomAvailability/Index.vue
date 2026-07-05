@@ -6,6 +6,7 @@ import { ref } from 'vue';
 const props = defineProps({
     availability: Object,
     filters: Object,
+    pendingRequestCounts: { type: Object, default: () => ({}) },
     can: Object,
 });
 
@@ -184,6 +185,11 @@ function badgeClass(badge) {
                         <span v-if="room.has_overlap" class="shrink-0 text-xs leading-tight">🚨</span>
                         <span v-else-if="room.booking_count > 1" class="shrink-0 text-xs font-bold leading-tight text-amber-700">×{{ room.booking_count }}</span>
                     </div>
+                    <div
+                        v-if="pendingRequestCounts[room.room_id] > 0"
+                        class="mt-1 inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
+                        title="Yêu cầu đặc biệt đang chờ"
+                    >{{ pendingRequestCounts[room.room_id] }} yc</div>
                     <div class="mt-0.5 truncate text-xs text-steel">{{ room.room_type_code }}</div>
                     <div
                         v-if="room.primary_color && room.availability !== 'available' && room.availability !== 'out_of_order'"

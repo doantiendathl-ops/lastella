@@ -3,6 +3,7 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import FolioPanel from './Partials/FolioPanel.vue';
 import PackagePanel from './Partials/PackagePanel.vue';
 import RoomBoardPanel from './Partials/RoomBoardPanel.vue';
+import SpecialRequestPanel from './Partials/SpecialRequestPanel.vue';
 import { labelFor } from '@/Support/vietnameseLabels';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import { BedDouble, CheckCircle, Eye, Pencil, Plus, RotateCcw, Trash2, X, XCircle } from 'lucide-vue-next';
@@ -640,11 +641,15 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                     v-for="item in tabs"
                     :key="item.key"
                     type="button"
-                    class="whitespace-nowrap border-b-2 px-4 py-3 text-sm font-semibold"
+                    class="flex items-center gap-1.5 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-semibold"
                     :class="tabClass(item.key)"
                     @click="tab = item.key"
                 >
                     {{ item.label }}
+                    <span
+                        v-if="item.key === 'special_requests' && booking.pendingCount > 0"
+                        class="rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-800"
+                    >{{ booking.pendingCount }}</span>
                 </button>
             </div>
 
@@ -1161,6 +1166,17 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                 :can="can"
                 :payment-summary="booking.payment_summary"
             />
+
+            <div v-if="tab === 'special_requests'" class="p-5">
+                <SpecialRequestPanel
+                    :booking="booking"
+                    :can="{
+                        createSpecialRequest: can.createSpecialRequest,
+                        fulfillSpecialRequest: can.fulfillSpecialRequest,
+                        cancelSpecialRequest: can.cancelSpecialRequest,
+                    }"
+                />
+            </div>
 
             <div v-if="tab === 'history'" class="p-5 text-sm text-steel">
                 Lịch sử booking sẽ được hiển thị ở giai đoạn sau.

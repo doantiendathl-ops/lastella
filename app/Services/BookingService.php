@@ -26,12 +26,14 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use App\Services\SpecialRequestService;
 
 class BookingService
 {
     public function __construct(
         private readonly FolioService $folios,
         private readonly RoomAvailabilityRuleService $rules,
+        private readonly SpecialRequestService $specialRequests,
     ) {
     }
 
@@ -374,6 +376,10 @@ class BookingService
                 'cancellation_reason' => $reason,
                 'updated_by' => Auth::id(),
             ]);
+
+            // Phase 4.1: auto-cancel all pending/acknowledged special requests.
+            // autoCancelForBooking is a single UPDATE — no extra locks, no financial tables.
+            $this->specialRequests->autoCancelForBooking($booking, Auth::id());
 
             // ADR-36: void the folio when booking is cancelled.
             // If the folio has active entries, FolioHasActiveEntriesException is thrown

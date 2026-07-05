@@ -181,6 +181,7 @@ class BookingManagementUiTest extends TestCase
                     ['key' => 'info', 'label' => 'Thông tin Booking'],
                     ['key' => 'room_map', 'label' => 'Sơ đồ phòng'],
                     ['key' => 'payments', 'label' => 'Tài chính'],
+                    ['key' => 'special_requests', 'label' => 'Yêu cầu'],
                     ['key' => 'history', 'label' => 'Lịch sử'],
                 ])
             );

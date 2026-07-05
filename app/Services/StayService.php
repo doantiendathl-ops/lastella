@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\AssignmentStatus;
 use App\Enums\StayStatus;
+use App\Services\SpecialRequestService;
 use App\Exceptions\FinalCheckoutConfirmationRequiredException;
 use App\Models\Booking;
 use App\Models\RoomAssignment;
@@ -26,6 +27,7 @@ class StayService
         private readonly RoomChargePostingJob $roomChargeJob,
         private readonly LateCheckoutFeePostingJob $lateCheckoutJob,
         private readonly EarlyCheckinFeePostingJob $earlyCheckinJob,
+        private readonly SpecialRequestService $specialRequests,
     ) {
     }
 
@@ -42,6 +44,10 @@ class StayService
                 'status' => StayStatus::Reserved,
             ],
         );
+
+        // Phase 4.1: auto-link unlinked requests when booking has exactly one active stay.
+        // autoLinkSingleStayRequests never throws; any failure is logged and silently skipped.
+        $this->specialRequests->autoLinkSingleStayRequests($assignment->booking, $stay);
 
         return $stay->load(['booking', 'roomAssignment', 'room']);
     }

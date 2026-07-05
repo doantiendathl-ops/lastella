@@ -126,6 +126,11 @@ class BookingController extends Controller
             'stays.room',
             'stays.roomAssignment',
             'packageFlags',
+            'specialRequests.requestedBy',
+            'specialRequests.acknowledgedBy',
+            'specialRequests.fulfilledBy',
+            'specialRequests.cancelledBy',
+            'specialRequests.stay.room',
         ]);
 
         $currentBusinessDate = $businessDate->currentBusinessDate();
@@ -369,7 +374,46 @@ class BookingController extends Controller
                 'planned_checkin_label' => $stay->planned_checkin_at?->format('d/m/Y H:i'),
                 'can_check_out' => $stay->status === StayStatus::CheckedIn
                     && $stay->roomAssignment?->status === AssignmentStatus::CheckedIn,
+                'special_requests' => $booking->specialRequests
+                    ->filter(fn ($r) => $r->stay_id === $stay->id)
+                    ->map(fn ($r) => [
+                        'request_type' => $r->request_type,
+                        'status'       => $r->status->value,
+                    ])->values(),
             ])->values(),
+            'specialRequests' => $booking->specialRequests->sortByDesc('created_at')->map(fn ($r) => [
+                'id'              => $r->id,
+                'category'        => $r->category->value,
+                'category_label'  => $r->category->label(),
+                'request_type'    => $r->request_type,
+                'quantity'        => $r->quantity,
+                'note'            => $r->note,
+                'status'          => $r->status->value,
+                'stay_id'         => $r->stay_id,
+                'room_number'     => $r->stay?->room?->room_number,
+                'requested_by'    => $r->requestedBy?->name,
+                'acknowledged_by' => $r->acknowledgedBy?->name,
+                'acknowledged_at' => $r->acknowledged_at?->format('d/m/Y H:i'),
+                'fulfilled_by'    => $r->fulfilledBy?->name,
+                'fulfilled_at'    => $r->fulfilled_at?->format('d/m/Y H:i'),
+                'cancelled_by'    => $r->cancelledBy?->name,
+                'cancelled_at'    => $r->cancelled_at?->format('d/m/Y H:i'),
+                'created_at'      => $r->created_at->format('d/m/Y H:i'),
+            ])->values(),
+            'pendingCount' => $booking->specialRequests
+                ->filter(fn ($r) => ! $r->status->isTerminal())
+                ->count(),
+            'availableStays' => $booking->stays
+                ->filter(fn ($s) => $s->status === StayStatus::Reserved || $s->status === StayStatus::CheckedIn)
+                ->map(fn ($s) => [
+                    'id'    => $s->id,
+                    'label' => sprintf(
+                        'Phòng %s (%s - %s)',
+                        $s->room?->room_number ?? '?',
+                        $s->planned_checkin_at?->format('d/m') ?? '?',
+                        $s->planned_checkout_at?->format('d/m') ?? '?',
+                    ),
+                ])->values(),
         ];
     }
 
@@ -493,21 +537,33 @@ class BookingController extends Controller
 
     private function detailTabs(): array
     {
-        return [
+        $user = request()->user();
+        $canViewRequests = $user?->can('special_request.create')
+            || $user?->can('special_request.fulfill')
+            || $user?->can('special_request.cancel');
+
+        $tabs = [
             ['key' => 'info', 'label' => 'Thông tin Booking'],
             ['key' => 'room_map', 'label' => 'Sơ đồ phòng'],
             ['key' => 'payments', 'label' => 'Tài chính'],
-            ['key' => 'history', 'label' => 'Lịch sử'],
         ];
+
+        if ($canViewRequests) {
+            $tabs[] = ['key' => 'special_requests', 'label' => 'Yêu cầu'];
+        }
+
+        $tabs[] = ['key' => 'history', 'label' => 'Lịch sử'];
+
+        return $tabs;
     }
 
     private function normalizeDetailTab(string $tab): string
     {
         return match ($tab) {
-            'overview', 'requirements' => 'info',
-            'assignments', 'stays' => 'room_map',
-            'payments', 'history', 'room_map', 'info' => $tab,
-            default => 'info',
+            'overview', 'requirements'                                     => 'info',
+            'assignments', 'stays'                                         => 'room_map',
+            'payments', 'history', 'room_map', 'info', 'special_requests' => $tab,
+            default                                                        => 'info',
         };
     }
 
@@ -571,11 +627,14 @@ class BookingController extends Controller
             'voidCharge'    => $user?->can('charge.void') ?? false,
             'closeFolio'    => $user?->can('folio.close') ?? false,
             'reopenFolio'   => $user?->hasRole('ADMIN') ?? false,
-            'assignRoom'    => $user?->can('room.assign') ?? false,
-            'releaseRoom'   => $user?->can('room.unassign') ?? false,
-            'checkIn'       => $user?->can('stay.checkin') ?? false,
-            'checkOut'      => $user?->can('stay.checkout') ?? false,
-            'managePackage' => $user?->can('booking.package.manage') ?? false,
+            'assignRoom'              => $user?->can('room.assign') ?? false,
+            'releaseRoom'             => $user?->can('room.unassign') ?? false,
+            'checkIn'                 => $user?->can('stay.checkin') ?? false,
+            'checkOut'                => $user?->can('stay.checkout') ?? false,
+            'managePackage'           => $user?->can('booking.package.manage') ?? false,
+            'createSpecialRequest'    => $user?->can('special_request.create') ?? false,
+            'fulfillSpecialRequest'   => $user?->can('special_request.fulfill') ?? false,
+            'cancelSpecialRequest'    => $user?->can('special_request.cancel') ?? false,
         ];
     }
 }

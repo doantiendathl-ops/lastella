@@ -7,6 +7,7 @@ use Database\Factories\StayFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Stay extends Model
 {
@@ -61,5 +62,10 @@ class Stay extends Model
     public function checkedOutBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'checked_out_by');
+    }
+
+    public function specialRequests(): HasMany
+    {
+        return $this->hasMany(BookingSpecialRequest::class);
     }
 }

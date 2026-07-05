@@ -16,6 +16,7 @@ use App\Http\Controllers\Admin\Booking\FolioEntryController;
 use App\Http\Controllers\Admin\Booking\RoomAssignmentController;
 use App\Http\Controllers\Admin\Booking\BookingPackageController;
 use App\Http\Controllers\Admin\PackageEnrollmentController;
+use App\Http\Controllers\Admin\Booking\BookingSpecialRequestController;
 use App\Http\Controllers\Admin\Booking\StayController;
 use App\Http\Controllers\Admin\FloorController;
 use App\Http\Controllers\Admin\PermissionController;
@@ -95,5 +96,12 @@ Route::middleware('auth')->group(function (): void {
         Route::get('bookings/{booking}/packages', [PackageEnrollmentController::class, 'show'])->name('bookings.packages');
         Route::post('bookings/{booking}/packages', [PackageEnrollmentController::class, 'enroll'])->name('bookings.packages.enroll');
         Route::delete('bookings/{booking}/packages/{packageKey}', [PackageEnrollmentController::class, 'unenroll'])->name('bookings.packages.unenroll');
+
+        // Phase 4.1 — Room Setup Requests
+        Route::get('bookings/{booking}/special-requests', [BookingSpecialRequestController::class, 'index'])->name('bookings.special-requests.index');
+        Route::post('bookings/{booking}/special-requests', [BookingSpecialRequestController::class, 'store'])->name('bookings.special-requests.store');
+        Route::patch('bookings/{booking}/special-requests/{specialRequest}/acknowledge', [BookingSpecialRequestController::class, 'acknowledge'])->name('bookings.special-requests.acknowledge');
+        Route::patch('bookings/{booking}/special-requests/{specialRequest}/fulfill', [BookingSpecialRequestController::class, 'fulfill'])->name('bookings.special-requests.fulfill');
+        Route::delete('bookings/{booking}/special-requests/{specialRequest}', [BookingSpecialRequestController::class, 'destroy'])->name('bookings.special-requests.destroy');
     });
 });

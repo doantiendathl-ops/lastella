@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Models\AuditLog;
 use App\Models\Booking;
+use App\Models\BookingSpecialRequest;
 use App\Models\HotelSetting;
 use App\Models\NightAuditRun;
 use App\Models\ServiceRate;
@@ -38,6 +39,7 @@ use App\Policies\HotelSettingPolicy;
 use App\Policies\NightAuditRunPolicy;
 use App\Policies\ServiceRatePolicy;
 use App\Policies\SettingPolicy;
+use App\Policies\BookingSpecialRequestPolicy;
 use App\Policies\StayPolicy;
 use App\Policies\UserPolicy;
 use Illuminate\Support\Facades\Gate;
@@ -73,6 +75,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(FolioEntry::class, FolioEntryPolicy::class);
         Gate::policy(RoomAssignment::class, RoomAssignmentPolicy::class);
         Gate::policy(Stay::class, StayPolicy::class);
+        Gate::policy(BookingSpecialRequest::class, BookingSpecialRequestPolicy::class);
 
         User::observe(AuditObserver::class);
         Role::observe(AuditObserver::class);
@@ -90,5 +93,6 @@ class AppServiceProvider extends ServiceProvider
         FolioEntry::observe(AuditObserver::class);
         RoomAssignment::observe(AuditObserver::class);
         Stay::observe(AuditObserver::class);
+        BookingSpecialRequest::observe(AuditObserver::class);
     }
 }

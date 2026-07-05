@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
+use App\Models\BookingSpecialRequest;
+use App\Models\Room;
 use App\Services\RoomAvailabilityCheckerService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -36,9 +38,12 @@ class RoomAvailabilityController extends Controller
             $endAt = Carbon::tomorrow()->setHour(12)->setMinute(0)->setSecond(0)->format('Y-m-d H:i');
         }
 
+        $roomIds = Room::query()->pluck('id')->all();
+
         return Inertia::render('Admin/RoomAvailability/Index', [
-            'availability' => $this->checker->check($startAt, $endAt),
-            'filters' => ['start_at' => $startAt, 'end_at' => $endAt],
+            'availability'         => $this->checker->check($startAt, $endAt),
+            'filters'              => ['start_at' => $startAt, 'end_at' => $endAt],
+            'pendingRequestCounts' => BookingSpecialRequest::pendingCountByRoom($roomIds),
             'can' => [
                 'viewBooking' => $request->user()?->can('viewAny', Booking::class) ?? false,
             ],
