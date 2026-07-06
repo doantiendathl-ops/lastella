@@ -19,6 +19,7 @@ use App\Http\Controllers\Admin\PackageEnrollmentController;
 use App\Http\Controllers\Admin\Booking\BookingSpecialRequestController;
 use App\Http\Controllers\Admin\Booking\StayController;
 use App\Http\Controllers\Admin\FloorController;
+use App\Http\Controllers\Admin\HousekeepingController;
 use App\Http\Controllers\Admin\PermissionController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\RoomController;
@@ -103,5 +104,18 @@ Route::middleware('auth')->group(function (): void {
         Route::patch('bookings/{booking}/special-requests/{specialRequest}/acknowledge', [BookingSpecialRequestController::class, 'acknowledge'])->name('bookings.special-requests.acknowledge');
         Route::patch('bookings/{booking}/special-requests/{specialRequest}/fulfill', [BookingSpecialRequestController::class, 'fulfill'])->name('bookings.special-requests.fulfill');
         Route::delete('bookings/{booking}/special-requests/{specialRequest}', [BookingSpecialRequestController::class, 'destroy'])->name('bookings.special-requests.destroy');
+
+        // Phase 4.2 Milestone 4 — Housekeeping Workflow
+        Route::prefix('housekeeping')->name('housekeeping.')->group(function (): void {
+            Route::get('/', [HousekeepingController::class, 'index'])->name('index');
+            Route::post('{room}/assign', [HousekeepingController::class, 'assign'])->name('assign');
+            Route::patch('assignments/{assignment}/start', [HousekeepingController::class, 'startCleaning'])->name('start');
+            Route::patch('assignments/{assignment}/complete', [HousekeepingController::class, 'completeCleaning'])->name('complete');
+            Route::patch('{room}/pass-inspection', [HousekeepingController::class, 'passInspection'])->name('inspect.pass');
+            Route::patch('{room}/fail-inspection', [HousekeepingController::class, 'failInspection'])->name('inspect.fail');
+            Route::patch('{room}/skip-inspection', [HousekeepingController::class, 'skipInspection'])->name('inspect.skip');
+            Route::patch('{room}/out-of-order', [HousekeepingController::class, 'markOutOfOrder'])->name('out-of-order');
+            Route::patch('{room}/release', [HousekeepingController::class, 'releaseFromOutOfOrder'])->name('release');
+        });
     });
 });

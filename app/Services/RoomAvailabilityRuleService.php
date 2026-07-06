@@ -126,7 +126,11 @@ class RoomAvailabilityRuleService
 
     public function isRoomUnavailable(Room $room): bool
     {
-        return in_array($room->status, [RoomStatus::OutOfOrder, RoomStatus::OutOfService], true);
+        return in_array($room->status, [
+            RoomStatus::OutOfOrder,
+            RoomStatus::OutOfService,
+            RoomStatus::Cleaning, // Phase 4.2 ADR-88: a room being cleaned cannot be assigned
+        ], true);
     }
 
     public function hasTimeOverlap(array $assignments): bool

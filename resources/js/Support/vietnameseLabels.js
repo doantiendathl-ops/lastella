@@ -71,6 +71,47 @@ export const stayStatusLabels = {
     NO_SHOW: 'Không đến',
 };
 
+export const roomStatusLabels = {
+    VACANT_CLEAN: 'Trống sạch',
+    VACANT_DIRTY: 'Trống bẩn',
+    OCCUPIED: 'Đang ở',
+    RESERVED: 'Đã đặt',
+    OUT_OF_ORDER: 'Hỏng',
+    OUT_OF_SERVICE: 'Ngừng phục vụ',
+    CLEANING: 'Đang dọn',
+    INSPECTED: 'Đã kiểm tra',
+};
+
+export const cleaningPriorityLabels = {
+    EMERGENCY: 'Khẩn cấp',
+    HIGH: 'Cao',
+    NORMAL: 'Thường',
+    LOW: 'Thấp',
+};
+
+export const cleaningReasonLabels = {
+    CHECKOUT: 'Trả phòng',
+    STAYOVER: 'Dọn trong kỳ lưu trú',
+    VIP: 'VIP',
+    MAINTENANCE: 'Sau bảo trì',
+    DEEP_CLEANING: 'Vệ sinh sâu',
+    EARLY_CHECKIN: 'Nhận phòng sớm',
+    SPECIAL_REQUEST: 'Yêu cầu đặc biệt',
+};
+
+export const housekeepingAssignmentStatusLabels = {
+    pending: 'Chờ thực hiện',
+    in_progress: 'Đang dọn',
+    done: 'Đã xong',
+    cancelled: 'Đã hủy',
+};
+
+export const inspectionResultLabels = {
+    pass: 'Đạt',
+    fail: 'Không đạt',
+    skip: 'Bỏ qua kiểm tra',
+};
+
 const maps = {
     bookingStatus: bookingStatusLabels,
     bookingType: bookingTypeLabels,
@@ -80,6 +121,11 @@ const maps = {
     paymentMethod: paymentMethodLabels,
     assignmentStatus: assignmentStatusLabels,
     stayStatus: stayStatusLabels,
+    roomStatus: roomStatusLabels,
+    cleaningPriority: cleaningPriorityLabels,
+    cleaningReason: cleaningReasonLabels,
+    housekeepingAssignmentStatus: housekeepingAssignmentStatusLabels,
+    inspectionResult: inspectionResultLabels,
 };
 
 export const labelFor = (type, value) => maps[type]?.[value] ?? value ?? '';

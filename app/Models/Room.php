@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use App\Enums\HousekeepingAssignmentStatus;
 use App\Enums\RoomStatus;
 use Database\Factories\RoomFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Room extends Model
@@ -24,13 +26,15 @@ class Room extends Model
         'status',
         'bed_configuration',
         'notes',
+        'last_cleaned_at',
     ];
 
     protected function casts(): array
     {
         return [
-            'status' => RoomStatus::class,
+            'status'           => RoomStatus::class,
             'bed_configuration' => 'array',
+            'last_cleaned_at'  => 'datetime',
         ];
     }
 
@@ -57,5 +61,21 @@ class Room extends Model
     public function stays(): HasMany
     {
         return $this->hasMany(Stay::class);
+    }
+
+    public function housekeepingAssignments(): HasMany
+    {
+        return $this->hasMany(HousekeepingAssignment::class);
+    }
+
+    public function cleaningRecords(): HasMany
+    {
+        return $this->hasMany(CleaningRecord::class);
+    }
+
+    public function activeHousekeepingAssignment(): HasOne
+    {
+        return $this->hasOne(HousekeepingAssignment::class)
+            ->whereIn('status', HousekeepingAssignmentStatus::activeValues());
     }
 }

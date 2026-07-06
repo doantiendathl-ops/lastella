@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\Enums\AssignmentStatus;
 use App\Enums\StayStatus;
-use App\Services\SpecialRequestService;
 use App\Exceptions\FinalCheckoutConfirmationRequiredException;
 use App\Models\Booking;
 use App\Models\RoomAssignment;
@@ -28,6 +27,7 @@ class StayService
         private readonly LateCheckoutFeePostingJob $lateCheckoutJob,
         private readonly EarlyCheckinFeePostingJob $earlyCheckinJob,
         private readonly SpecialRequestService $specialRequests,
+        private readonly HousekeepingService $housekeeping,
     ) {
     }
 
@@ -103,6 +103,10 @@ class StayService
             }
 
             $this->bookings->updateBookingStayStatus($lockedBooking);
+
+            // Phase 4.2: auto-mark room OCCUPIED on check-in.
+            // autoMarkOccupied never throws — see HousekeepingService (ADR-84).
+            $this->housekeeping->autoMarkOccupied($lockedStay);
 
             return $lockedStay->refresh();
         });
@@ -180,6 +184,10 @@ class StayService
             } else {
                 $this->bookings->updateBookingStayStatus($lockedBooking);
             }
+
+            // Phase 4.2: auto-mark room VACANT_DIRTY and create cleaning assignment on checkout.
+            // autoMarkDirtyOnCheckout never throws — see HousekeepingService (ADR-84).
+            $this->housekeeping->autoMarkDirtyOnCheckout($lockedStay);
 
             return $lockedStay->refresh();
         });

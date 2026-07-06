@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue';
+import { roomStatusBadge } from '@/Support/roomStatusBadges';
 import { router } from '@inertiajs/vue3';
 import { ref } from 'vue';
 
@@ -37,7 +38,7 @@ function search() {
 const selectedRoom = ref(null);
 
 function selectRoom(room) {
-    if (room.availability === 'out_of_order') return;
+    if (room.availability === 'out_of_order' || room.availability === 'cleaning') return;
     selectedRoom.value = room;
 }
 
@@ -80,6 +81,13 @@ const availabilityStyles = {
         card: 'border-gray-200 bg-gray-100 opacity-60 cursor-default',
         dot: 'bg-gray-400',
         badge: 'bg-gray-200 text-gray-600',
+    },
+    // Phase 4.2 Milestone 5: reuses the shared RoomStatus CLEANING colors (Support/roomStatusBadges.js)
+    // so this page and the Housekeeping board never drift out of visual sync.
+    cleaning: {
+        card: `${roomStatusBadge('CLEANING').card} opacity-80 cursor-default`,
+        dot: roomStatusBadge('CLEANING').dot,
+        badge: roomStatusBadge('CLEANING').badge,
     },
 };
 
@@ -161,6 +169,7 @@ function badgeClass(badge) {
             <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-amber-400"></span>Nhiều booking</span>
             <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-red-500"></span>Xung đột</span>
             <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-gray-400"></span>Không khả dụng</span>
+            <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-amber-500"></span>Đang dọn</span>
         </div>
 
         <!-- Floor map -->
@@ -192,7 +201,7 @@ function badgeClass(badge) {
                     >{{ pendingRequestCounts[room.room_id] }} yc</div>
                     <div class="mt-0.5 truncate text-xs text-steel">{{ room.room_type_code }}</div>
                     <div
-                        v-if="room.primary_color && room.availability !== 'available' && room.availability !== 'out_of_order'"
+                        v-if="room.primary_color && room.availability !== 'available' && room.availability !== 'out_of_order' && room.availability !== 'cleaning'"
                         class="mt-1.5 h-1 w-full rounded-full"
                         :style="{ backgroundColor: room.primary_color }"
                     ></div>

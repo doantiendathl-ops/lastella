@@ -12,7 +12,9 @@ use App\Models\BookingPayment;
 use App\Models\BookingRequirement;
 use App\Models\Folio;
 use App\Models\FolioEntry;
+use App\Models\CleaningRecord;
 use App\Models\Floor;
+use App\Models\HousekeepingAssignment;
 use App\Models\Resource;
 use App\Models\Room;
 use App\Models\RoomAssignment;
@@ -36,6 +38,7 @@ use App\Policies\RoomPolicy;
 use App\Policies\RoomRatePolicy;
 use App\Policies\RoomTypePolicy;
 use App\Policies\HotelSettingPolicy;
+use App\Policies\HousekeepingPolicy;
 use App\Policies\NightAuditRunPolicy;
 use App\Policies\ServiceRatePolicy;
 use App\Policies\SettingPolicy;
@@ -76,6 +79,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(RoomAssignment::class, RoomAssignmentPolicy::class);
         Gate::policy(Stay::class, StayPolicy::class);
         Gate::policy(BookingSpecialRequest::class, BookingSpecialRequestPolicy::class);
+        Gate::policy(HousekeepingAssignment::class, HousekeepingPolicy::class);
 
         User::observe(AuditObserver::class);
         Role::observe(AuditObserver::class);
@@ -94,5 +98,7 @@ class AppServiceProvider extends ServiceProvider
         RoomAssignment::observe(AuditObserver::class);
         Stay::observe(AuditObserver::class);
         BookingSpecialRequest::observe(AuditObserver::class);
+        HousekeepingAssignment::observe(AuditObserver::class);
+        CleaningRecord::observe(AuditObserver::class);
     }
 }

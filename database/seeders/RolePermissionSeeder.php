@@ -50,6 +50,11 @@ class RolePermissionSeeder extends Seeder
         'special_request.create',
         'special_request.fulfill',
         'special_request.cancel',
+        'housekeeping.view',
+        'housekeeping.assign',
+        'room.status.update',
+        'room.inspect',
+        'room.maintenance',
     ];
 
     public function run(): void
@@ -95,6 +100,11 @@ class RolePermissionSeeder extends Seeder
             'special_request.create',
             'special_request.fulfill',
             'special_request.cancel',
+            'housekeeping.view',
+            'housekeeping.assign',
+            'room.status.update',
+            'room.inspect',
+            'room.maintenance',
         ]);
 
         Role::findByName('SALES')->syncPermissions([
@@ -120,12 +130,13 @@ class RolePermissionSeeder extends Seeder
             'charge.create',
             'report.view',
             'special_request.create',
+            'housekeeping.view',
         ]);
 
         Role::findByName('HOUSEKEEPING')->syncPermissions([
-            'room.assign',
-            'room.unassign',
-            'rooms.manage',
+            'housekeeping.view',
+            'housekeeping.assign',
+            'room.status.update',
             'special_request.fulfill',
         ]);
 

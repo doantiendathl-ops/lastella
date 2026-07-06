@@ -1,0 +1,8 @@
+{
+  "tag_name": "phase-3.1",
+  "target_commitish": "phase-3",
+  "name": "Phase 3.1 — Folio & Checkout Foundation",
+  "body": "## Phase 3.1 — Folio & Checkout Foundation\n\nCovers Phase 3.1 through Phase 3.1B2, establishing the complete folio ledger, payment layer, checkout integration, and Folio/Checkout UI.\n\n### Included phases\n\n- **Phase 3.1** — Payment Foundation (deposits, payments, refunds, adjustments)\n- **Phase 3.2** — Folio Foundation (folio lifecycle, entry posting, void)\n- **Phase 3.1A** — Folio Charge Ledger Backend (FolioService, FolioEntryPolicy, audit trail)\n- **Phase 3.1B1** — Checkout Integration (ADR-38 through ADR-49: stay lifecycle, OutstandingBalanceException, partial checkout, terminal guard)\n- **Phase 3.1B2** — Folio UI & Checkout UI (ADR-50 through ADR-54: Vue component extraction, flash routing fixes, system entry guard, paymentSummary as canonical source)\n\n### Key invariants enforced\n\n- ADR-50: System entry void is a business invariant in FolioService, never in policy\n- ADR-51: paymentSummary is the single canonical financial source\n- ADR-52: Checkout disabled state is UX only; OutstandingBalanceException is authoritative\n- ADR-53: OutstandingBalanceException caught per-controller, redirects to tab=payments\n- ADR-54: can_reopen computed once in controller including terminal check\n\n### Test baseline\n\n303 tests passing, 25 pre-existing room-board failures (unrelated to this phase).",
+  "draft": false,
+  "prerelease": false
+}

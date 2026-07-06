@@ -2,6 +2,7 @@
 import { Link, usePage } from '@inertiajs/vue3';
 import {
     BedDouble,
+    Brush,
     CalendarCheck,
     ClipboardList,
     DollarSign,
@@ -31,6 +32,7 @@ const navItems = computed(() => [
     { label: 'Tổng quan', href: '/dashboard', icon: Gauge, show: true },
     { label: 'Đặt phòng', href: '/admin/bookings', icon: CalendarCheck, show: can('booking.create') || can('booking.update') || can('booking.cancel') || can('report.view') },
     { label: 'Kiểm tra phòng', href: '/admin/room-availability', icon: Search, show: can('room_availability.view') },
+    { label: 'Dọn phòng', href: '/admin/housekeeping', icon: Brush, show: can('housekeeping.view') },
     { label: 'Night Audit', href: '/admin/night-audit', icon: Moon, show: can('night_audit.view') },
     { label: 'Doanh thu', href: '/admin/reports/revenue', icon: TrendingUp, show: can('revenue.view') },
     { label: 'Đối soát', href: '/admin/reconciliation', icon: Scale, show: can('reconciliation.view') },

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\RoomStatus;
 use App\Models\Booking;
 use App\Models\Floor;
 use App\Models\Room;
@@ -39,9 +40,15 @@ class RoomAvailabilityCheckerService
                 'rooms' => $floor->rooms->map(function (Room $room) use ($checkedInByRoom, $reservedByRoom, $canViewBooking, $now): array {
                     $checkedIn = $checkedInByRoom->get($room->id, collect());
                     $reserved = $reservedByRoom->get($room->id, collect());
-                    $isUnavailable = $this->rules->isRoomUnavailable($room);
 
-                    $availability = $this->rules->resolveAvailability($checkedIn, $reserved, $isUnavailable, $now);
+                    // Phase 4.2 ADR-88: CLEANING gets its own distinct availability label,
+                    // checked before the generic out_of_order bucket.
+                    if ($room->status === RoomStatus::Cleaning) {
+                        $availability = 'cleaning';
+                    } else {
+                        $isUnavailable = $this->rules->isRoomUnavailable($room);
+                        $availability = $this->rules->resolveAvailability($checkedIn, $reserved, $isUnavailable, $now);
+                    }
 
                     $allAssignments = $checkedIn->merge($reserved)->values();
                     $primaryAssignment = $checkedIn->first() ?? $reserved->first();
@@ -85,7 +92,7 @@ class RoomAvailabilityCheckerService
             ->map(function ($roomsOfType): array {
                 $total = $roomsOfType->count();
                 $outOfOrder = $roomsOfType->where('availability', 'out_of_order')->count();
-                $unavailable = $roomsOfType->whereIn('availability', ['occupied', 'overstay', 'reserved', 'overlap', 'multi_booking'])->count();
+                $unavailable = $roomsOfType->whereIn('availability', ['occupied', 'overstay', 'reserved', 'overlap', 'multi_booking', 'cleaning'])->count();
                 $remaining = $total - $outOfOrder - $unavailable;
                 $sellable = $total - $outOfOrder;
 
@@ -134,6 +141,7 @@ class RoomAvailabilityCheckerService
             'overlap' => 'Xung đột',
             'multi_booking' => 'Nhiều booking',
             'out_of_order' => 'Không khả dụng',
+            'cleaning' => 'Đang dọn',
             default => $availability,
         };
     }
