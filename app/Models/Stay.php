@@ -68,4 +68,9 @@ class Stay extends Model
     {
         return $this->hasMany(BookingSpecialRequest::class);
     }
+
+    public function stayEvents(): HasMany
+    {
+        return $this->hasMany(StayEvent::class);
+    }
 }

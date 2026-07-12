@@ -374,6 +374,8 @@ class BookingController extends Controller
                 'planned_checkin_label' => $stay->planned_checkin_at?->format('d/m/Y H:i'),
                 'can_check_out' => $stay->status === StayStatus::CheckedIn
                     && $stay->roomAssignment?->status === AssignmentStatus::CheckedIn,
+                'can_extend' => $stay->status === StayStatus::CheckedIn
+                    && $stay->roomAssignment?->status === AssignmentStatus::CheckedIn,
                 'special_requests' => $booking->specialRequests
                     ->filter(fn ($r) => $r->stay_id === $stay->id)
                     ->map(fn ($r) => [
@@ -631,6 +633,7 @@ class BookingController extends Controller
             'releaseRoom'             => $user?->can('room.unassign') ?? false,
             'checkIn'                 => $user?->can('stay.checkin') ?? false,
             'checkOut'                => $user?->can('stay.checkout') ?? false,
+            'extend'                  => $user?->can('stay.extend') ?? false,
             'managePackage'           => $user?->can('booking.package.manage') ?? false,
             'createSpecialRequest'    => $user?->can('special_request.create') ?? false,
             'fulfillSpecialRequest'   => $user?->can('special_request.fulfill') ?? false,

@@ -1,7 +1,7 @@
 <script setup>
 import { labelFor } from '@/Support/vietnameseLabels';
-import { router, usePage } from '@inertiajs/vue3';
-import { CheckCircle, LogIn, LogOut } from 'lucide-vue-next';
+import { router, useForm, usePage } from '@inertiajs/vue3';
+import { CalendarClock, CheckCircle, LogIn, LogOut } from 'lucide-vue-next';
 import { computed, ref, watch } from 'vue';
 
 const props = defineProps({
@@ -118,6 +118,33 @@ const checkOutAll = () => {
 }
 
 const checkOutAllDisabled = computed(() => (props.paymentSummary?.balance_due ?? 0) > 0)
+
+// Phase 4.3A M5: minimal frontend integration for the already-approved Stay Extension
+// backend capability (Milestone 2). One field, no approval step — matches the
+// Reception-Centric / Minimal Clicks operational design principles.
+const extendTarget = ref(null)
+const extendForm = useForm({ new_planned_checkout_at: '' })
+
+const toDatetimeLocal = (value) => (value ? value.replace(' ', 'T') : '')
+
+const openExtend = (stay) => {
+    extendForm.clearErrors()
+    extendForm.new_planned_checkout_at = toDatetimeLocal(stay.planned_checkout_at)
+    extendTarget.value = stay
+}
+
+const closeExtend = () => {
+    extendTarget.value = null
+    extendForm.clearErrors()
+}
+
+const submitExtend = () => {
+    if (!extendTarget.value) return
+    extendForm.post(
+        `/admin/bookings/${props.booking.id}/stays/${extendTarget.value.id}/extend`,
+        { preserveScroll: true, onSuccess: () => { extendTarget.value = null } },
+    )
+}
 
 const REQUEST_TYPE_EMOJI = {
     twin_keep: '🛏', twin_to_double: '🛏', separate_beds: '🛏', extra_bed: '🛏',
@@ -243,6 +270,14 @@ function requestStatusClass(status) {
                             >
                                 <LogOut class="h-3.5 w-3.5" /> Trả phòng
                             </button>
+                            <button
+                                v-if="can.extend && stay.can_extend"
+                                type="button"
+                                class="mr-2 inline-flex items-center gap-2 border border-gray-300 px-3 py-1 text-xs font-semibold text-steel hover:border-pine hover:text-pine"
+                                @click="openExtend(stay)"
+                            >
+                                <CalendarClock class="h-3.5 w-3.5" /> Gia hạn lưu trú
+                            </button>
                             <CheckCircle v-if="stay.status === 'CHECKED_OUT'" class="ml-auto h-4 w-4 text-pine" />
                         </td>
                     </tr>
@@ -313,6 +348,35 @@ function requestStatusClass(status) {
                     Xác nhận trả phòng cuối cùng
                 </button>
             </div>
+        </div>
+    </div>
+
+    <!-- Phase 4.3A M5: Stay Extension — single field, no approval step -->
+    <div v-if="extendTarget" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+        <div class="w-full max-w-sm border border-gray-200 bg-white p-5 shadow-xl">
+            <h2 class="text-base font-semibold">Gia hạn lưu trú - Phòng {{ extendTarget.room_number }}</h2>
+            <p class="mt-2 text-sm text-steel">
+                Trả phòng dự kiến hiện tại: <strong>{{ extendTarget.planned_checkout_at }}</strong>
+            </p>
+            <form class="mt-3" @submit.prevent="submitExtend">
+                <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Trả phòng dự kiến mới</label>
+                <input
+                    v-model="extendForm.new_planned_checkout_at"
+                    type="datetime-local"
+                    class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm"
+                >
+                <p v-if="Object.keys(extendForm.errors).length" class="mt-2 text-sm text-coral">{{ Object.values(extendForm.errors)[0] }}</p>
+                <div class="mt-4 flex justify-end gap-2">
+                    <button type="button" class="border border-gray-300 px-4 py-2 text-sm font-semibold text-steel hover:text-ink" @click="closeExtend">Hủy</button>
+                    <button
+                        type="submit"
+                        class="border border-pine bg-pine px-4 py-2 text-sm font-semibold text-white hover:bg-pine/90 disabled:opacity-50"
+                        :disabled="extendForm.processing"
+                    >
+                        Xác nhận gia hạn
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 

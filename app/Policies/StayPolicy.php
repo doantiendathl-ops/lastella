@@ -26,4 +26,9 @@ class StayPolicy
     {
         return $user->can('stay.checkout');
     }
+
+    public function extend(User $user, Stay $stay): bool
+    {
+        return $user->can('stay.extend');
+    }
 }

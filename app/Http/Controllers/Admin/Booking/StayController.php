@@ -7,6 +7,7 @@ use App\Exceptions\OutstandingBalanceException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Booking\CheckInStayRequest;
 use App\Http\Requests\Booking\CheckOutStayRequest;
+use App\Http\Requests\Booking\ExtendStayRequest;
 use App\Models\Booking;
 use App\Models\Stay;
 use App\Services\StayService;
@@ -53,5 +54,15 @@ class StayController extends Controller
         }
 
         return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'room_map'])->with('success', 'Đã trả phòng.');
+    }
+
+    public function extend(ExtendStayRequest $request, Booking $booking, Stay $stay): RedirectResponse
+    {
+        $this->authorize('extend', $stay);
+        abort_unless($stay->booking_id === $booking->id, 404);
+
+        $this->stays->extendStay($stay, $request->validated('new_planned_checkout_at'), $request->user());
+
+        return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'room_map'])->with('success', 'Đã gia hạn lưu trú.');
     }
 }

@@ -3,16 +3,20 @@
 namespace App\Services;
 
 use App\Enums\AssignmentStatus;
+use App\Enums\StayEventType;
 use App\Enums\StayStatus;
 use App\Exceptions\FinalCheckoutConfirmationRequiredException;
 use App\Models\Booking;
+use App\Models\Room;
 use App\Models\RoomAssignment;
 use App\Models\Stay;
+use App\Models\User;
 use App\Services\Posting\EarlyCheckinFeePostingJob;
 use App\Services\Posting\LateCheckoutFeePostingJob;
 use App\Services\Posting\PostingContext;
 use App\Services\Posting\RoomChargePostingJob;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -28,6 +32,8 @@ class StayService
         private readonly EarlyCheckinFeePostingJob $earlyCheckinJob,
         private readonly SpecialRequestService $specialRequests,
         private readonly HousekeepingService $housekeeping,
+        private readonly StayEventService $stayEvents,
+        private readonly RoomAvailabilityRuleService $rules,
     ) {
     }
 
@@ -108,6 +114,8 @@ class StayService
             // autoMarkOccupied never throws — see HousekeepingService (ADR-84).
             $this->housekeeping->autoMarkOccupied($lockedStay);
 
+            $this->stayEvents->record($lockedStay, StayEventType::CheckIn, Auth::user());
+
             return $lockedStay->refresh();
         });
     }
@@ -181,13 +189,87 @@ class StayService
             if ($remainingActive === 0) {
                 // ADR-48: finalise runs inside caller's transaction; Booking lock already held.
                 $this->bookings->finaliseBookingCheckout($lockedBooking);
+                $this->stayEvents->record($lockedStay, StayEventType::Checkout, Auth::user(), [
+                    'version' => 1,
+                    'booking_id' => $lockedBooking->id,
+                    'room_assignment_id' => $assignment->id,
+                    'remaining_active_stays' => $remainingActive,
+                ]);
             } else {
                 $this->bookings->updateBookingStayStatus($lockedBooking);
+                $this->stayEvents->record($lockedStay, StayEventType::PartialCheckout, Auth::user(), [
+                    'version' => 1,
+                    'booking_id' => $lockedBooking->id,
+                    'room_assignment_id' => $assignment->id,
+                    'remaining_active_stays' => $remainingActive,
+                ]);
             }
 
             // Phase 4.2: auto-mark room VACANT_DIRTY and create cleaning assignment on checkout.
             // autoMarkDirtyOnCheckout never throws — see HousekeepingService (ADR-84).
             $this->housekeeping->autoMarkDirtyOnCheckout($lockedStay);
+
+            return $lockedStay->refresh();
+        });
+    }
+
+    public function extendStay(Stay $stay, CarbonInterface|string $newPlannedCheckoutAt, User $actor): Stay
+    {
+        return DB::transaction(function () use ($stay, $newPlannedCheckoutAt, $actor): Stay {
+            $newPlannedCheckoutAt = $newPlannedCheckoutAt instanceof CarbonInterface
+                ? $newPlannedCheckoutAt
+                : Carbon::parse($newPlannedCheckoutAt);
+
+            // Room locked first (not Booking): this method never writes to Booking, and its
+            // conflict check is scoped to a single Room, so Room is the relevant first lock —
+            // unlike checkIn()/checkOut()'s Booking-first order (ADR-38), which applies to
+            // methods that do write Booking-linked aggregate state.
+            $lockedStay    = Stay::whereKey($stay->id)->lockForUpdate()->firstOrFail();
+            $lockedRoom    = Room::whereKey($lockedStay->room_id)->lockForUpdate()->firstOrFail();
+            $assignment    = RoomAssignment::whereKey($lockedStay->room_assignment_id)->lockForUpdate()->firstOrFail();
+
+            if ($lockedStay->status !== StayStatus::CheckedIn) {
+                throw ValidationException::withMessages([
+                    'stay' => 'Chỉ có thể gia hạn lưu trú đang nhận phòng.',
+                ]);
+            }
+
+            if (! $newPlannedCheckoutAt->gt($lockedStay->planned_checkout_at)) {
+                throw ValidationException::withMessages([
+                    'new_planned_checkout_at' => 'Ngày trả phòng mới phải sau ngày trả phòng hiện tại.',
+                ]);
+            }
+
+            $conflictAssignment = $this->rules->findConflictForTimeChange(
+                $lockedRoom->id,
+                $assignment->start_at,
+                $newPlannedCheckoutAt,
+                $lockedStay->booking_id,
+            );
+
+            if ($conflictAssignment !== null) {
+                $roomNumber  = $lockedRoom->room_number;
+                $bookingCode = $conflictAssignment->booking->booking_code;
+                throw ValidationException::withMessages([
+                    'new_planned_checkout_at' => "Không thể gia hạn. Phòng {$roomNumber} đang được booking {$bookingCode} sử dụng trong khoảng thời gian này.",
+                ]);
+            }
+
+            $oldPlannedCheckoutAt = $lockedStay->planned_checkout_at;
+
+            $lockedStay->update([
+                'planned_checkout_at' => $newPlannedCheckoutAt,
+            ]);
+
+            $assignment->update([
+                'end_at' => $newPlannedCheckoutAt,
+            ]);
+
+            $this->stayEvents->record($lockedStay, StayEventType::ExtendStay, $actor, [
+                'version' => 1,
+                'old_planned_checkout_at' => $oldPlannedCheckoutAt?->toIso8601String(),
+                'new_planned_checkout_at' => $newPlannedCheckoutAt->toIso8601String(),
+            ]);
 
             return $lockedStay->refresh();
         });

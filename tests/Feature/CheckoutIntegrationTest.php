@@ -8,6 +8,7 @@ use App\Enums\CustomerType;
 use App\Enums\FolioStatus;
 use App\Enums\PaymentMethod;
 use App\Enums\PaymentType;
+use App\Enums\StayEventType;
 use App\Enums\StayStatus;
 use App\Exceptions\BookingTerminalException;
 use App\Exceptions\OutstandingBalanceException;
@@ -76,6 +77,12 @@ class CheckoutIntegrationTest extends TestCase
         app(StayService::class)->checkOut($stay, null, true);
 
         $this->assertSame(BookingStatus::CheckedOut, $booking->fresh()->status);
+
+        // Phase 4.3A M3: a final checkout (no other active Stay left) records a Checkout event.
+        $this->assertDatabaseHas('stay_events', [
+            'stay_id' => $stay->id,
+            'event_type' => StayEventType::Checkout->value,
+        ]);
     }
 
     public function test_folio_auto_closes_at_last_stay_checkout(): void
@@ -306,6 +313,18 @@ class CheckoutIntegrationTest extends TestCase
         app(StayService::class)->checkOut($stay1);
 
         $this->assertSame(BookingStatus::PartiallyCheckedOut, $booking->fresh()->status);
+
+        // Phase 4.3A M3: stay1 (checked out while stay2 remains active) records PartialCheckout,
+        // never Checkout — and stay2 is untouched.
+        $this->assertDatabaseHas('stay_events', [
+            'stay_id' => $stay1->id,
+            'event_type' => StayEventType::PartialCheckout->value,
+        ]);
+        $this->assertDatabaseMissing('stay_events', [
+            'stay_id' => $stay1->id,
+            'event_type' => StayEventType::Checkout->value,
+        ]);
+        $this->assertSame(StayStatus::CheckedIn, $stay2->fresh()->status);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
