@@ -4,6 +4,7 @@ import AddPaymentForm from './AddPaymentForm.vue';
 import CheckoutReadinessBanner from './CheckoutReadinessBanner.vue';
 import FolioEntryTable from './FolioEntryTable.vue';
 import FolioStatusBadge from './FolioStatusBadge.vue';
+import PaymentProjectionSummary from './PaymentProjectionSummary.vue';
 import PaymentSummary from './PaymentSummary.vue';
 import PaymentTable from './PaymentTable.vue';
 import { router } from '@inertiajs/vue3';
@@ -63,6 +64,14 @@ const props = defineProps<{
         total_refund: number
         total_adjustment: number
     }
+    paymentProjection?: {
+        projected_room_total: number
+        posted_non_room_total: number
+        expected_total: number
+        expected_deposit: number
+        recognized_paid_total: number
+        expected_balance: number
+    }
     options: {
         chargeTypes: { value: string; label: string }[]
         paymentTypes: { value: string; label: string }[]
@@ -119,8 +128,11 @@ const reopenFolio = () => {
             :has-active-stays="hasActiveStays"
         />
 
-        <!-- Financial summary -->
+        <!-- Financial summary (posted ledger) -->
         <PaymentSummary :payment-summary="paymentSummary" />
+
+        <!-- Payment projection (forecast — never the posted Folio balance) -->
+        <PaymentProjectionSummary v-if="paymentProjection" :payment-projection="paymentProjection" />
 
         <!-- Folio Ledger Section -->
         <div class="space-y-3">

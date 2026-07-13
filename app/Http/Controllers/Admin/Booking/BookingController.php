@@ -24,6 +24,7 @@ use App\Models\Stay;
 use App\Models\User;
 use App\Services\BookingService;
 use App\Services\BusinessDateService;
+use App\Services\PaymentProjectionService;
 use App\Services\RoomAssignmentService;
 use App\Services\RoomRateService;
 use App\Services\ServiceRateService;
@@ -42,6 +43,7 @@ class BookingController extends Controller
     public function __construct(
         private readonly BookingService $bookings,
         private readonly RoomRateService $roomRates,
+        private readonly PaymentProjectionService $paymentProjection,
     ) {
     }
 
@@ -313,6 +315,7 @@ class BookingController extends Controller
                 'note' => $requirement->note,
             ])->values(),
             'payment_summary'  => $this->bookings->paymentSummary($booking),
+            'payment_projection' => $this->paymentProjection->project($booking),
             'folio'            => $this->folioPayload($booking),
             'packageFlags'     => $booking->packageFlags->map(fn ($flag): array => [
                 'package_key' => $flag->package_key,

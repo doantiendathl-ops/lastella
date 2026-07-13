@@ -829,6 +829,7 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                 v-if="tab === 'payments'"
                 :booking="booking"
                 :payment-summary="booking.payment_summary"
+                :payment-projection="booking.payment_projection"
                 :options="options"
                 :can="{
                     createCharge: can.createCharge,
