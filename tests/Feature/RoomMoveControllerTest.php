@@ -30,6 +30,7 @@ class RoomMoveControllerTest extends TestCase
 
     private User $admin;
     private RoomType $twinType;
+    private RoomType $doubleType;
 
     protected function setUp(): void
     {
@@ -48,6 +49,23 @@ class RoomMoveControllerTest extends TestCase
         $this->admin->assignRole('ADMIN');
 
         $this->twinType = RoomType::where('code', 'TWIN')->firstOrFail();
+        $this->doubleType = RoomType::where('code', 'DOUBLE')->firstOrFail();
+    }
+
+    public function test_admin_can_move_room_to_a_different_room_type(): void
+    {
+        [$booking, $stay] = $this->checkedInStay();
+        $targetRoom = Room::where('room_type_id', $this->doubleType->id)->where('status', '!=', 'OUT_OF_ORDER')->firstOrFail();
+        $this->actingAs($this->admin);
+
+        $response = $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/move-room", [
+            'new_room_id' => $targetRoom->id,
+            'reason' => 'Khách muốn nâng hạng phòng',
+        ]);
+
+        $response->assertRedirect();
+        $response->assertSessionHasNoErrors();
+        $this->assertSame($targetRoom->id, $stay->fresh()->room_id);
     }
 
     public function test_admin_can_move_room(): void

@@ -24,7 +24,7 @@ class PaymentProjectionService
 
     public function project(Booking $booking): array
     {
-        $booking->loadMissing(['stays.room', 'bookingRequirements', 'folio.folioEntries', 'bookingPayments']);
+        $booking->loadMissing(['stays.room', 'stays.roomAssignment', 'bookingRequirements', 'folio.folioEntries', 'bookingPayments']);
 
         $stayBreakdown = $this->projectStayRoomCharges($booking);
         $roomTotal = array_sum(array_column($stayBreakdown, 'subtotal'));
@@ -82,7 +82,7 @@ class PaymentProjectionService
         return $activeStays->map(function (Stay $stay) use ($booking): array {
             [$start, $end] = $this->effectiveStayRange($stay);
             $nights = $this->nightsBetween($start, $end);
-            $unitPrice = $this->resolveUnitPrice($booking, $stay->room?->room_type_id);
+            $unitPrice = $this->resolveUnitPrice($booking, $this->commercialRoomTypeId($stay));
 
             return [
                 'stay_id' => $stay->id,
@@ -143,6 +143,21 @@ class PaymentProjectionService
         $nights = (int) $checkin->copy()->startOfDay()->diffInDays($checkout->copy()->startOfDay());
 
         return max(0, $nights);
+    }
+
+    /**
+     * Commercial Source Principle (Product Sprint 03): the room type used to
+     * key the rate lookup. Prefers RoomAssignment.room_type_id — the
+     * commercial requirement slot this Stay's assignment fulfills, stable
+     * across a Change Room operational move — over the Stay's live physical
+     * room type, which may have changed. Falls back to the physical type
+     * only when no RoomAssignment link exists. Mirrors
+     * RoomChargePostingJob::resolveUnitPrice()'s resolution exactly, so
+     * projection never diverges from what Night Audit will actually post.
+     */
+    private function commercialRoomTypeId(Stay $stay): ?int
+    {
+        return $stay->roomAssignment?->room_type_id ?? $stay->room?->room_type_id;
     }
 
     /**

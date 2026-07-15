@@ -147,18 +147,27 @@ const submitExtend = () => {
     )
 }
 
-// Room Move: lateral, same-room-type move only — backend is authoritative on
-// availability/conflict/room-type checks; this list is a convenience picker.
+// Change Room: same-room-type or cross-room-type physical move — backend is
+// authoritative on availability/conflict checks; this list is a convenience
+// picker. Cross-type moves never change price (Commercial Source Principle,
+// Product Sprint 03) — the warning below is purely informational.
 const moveRoomTarget = ref(null)
 const moveRoomForm = useForm({ new_room_id: '', reason: '' })
 
 const availableRoomsForMove = computed(() => {
     if (!moveRoomTarget.value) return []
-    return props.availableRooms.filter((room) =>
-        room.room_type_id === moveRoomTarget.value.room_type_id
-        && room.availability_status === 'available',
-    )
+    return props.availableRooms.filter((room) => room.availability_status === 'available')
 })
+
+const selectedMoveRoom = computed(() =>
+    availableRoomsForMove.value.find((room) => room.id === moveRoomForm.new_room_id) ?? null
+)
+
+const isCrossTypeMove = computed(() =>
+    !!selectedMoveRoom.value
+    && !!moveRoomTarget.value
+    && selectedMoveRoom.value.room_type_id !== moveRoomTarget.value.room_type_id
+)
 
 const openMoveRoom = (stay) => {
     moveRoomForm.clearErrors()
@@ -422,12 +431,13 @@ function requestStatusClass(status) {
         </div>
     </div>
 
-    <!-- Product Sprint 02: Room Move — simple, single-step dialog -->
+    <!-- Product Sprint 02/03: Change Room — simple, single-step dialog. Allows
+         same- or cross-room-type moves; backend is authoritative on eligibility. -->
     <div v-if="moveRoomTarget" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
         <div class="w-full max-w-sm border border-gray-200 bg-white p-5 shadow-xl">
             <h2 class="text-base font-semibold">Đổi phòng - Phòng {{ moveRoomTarget.room_number }}</h2>
             <p class="mt-2 text-sm text-steel">
-                Chỉ hiển thị các phòng cùng loại đang trống. Booking, thời gian lưu trú và chi phí dự kiến không đổi.
+                Chỉ hiển thị các phòng đang trống. Booking, thời gian lưu trú và chi phí dự kiến không đổi.
             </p>
             <form class="mt-3 space-y-3" @submit.prevent="submitMoveRoom">
                 <div>
@@ -435,11 +445,14 @@ function requestStatusClass(status) {
                     <select v-model="moveRoomForm.new_room_id" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
                         <option value="" disabled>-- Chọn phòng --</option>
                         <option v-for="room in availableRoomsForMove" :key="room.id" :value="room.id">
-                            {{ room.room_number }}
+                            {{ room.room_number }} - {{ room.room_type_name ?? room.room_type }} ({{ room.status_label }})
                         </option>
                     </select>
                     <p v-if="!availableRoomsForMove.length" class="mt-1 text-xs text-amber-600">
-                        Hiện không có phòng cùng loại đang trống.
+                        Hiện không có phòng đang trống.
+                    </p>
+                    <p v-if="isCrossTypeMove" class="mt-1 text-xs text-amber-600">
+                        Đổi loại phòng không tự động thay đổi giá. Phụ thu hoặc giảm giá, nếu có, được nhập riêng bằng gói dịch vụ/phí bổ sung.
                     </p>
                 </div>
                 <div>

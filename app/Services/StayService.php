@@ -276,7 +276,7 @@ class StayService
     }
 
     /**
-     * Room Move — an Operational Event, not a Commercial Event. The Booking is
+     * Change Room — an Operational Event, not a Commercial Event. The Booking is
      * never touched, the Stay row is never duplicated: the existing Stay and its
      * existing RoomAssignment row are simply re-pointed to the new Room. History
      * lives in the StayEvent audit log (old/new room, actor, reason, time), not
@@ -284,16 +284,27 @@ class StayService
      * the Booking's per-room-type assignment requirement (BookingService::
      * updateBookingAssignmentStatus() / RoomAssignmentService::getAssignmentSummary()
      * both count Assigned+CheckedIn+CheckedOut rows), which this design avoids.
+     *
+     * Covers both variants of the single Change Room capability: same-room-type
+     * (Room Move) and different-room-type (Product Sprint 03 — Operational
+     * Cross-Type Move). Only the physical room changes. `RoomAssignment.room_type_id`
+     * is deliberately left untouched on any move — it represents the commercial
+     * requirement slot this assignment fulfills (see the RoomAssignment Semantic
+     * Review in docs/reports/product-sprint-03-change-room-capability-phase-2-report.md),
+     * not the physical room's live type, and updating it would create a permanent
+     * false mismatch against BookingRequirement. `BookingRequirement` itself is
+     * never written by this method — commercial rate is intentionally out of scope
+     * (Commercial Source Principle / Pricing Independence Principle).
      */
     public function moveRoom(Stay $stay, Room $newRoom, User $actor, ?string $reason = null): Stay
     {
         return DB::transaction(function () use ($stay, $newRoom, $actor, $reason): Stay {
             // Room-first lock order — same reasoning as extendStay(): this method
             // never writes to Booking, and its conflict check is Room-scoped.
-            $lockedNewRoom = Room::whereKey($newRoom->id)->lockForUpdate()->firstOrFail();
+            $lockedNewRoom = Room::with('roomType')->whereKey($newRoom->id)->lockForUpdate()->firstOrFail();
             $lockedStay    = Stay::whereKey($stay->id)->lockForUpdate()->firstOrFail();
             $assignment    = RoomAssignment::whereKey($lockedStay->room_assignment_id)->lockForUpdate()->firstOrFail();
-            $lockedOldRoom = Room::whereKey($lockedStay->room_id)->lockForUpdate()->firstOrFail();
+            $lockedOldRoom = Room::with('roomType')->whereKey($lockedStay->room_id)->lockForUpdate()->firstOrFail();
 
             if ($lockedStay->status !== StayStatus::CheckedIn) {
                 throw ValidationException::withMessages([
@@ -304,15 +315,6 @@ class StayService
             if ($lockedNewRoom->id === $lockedOldRoom->id) {
                 throw ValidationException::withMessages([
                     'room_id' => 'Phòng mới phải khác phòng hiện tại.',
-                ]);
-            }
-
-            // Room Move is a lateral, same-room-type operational move only.
-            // Changing room type is an Upgrade/Downgrade — explicitly out of
-            // scope for this capability (a separate future product sprint).
-            if ($lockedNewRoom->room_type_id !== $lockedOldRoom->room_type_id) {
-                throw ValidationException::withMessages([
-                    'room_id' => 'Chỉ hỗ trợ đổi sang phòng cùng loại. Nâng/hạ hạng phòng chưa được hỗ trợ.',
                 ]);
             }
 
@@ -345,6 +347,9 @@ class StayService
             // already calls (ADR-84); no Housekeeping file is touched.
             $this->housekeeping->autoMarkDirtyOnCheckout($lockedStay);
 
+            // Only the physical room changes. RoomAssignment.room_type_id (the
+            // commercial requirement slot) is intentionally left untouched, even
+            // when the new room's type differs — see the class docblock above.
             $assignment->update(['room_id' => $lockedNewRoom->id]);
             $lockedStay->update(['room_id' => $lockedNewRoom->id]);
 
@@ -352,11 +357,15 @@ class StayService
             $this->housekeeping->autoMarkOccupied($lockedStay);
 
             $this->stayEvents->record($lockedStay, StayEventType::RoomMove, $actor, [
-                'version' => 1,
+                'version' => 2,
                 'old_room_id' => $oldRoomId,
                 'old_room_number' => $oldRoomNumber,
+                'old_room_type_id' => $lockedOldRoom->room_type_id,
+                'old_room_type_name' => $lockedOldRoom->roomType?->name,
                 'new_room_id' => $lockedNewRoom->id,
                 'new_room_number' => $lockedNewRoom->room_number,
+                'new_room_type_id' => $lockedNewRoom->room_type_id,
+                'new_room_type_name' => $lockedNewRoom->roomType?->name,
                 'reason' => $reason,
             ]);
 

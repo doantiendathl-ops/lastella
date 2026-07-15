@@ -113,16 +113,26 @@ class RoomChargePostingJob implements PostingJob
         );
     }
 
+    /**
+     * Commercial Source Principle (Product Sprint 03): rate must resolve from
+     * the commercially-sold room type, not the Stay's live physical room. The
+     * physical room can diverge from the sold type after a Change Room
+     * operational move (same- or different-room-type). RoomAssignment.room_type_id
+     * is the commercial requirement slot the assignment fulfills and is never
+     * updated by a room move, so it — not $stay->room->room_type_id — is the
+     * correct key. Falls back to the physical room's type only when no
+     * RoomAssignment link exists, preserving prior behavior for that case.
+     */
     private function resolveUnitPrice(PostingContext $context): string
     {
         $stay = $context->stay;
-        $stay->loadMissing('room');
+        $stay->loadMissing(['room', 'roomAssignment']);
 
         if ($stay->room === null) {
             return '0.00';
         }
 
-        $roomTypeId = $stay->room->room_type_id;
+        $roomTypeId = $stay->roomAssignment?->room_type_id ?? $stay->room->room_type_id;
 
         $context->booking->loadMissing('bookingRequirements');
 

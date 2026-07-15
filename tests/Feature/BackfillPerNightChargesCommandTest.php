@@ -36,6 +36,7 @@ class BackfillPerNightChargesCommandTest extends TestCase
         $booking    = Booking::factory()->create();
         $folio      = Folio::factory()->for($booking)->create(['status' => FolioStatus::Open]);
         $assignment = RoomAssignment::factory()->for($booking)->for($room)->create([
+            'room_type_id' => $roomType->id,
             'status' => AssignmentStatus::CheckedIn,
         ]);
 

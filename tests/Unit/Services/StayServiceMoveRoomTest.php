@@ -100,13 +100,128 @@ class StayServiceMoveRoomTest extends TestCase
         app(StayService::class)->moveRoom($stay, $targetRoom, $this->admin);
     }
 
-    public function test_move_to_different_room_type_is_rejected(): void
+    public function test_move_to_available_room_of_different_type_succeeds(): void
     {
         [$booking, $stay] = $this->checkedInStayInRoom();
-        $differentTypeRoom = Room::where('room_type_id', $this->doubleType->id)->firstOrFail();
+        $differentTypeRoom = Room::where('room_type_id', $this->doubleType->id)
+            ->where('status', '!=', RoomStatus::OutOfOrder)
+            ->firstOrFail();
 
-        $this->expectException(ValidationException::class);
+        $moved = app(StayService::class)->moveRoom($stay, $differentTypeRoom, $this->admin);
+
+        $this->assertSame($differentTypeRoom->id, $moved->room_id);
+    }
+
+    public function test_cross_type_move_preserves_commercial_room_type_on_assignment(): void
+    {
+        [$booking, $stay] = $this->checkedInStayInRoom();
+        $originalAssignmentId = $stay->room_assignment_id;
+        $differentTypeRoom = Room::where('room_type_id', $this->doubleType->id)
+            ->where('status', '!=', RoomStatus::OutOfOrder)
+            ->firstOrFail();
+
         app(StayService::class)->moveRoom($stay, $differentTypeRoom, $this->admin);
+
+        $assignment = \App\Models\RoomAssignment::findOrFail($originalAssignmentId);
+
+        // RoomAssignment.room_id follows the physical move; room_type_id (the
+        // commercial requirement slot) must NOT — see RoomAssignment Semantic
+        // Review in the Sprint 03 report.
+        $this->assertSame($differentTypeRoom->id, $assignment->room_id);
+        $this->assertSame($this->twinType->id, $assignment->room_type_id);
+    }
+
+    public function test_cross_type_move_updates_physical_room_type_via_relation(): void
+    {
+        [$booking, $stay] = $this->checkedInStayInRoom();
+        $differentTypeRoom = Room::where('room_type_id', $this->doubleType->id)
+            ->where('status', '!=', RoomStatus::OutOfOrder)
+            ->firstOrFail();
+
+        $moved = app(StayService::class)->moveRoom($stay, $differentTypeRoom, $this->admin);
+
+        $this->assertSame($this->doubleType->id, $moved->room->room_type_id);
+        $this->assertSame($this->doubleType->id, $moved->roomAssignment->room->room_type_id);
+    }
+
+    public function test_cross_type_move_does_not_alter_booking_requirement(): void
+    {
+        [$booking, $stay] = $this->checkedInStayInRoom();
+        $differentTypeRoom = Room::where('room_type_id', $this->doubleType->id)
+            ->where('status', '!=', RoomStatus::OutOfOrder)
+            ->firstOrFail();
+
+        $requirementBefore = $booking->fresh()->bookingRequirements()->orderBy('id')->get()->toArray();
+
+        app(StayService::class)->moveRoom($stay, $differentTypeRoom, $this->admin);
+
+        $requirementAfter = $booking->fresh()->bookingRequirements()->orderBy('id')->get()->toArray();
+        $this->assertEquals($requirementBefore, $requirementAfter);
+    }
+
+    public function test_cross_type_move_does_not_change_projected_room_total(): void
+    {
+        [$booking, $stay] = $this->checkedInStayInRoom();
+        $differentTypeRoom = Room::where('room_type_id', $this->doubleType->id)
+            ->where('status', '!=', RoomStatus::OutOfOrder)
+            ->firstOrFail();
+
+        $before = app(PaymentProjectionService::class)->project($booking->fresh());
+
+        app(StayService::class)->moveRoom($stay, $differentTypeRoom, $this->admin);
+
+        $after = app(PaymentProjectionService::class)->project($booking->fresh());
+
+        // Commercial Source Principle: physical room type changed, commercial
+        // rate source did not ⇒ projected total is unaffected by the move.
+        $this->assertSame($before['projected_room_total'], $after['projected_room_total']);
+        $this->assertSame($before['expected_total'], $after['expected_total']);
+    }
+
+    public function test_cross_type_move_does_not_create_false_assignment_mismatch(): void
+    {
+        [$booking, $stay] = $this->checkedInStayInRoom();
+        $differentTypeRoom = Room::where('room_type_id', $this->doubleType->id)
+            ->where('status', '!=', RoomStatus::OutOfOrder)
+            ->firstOrFail();
+
+        app(StayService::class)->moveRoom($stay, $differentTypeRoom, $this->admin);
+
+        $summary = app(RoomAssignmentService::class)->getAssignmentSummary($booking->fresh());
+        $twinRow = collect($summary)->firstWhere('room_type_id', $this->twinType->id);
+
+        $this->assertNotNull($twinRow, 'Original Twin requirement row must still be present.');
+        $this->assertSame(1, $twinRow['required']);
+        $this->assertSame(1, $twinRow['assigned']);
+        $this->assertSame(0, $twinRow['remaining']);
+        // No requirement exists for Double ⇒ it must not appear as a summary row at all.
+        $this->assertNull(collect($summary)->firstWhere('room_type_id', $this->doubleType->id));
+    }
+
+    public function test_cross_type_move_does_not_make_night_audit_post_zero(): void
+    {
+        [$booking, $stay] = $this->checkedInStayInRoom();
+        $differentTypeRoom = Room::where('room_type_id', $this->doubleType->id)
+            ->where('status', '!=', RoomStatus::OutOfOrder)
+            ->firstOrFail();
+
+        $moved = app(StayService::class)->moveRoom($stay, $differentTypeRoom, $this->admin);
+
+        $folio = $booking->fresh()->folio()->firstOrFail();
+        $context = new \App\Services\Posting\PostingContext(
+            booking: $booking->fresh(),
+            folio: $folio,
+            businessDate: \Illuminate\Support\Carbon::parse('2026-07-15'),
+            stay: $moved->fresh(),
+            postedBy: $this->admin,
+        );
+
+        $result = app(\App\Services\Posting\RoomChargePostingJob::class)->execute($context);
+
+        // Must post the ORIGINAL commercial (Twin) rate, not skip with a zero
+        // unit price just because the physical room is now a Double.
+        $this->assertNotNull($result->entry, 'Night Audit must not skip posting after a cross-type Change Room move.');
+        $this->assertEquals(self::ROOM_PRICE, (float) $result->entry->unit_price);
     }
 
     public function test_move_to_available_room_succeeds(): void
@@ -281,6 +396,26 @@ class StayServiceMoveRoomTest extends TestCase
         $this->assertSame($oldRoom->id, $event->metadata['old_room_id']);
         $this->assertSame($targetRoom->id, $event->metadata['new_room_id']);
         $this->assertSame('TV hỏng', $event->metadata['reason']);
+    }
+
+    public function test_cross_type_move_records_room_type_metadata(): void
+    {
+        [$booking, $stay, $oldRoom] = $this->checkedInStayInRoom();
+        $differentTypeRoom = Room::where('room_type_id', $this->doubleType->id)
+            ->where('status', '!=', RoomStatus::OutOfOrder)
+            ->firstOrFail();
+
+        app(StayService::class)->moveRoom($stay, $differentTypeRoom, $this->admin, 'Khách muốn nâng hạng phòng');
+
+        $event = $stay->stayEvents()->where('event_type', StayEventType::RoomMove)->latest('id')->firstOrFail();
+
+        $this->assertSame(2, $event->metadata['version']);
+        $this->assertSame($this->twinType->id, $event->metadata['old_room_type_id']);
+        $this->assertSame($this->doubleType->id, $event->metadata['new_room_type_id']);
+        $this->assertSame($this->twinType->name, $event->metadata['old_room_type_name']);
+        $this->assertSame($this->doubleType->name, $event->metadata['new_room_type_name']);
+        $this->assertArrayNotHasKey('upgrade_price', $event->metadata);
+        $this->assertArrayNotHasKey('downgrade_refund', $event->metadata);
     }
 
     /**
