@@ -275,6 +275,95 @@ class StayService
         });
     }
 
+    /**
+     * Room Move — an Operational Event, not a Commercial Event. The Booking is
+     * never touched, the Stay row is never duplicated: the existing Stay and its
+     * existing RoomAssignment row are simply re-pointed to the new Room. History
+     * lives in the StayEvent audit log (old/new room, actor, reason, time), not
+     * in a second RoomAssignment row — creating one would double-count against
+     * the Booking's per-room-type assignment requirement (BookingService::
+     * updateBookingAssignmentStatus() / RoomAssignmentService::getAssignmentSummary()
+     * both count Assigned+CheckedIn+CheckedOut rows), which this design avoids.
+     */
+    public function moveRoom(Stay $stay, Room $newRoom, User $actor, ?string $reason = null): Stay
+    {
+        return DB::transaction(function () use ($stay, $newRoom, $actor, $reason): Stay {
+            // Room-first lock order — same reasoning as extendStay(): this method
+            // never writes to Booking, and its conflict check is Room-scoped.
+            $lockedNewRoom = Room::whereKey($newRoom->id)->lockForUpdate()->firstOrFail();
+            $lockedStay    = Stay::whereKey($stay->id)->lockForUpdate()->firstOrFail();
+            $assignment    = RoomAssignment::whereKey($lockedStay->room_assignment_id)->lockForUpdate()->firstOrFail();
+            $lockedOldRoom = Room::whereKey($lockedStay->room_id)->lockForUpdate()->firstOrFail();
+
+            if ($lockedStay->status !== StayStatus::CheckedIn) {
+                throw ValidationException::withMessages([
+                    'stay' => 'Chỉ có thể đổi phòng cho lưu trú đang nhận phòng.',
+                ]);
+            }
+
+            if ($lockedNewRoom->id === $lockedOldRoom->id) {
+                throw ValidationException::withMessages([
+                    'room_id' => 'Phòng mới phải khác phòng hiện tại.',
+                ]);
+            }
+
+            // Room Move is a lateral, same-room-type operational move only.
+            // Changing room type is an Upgrade/Downgrade — explicitly out of
+            // scope for this capability (a separate future product sprint).
+            if ($lockedNewRoom->room_type_id !== $lockedOldRoom->room_type_id) {
+                throw ValidationException::withMessages([
+                    'room_id' => 'Chỉ hỗ trợ đổi sang phòng cùng loại. Nâng/hạ hạng phòng chưa được hỗ trợ.',
+                ]);
+            }
+
+            if ($this->rules->isRoomUnavailable($lockedNewRoom)) {
+                throw ValidationException::withMessages([
+                    'room_id' => 'Phòng mới đang bảo trì hoặc không sẵn sàng.',
+                ]);
+            }
+
+            $conflict = $this->rules->findConflictForTimeChange(
+                $lockedNewRoom->id,
+                now(),
+                $lockedStay->planned_checkout_at,
+                $lockedStay->booking_id,
+            );
+
+            if ($conflict !== null) {
+                $bookingCode = $conflict->booking->booking_code;
+                throw ValidationException::withMessages([
+                    'room_id' => "Phòng {$lockedNewRoom->room_number} đang được booking {$bookingCode} sử dụng trong khoảng thời gian này.",
+                ]);
+            }
+
+            $oldRoomId = $lockedOldRoom->id;
+            $oldRoomNumber = $lockedOldRoom->room_number;
+
+            // Mark the vacated room dirty BEFORE repointing the Stay — this hook
+            // reads $stay->room_id directly, so it must run while that still
+            // resolves to the OLD room. Reuses the exact same hook checkOut()
+            // already calls (ADR-84); no Housekeeping file is touched.
+            $this->housekeeping->autoMarkDirtyOnCheckout($lockedStay);
+
+            $assignment->update(['room_id' => $lockedNewRoom->id]);
+            $lockedStay->update(['room_id' => $lockedNewRoom->id]);
+
+            // Now $stay->room_id resolves to the NEW room — mark it occupied.
+            $this->housekeeping->autoMarkOccupied($lockedStay);
+
+            $this->stayEvents->record($lockedStay, StayEventType::RoomMove, $actor, [
+                'version' => 1,
+                'old_room_id' => $oldRoomId,
+                'old_room_number' => $oldRoomNumber,
+                'new_room_id' => $lockedNewRoom->id,
+                'new_room_number' => $lockedNewRoom->room_number,
+                'reason' => $reason,
+            ]);
+
+            return $lockedStay->refresh();
+        });
+    }
+
     public function checkInMany(iterable $stays): array
     {
         $checkedIn = [];

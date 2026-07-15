@@ -1166,6 +1166,7 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                 :booking="booking"
                 :can="can"
                 :payment-summary="booking.payment_summary"
+                :available-rooms="allBoardRooms"
             />
 
             <div v-if="tab === 'special_requests'" class="p-5">

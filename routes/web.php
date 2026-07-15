@@ -95,6 +95,7 @@ Route::middleware('auth')->group(function (): void {
         Route::post('bookings/{booking}/stays/{stay}/check-in', [StayController::class, 'checkIn'])->name('bookings.stays.check-in');
         Route::post('bookings/{booking}/stays/{stay}/check-out', [StayController::class, 'checkOut'])->name('bookings.stays.check-out');
         Route::post('bookings/{booking}/stays/{stay}/extend', [StayController::class, 'extend'])->name('bookings.stays.extend');
+        Route::post('bookings/{booking}/stays/{stay}/move-room', [StayController::class, 'moveRoom'])->name('bookings.stays.move-room');
         Route::get('bookings/{booking}/packages', [PackageEnrollmentController::class, 'show'])->name('bookings.packages');
         Route::post('bookings/{booking}/packages', [PackageEnrollmentController::class, 'enroll'])->name('bookings.packages.enroll');
         Route::delete('bookings/{booking}/packages/{packageKey}', [PackageEnrollmentController::class, 'unenroll'])->name('bookings.packages.unenroll');

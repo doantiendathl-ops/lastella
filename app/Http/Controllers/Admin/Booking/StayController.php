@@ -8,7 +8,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Booking\CheckInStayRequest;
 use App\Http\Requests\Booking\CheckOutStayRequest;
 use App\Http\Requests\Booking\ExtendStayRequest;
+use App\Http\Requests\Booking\MoveRoomRequest;
 use App\Models\Booking;
+use App\Models\Room;
 use App\Models\Stay;
 use App\Services\StayService;
 use Illuminate\Http\RedirectResponse;
@@ -64,5 +66,17 @@ class StayController extends Controller
         $this->stays->extendStay($stay, $request->validated('new_planned_checkout_at'), $request->user());
 
         return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'room_map'])->with('success', 'Đã gia hạn lưu trú.');
+    }
+
+    public function moveRoom(MoveRoomRequest $request, Booking $booking, Stay $stay): RedirectResponse
+    {
+        $this->authorize('moveRoom', $stay);
+        abort_unless($stay->booking_id === $booking->id, 404);
+
+        $newRoom = Room::findOrFail($request->validated('new_room_id'));
+
+        $this->stays->moveRoom($stay, $newRoom, $request->user(), $request->validated('reason'));
+
+        return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'room_map'])->with('success', 'Đã đổi phòng.');
     }
 }

@@ -31,4 +31,9 @@ class StayPolicy
     {
         return $user->can('stay.extend');
     }
+
+    public function moveRoom(User $user, Stay $stay): bool
+    {
+        return $user->can('stay.room_move');
+    }
 }

@@ -1,13 +1,14 @@
 <script setup>
 import { labelFor } from '@/Support/vietnameseLabels';
 import { router, useForm, usePage } from '@inertiajs/vue3';
-import { CalendarClock, CheckCircle, LogIn, LogOut } from 'lucide-vue-next';
+import { ArrowLeftRight, CalendarClock, CheckCircle, LogIn, LogOut } from 'lucide-vue-next';
 import { computed, ref, watch } from 'vue';
 
 const props = defineProps({
     booking: { type: Object, required: true },
     can: { type: Object, required: true },
     paymentSummary: { type: Object, required: true },
+    availableRooms: { type: Array, default: () => [] },
 })
 
 const page = usePage()
@@ -146,6 +147,39 @@ const submitExtend = () => {
     )
 }
 
+// Room Move: lateral, same-room-type move only — backend is authoritative on
+// availability/conflict/room-type checks; this list is a convenience picker.
+const moveRoomTarget = ref(null)
+const moveRoomForm = useForm({ new_room_id: '', reason: '' })
+
+const availableRoomsForMove = computed(() => {
+    if (!moveRoomTarget.value) return []
+    return props.availableRooms.filter((room) =>
+        room.room_type_id === moveRoomTarget.value.room_type_id
+        && room.availability_status === 'available',
+    )
+})
+
+const openMoveRoom = (stay) => {
+    moveRoomForm.clearErrors()
+    moveRoomForm.new_room_id = ''
+    moveRoomForm.reason = ''
+    moveRoomTarget.value = stay
+}
+
+const closeMoveRoom = () => {
+    moveRoomTarget.value = null
+    moveRoomForm.clearErrors()
+}
+
+const submitMoveRoom = () => {
+    if (!moveRoomTarget.value) return
+    moveRoomForm.post(
+        `/admin/bookings/${props.booking.id}/stays/${moveRoomTarget.value.id}/move-room`,
+        { preserveScroll: true, onSuccess: () => { moveRoomTarget.value = null } },
+    )
+}
+
 const REQUEST_TYPE_EMOJI = {
     twin_keep: '🛏', twin_to_double: '🛏', separate_beds: '🛏', extra_bed: '🛏',
     baby_cot: '👶', extra_pillow: '🛌', non_feather_pillow: '🛌', extra_blanket: '🛌',
@@ -278,6 +312,14 @@ function requestStatusClass(status) {
                             >
                                 <CalendarClock class="h-3.5 w-3.5" /> Gia hạn lưu trú
                             </button>
+                            <button
+                                v-if="can.moveRoom && stay.can_move_room"
+                                type="button"
+                                class="mr-2 inline-flex items-center gap-2 border border-gray-300 px-3 py-1 text-xs font-semibold text-steel hover:border-pine hover:text-pine"
+                                @click="openMoveRoom(stay)"
+                            >
+                                <ArrowLeftRight class="h-3.5 w-3.5" /> Đổi phòng
+                            </button>
                             <CheckCircle v-if="stay.status === 'CHECKED_OUT'" class="ml-auto h-4 w-4 text-pine" />
                         </td>
                     </tr>
@@ -374,6 +416,50 @@ function requestStatusClass(status) {
                         :disabled="extendForm.processing"
                     >
                         Xác nhận gia hạn
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Product Sprint 02: Room Move — simple, single-step dialog -->
+    <div v-if="moveRoomTarget" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+        <div class="w-full max-w-sm border border-gray-200 bg-white p-5 shadow-xl">
+            <h2 class="text-base font-semibold">Đổi phòng - Phòng {{ moveRoomTarget.room_number }}</h2>
+            <p class="mt-2 text-sm text-steel">
+                Chỉ hiển thị các phòng cùng loại đang trống. Booking, thời gian lưu trú và chi phí dự kiến không đổi.
+            </p>
+            <form class="mt-3 space-y-3" @submit.prevent="submitMoveRoom">
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Phòng mới</label>
+                    <select v-model="moveRoomForm.new_room_id" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                        <option value="" disabled>-- Chọn phòng --</option>
+                        <option v-for="room in availableRoomsForMove" :key="room.id" :value="room.id">
+                            {{ room.room_number }}
+                        </option>
+                    </select>
+                    <p v-if="!availableRoomsForMove.length" class="mt-1 text-xs text-amber-600">
+                        Hiện không có phòng cùng loại đang trống.
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Lý do (không bắt buộc)</label>
+                    <textarea
+                        v-model="moveRoomForm.reason"
+                        rows="2"
+                        placeholder="VD: Điều hòa hỏng, khách muốn tầng cao..."
+                        class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm"
+                    />
+                </div>
+                <p v-if="Object.keys(moveRoomForm.errors).length" class="text-sm text-coral">{{ Object.values(moveRoomForm.errors)[0] }}</p>
+                <div class="mt-4 flex justify-end gap-2">
+                    <button type="button" class="border border-gray-300 px-4 py-2 text-sm font-semibold text-steel hover:text-ink" @click="closeMoveRoom">Hủy</button>
+                    <button
+                        type="submit"
+                        class="border border-pine bg-pine px-4 py-2 text-sm font-semibold text-white hover:bg-pine/90 disabled:opacity-50"
+                        :disabled="moveRoomForm.processing || !moveRoomForm.new_room_id"
+                    >
+                        Xác nhận đổi phòng
                     </button>
                 </div>
             </form>
