@@ -2,6 +2,7 @@ import '../css/app.css';
 
 import { createInertiaApp } from '@inertiajs/vue3';
 import { createApp, h } from 'vue';
+import { ZiggyVue } from 'ziggy-js';
 
 createInertiaApp({
     title: (title) => title ? `${title} - Lastella PMS` : 'Lastella PMS',
@@ -13,6 +14,7 @@ createInertiaApp({
     setup({ el, App, props, plugin }) {
         createApp({ render: () => h(App, props) })
             .use(plugin)
+            .use(ZiggyVue)
             .mount(el);
     },
     progress: {

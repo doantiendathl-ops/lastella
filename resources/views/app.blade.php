@@ -5,6 +5,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title inertia>{{ config('app.name', 'Lastella PMS') }}</title>
         @vite(['resources/css/app.css', 'resources/js/app.js'])
+        @routes
         @inertiaHead
     </head>
     <body class="font-sans antialiased">
