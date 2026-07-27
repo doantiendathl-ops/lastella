@@ -83,6 +83,7 @@ class HousekeepingControllerTest extends TestCase
             ->get('/admin/housekeeping')
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
+                ->where('can.markCleaning', true)
                 ->where('can.assign', true)
                 ->where('can.updateStatus', true)
                 ->where('can.inspect', false)
@@ -90,12 +91,17 @@ class HousekeepingControllerTest extends TestCase
             );
     }
 
+    /**
+     * Room Operations Simplification: RECEPTION gains one-tap mark clean/dirty
+     * (room.cleaning.update) without gaining the legacy assign/updateStatus abilities.
+     */
     public function test_index_can_flags_match_reception_role_grant(): void
     {
         $this->actingAs($this->reception)
             ->get('/admin/housekeeping')
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
+                ->where('can.markCleaning', true)
                 ->where('can.assign', false)
                 ->where('can.updateStatus', false)
                 ->where('can.inspect', false)
@@ -130,6 +136,33 @@ class HousekeepingControllerTest extends TestCase
     }
 
     /**
+     * Final Consistency Review (section IX.10): the Vue card must read cleaning_status
+     * directly from this prop, never re-derive SẠCH/BẨN from `status`/`status_label`.
+     * INSPECTED is the clearest proof case — its status_label ("Đã kiểm tra") shares no
+     * text with "Sạch", yet cleaning_status_label must independently say "Sạch".
+     */
+    public function test_index_cleaning_status_is_decoupled_from_operational_status_label(): void
+    {
+        $room = Room::factory()->create(['status' => RoomStatus::Inspected, 'cleaning_status' => 'CLEAN']);
+
+        $this->actingAs($this->admin)
+            ->get('/admin/housekeeping')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('floors', fn ($floors): bool => collect($floors)
+                    ->pluck('rooms')
+                    ->flatten(1)
+                    ->contains(fn (array $r): bool =>
+                        $r['id'] === $room->id
+                        && $r['status_label'] === 'Đã kiểm tra'
+                        && $r['cleaning_status'] === 'CLEAN'
+                        && $r['cleaning_status_label'] === 'Sạch'
+                        && $r['operational_status_label'] === 'Trống'
+                    ))
+            );
+    }
+
+    /**
      * Nav gating (AppLayout.vue) reads auth.user.permissions from the shared Inertia
      * prop — verify housekeeping.view is present for a HOUSEKEEPING user and absent
      * for a role without it, on any Inertia page (not just the Housekeeping board).
@@ -152,6 +185,64 @@ class HousekeepingControllerTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->where('auth.user.permissions', fn ($permissions): bool => !collect($permissions)->contains('housekeeping.view'))
             );
+    }
+
+    // -------------------------------------------------------------------------
+    // markClean / markDirty — room.cleaning.update (Room Operations Simplification)
+    // -------------------------------------------------------------------------
+
+    public function test_mark_clean_success(): void
+    {
+        $room = Room::factory()->create(['status' => RoomStatus::VacantDirty]);
+
+        $this->actingAs($this->housekeeping)
+            ->patchJson("/admin/housekeeping/{$room->id}/mark-clean", ['notes' => 'Đã dọn xong'])
+            ->assertOk()
+            ->assertJsonFragment(['status' => RoomStatus::VacantClean->value]);
+
+        $this->assertEquals('CLEAN', $room->refresh()->cleaning_status->value);
+    }
+
+    public function test_mark_dirty_success(): void
+    {
+        $room = Room::factory()->create(['status' => RoomStatus::VacantClean]);
+
+        $this->actingAs($this->reception)
+            ->patchJson("/admin/housekeeping/{$room->id}/mark-dirty")
+            ->assertOk()
+            ->assertJsonFragment(['status' => RoomStatus::VacantDirty->value]);
+
+        $this->assertEquals('DIRTY', $room->refresh()->cleaning_status->value);
+    }
+
+    public function test_mark_clean_forbidden_for_accountant(): void
+    {
+        $room = Room::factory()->create(['status' => RoomStatus::VacantDirty]);
+
+        $this->actingAs($this->accountant)
+            ->patchJson("/admin/housekeeping/{$room->id}/mark-clean")
+            ->assertForbidden();
+    }
+
+    public function test_mark_dirty_rejected_for_out_of_service_room(): void
+    {
+        $room = Room::factory()->create(['status' => RoomStatus::OutOfService]);
+
+        $this->actingAs($this->admin)
+            ->patchJson("/admin/housekeeping/{$room->id}/mark-dirty")
+            ->assertUnprocessable();
+    }
+
+    public function test_mark_clean_does_not_change_occupied_room_status(): void
+    {
+        $room = Room::factory()->create(['status' => RoomStatus::Occupied, 'cleaning_status' => 'DIRTY']);
+
+        $this->actingAs($this->housekeeping)
+            ->patchJson("/admin/housekeeping/{$room->id}/mark-clean")
+            ->assertOk()
+            ->assertJsonFragment(['status' => RoomStatus::Occupied->value]);
+
+        $this->assertEquals('CLEAN', $room->refresh()->cleaning_status->value);
     }
 
     // -------------------------------------------------------------------------

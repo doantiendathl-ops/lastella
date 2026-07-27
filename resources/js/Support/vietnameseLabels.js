@@ -97,6 +97,7 @@ export const cleaningReasonLabels = {
     DEEP_CLEANING: 'Vệ sinh sâu',
     EARLY_CHECKIN: 'Nhận phòng sớm',
     SPECIAL_REQUEST: 'Yêu cầu đặc biệt',
+    MANUAL: 'Thao tác thủ công',
 };
 
 export const housekeepingAssignmentStatusLabels = {
@@ -104,6 +105,11 @@ export const housekeepingAssignmentStatusLabels = {
     in_progress: 'Đang dọn',
     done: 'Đã xong',
     cancelled: 'Đã hủy',
+};
+
+export const cleaningStatusLabels = {
+    CLEAN: 'Sạch',
+    DIRTY: 'Bẩn',
 };
 
 export const inspectionResultLabels = {
@@ -126,6 +132,7 @@ const maps = {
     cleaningReason: cleaningReasonLabels,
     housekeepingAssignmentStatus: housekeepingAssignmentStatusLabels,
     inspectionResult: inspectionResultLabels,
+    cleaningStatus: cleaningStatusLabels,
 };
 
 export const labelFor = (type, value) => maps[type]?.[value] ?? value ?? '';

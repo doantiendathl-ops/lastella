@@ -130,7 +130,20 @@ Route::middleware('auth')->group(function (): void {
         // Phase 4.2 Milestone 4 — Housekeeping Workflow
         Route::prefix('housekeeping')->name('housekeeping.')->group(function (): void {
             Route::get('/', [HousekeepingController::class, 'index'])->name('index');
+
+            // Literal "bulk/..." routes must be registered before any "{room}/..." PATCH
+            // route below — otherwise a request to e.g. PATCH bulk/mark-clean matches
+            // {room}/mark-clean first with {room} bound to the literal string "bulk" and
+            // 404s on the Room lookup, since Laravel matches routes in registration order.
+            Route::patch('bulk/mark-clean', [HousekeepingBulkActionController::class, 'bulkMarkClean'])->name('bulk.mark-clean');
+            Route::patch('bulk/mark-dirty', [HousekeepingBulkActionController::class, 'bulkMarkDirty'])->name('bulk.mark-dirty');
+            Route::patch('bulk/assign', [HousekeepingBulkActionController::class, 'bulkAssign'])->name('bulk.assign');
+            Route::patch('bulk/start', [HousekeepingBulkActionController::class, 'bulkStart'])->name('bulk.start');
+            Route::patch('bulk/complete', [HousekeepingBulkActionController::class, 'bulkComplete'])->name('bulk.complete');
+
             Route::get('{room}/detail', [HousekeepingController::class, 'show'])->name('detail');
+            Route::patch('{room}/mark-clean', [HousekeepingController::class, 'markClean'])->name('mark-clean');
+            Route::patch('{room}/mark-dirty', [HousekeepingController::class, 'markDirty'])->name('mark-dirty');
             Route::post('{room}/assign', [HousekeepingController::class, 'assign'])->name('assign');
             Route::patch('assignments/{assignment}/start', [HousekeepingController::class, 'startCleaning'])->name('start');
             Route::patch('assignments/{assignment}/complete', [HousekeepingController::class, 'completeCleaning'])->name('complete');
@@ -139,10 +152,6 @@ Route::middleware('auth')->group(function (): void {
             Route::patch('{room}/skip-inspection', [HousekeepingController::class, 'skipInspection'])->name('inspect.skip');
             Route::patch('{room}/out-of-order', [HousekeepingController::class, 'markOutOfOrder'])->name('out-of-order');
             Route::patch('{room}/release', [HousekeepingController::class, 'releaseFromOutOfOrder'])->name('release');
-
-            Route::patch('bulk/assign', [HousekeepingBulkActionController::class, 'bulkAssign'])->name('bulk.assign');
-            Route::patch('bulk/start', [HousekeepingBulkActionController::class, 'bulkStart'])->name('bulk.start');
-            Route::patch('bulk/complete', [HousekeepingBulkActionController::class, 'bulkComplete'])->name('bulk.complete');
         });
     });
 });

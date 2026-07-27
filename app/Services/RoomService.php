@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\ResourceType;
+use App\Enums\RoomStatus;
 use App\Models\Resource;
 use App\Models\Room;
 use App\Models\RoomType;
@@ -43,6 +44,7 @@ class RoomService
 
             $data['resource_id'] = $resource->id;
             $data['bed_configuration'] = $data['bed_configuration'] ?? self::bedConfiguration($roomType->code);
+            $data = $this->syncCleaningStatusForVacantCluster($data);
 
             /** @var Room $room */
             $room = $this->rooms->create($data);
@@ -72,6 +74,8 @@ class RoomService
                 $data['bed_configuration'] = self::bedConfiguration($roomType->code);
             }
 
+            $data = $this->syncCleaningStatusForVacantCluster($data);
+
             /** @var Room $room */
             $room = $this->rooms->update($room, $data);
 
@@ -86,6 +90,33 @@ class RoomService
             $this->rooms->delete($room);
             $resource?->delete();
         });
+    }
+
+    /**
+     * Final Consistency Review: the Rooms admin CRUD form (`/rooms` create/edit) lets
+     * an operator set `status` to any RoomStatus value directly, bypassing
+     * HousekeepingService entirely — without this, that path could leave
+     * `cleaning_status` stale/desynced from a freshly-chosen `status`. Only the four
+     * "vacant cluster" statuses (VacantClean/VacantDirty/Cleaning/Inspected) have an
+     * unambiguous implied cleanliness, so only those sync `cleaning_status` here;
+     * Occupied/Reserved/OutOfOrder/OutOfService are left untouched, same as every
+     * other write path in the app (see RoomStatus::impliedCleaningStatus()).
+     */
+    private function syncCleaningStatusForVacantCluster(array $data): array
+    {
+        if (! isset($data['status'])) {
+            return $data;
+        }
+
+        $status = $data['status'] instanceof RoomStatus ? $data['status'] : RoomStatus::from($data['status']);
+
+        $vacantCluster = [RoomStatus::VacantClean, RoomStatus::VacantDirty, RoomStatus::Cleaning, RoomStatus::Inspected];
+
+        if (in_array($status, $vacantCluster, true)) {
+            $data['cleaning_status'] = $status->impliedCleaningStatus()->value;
+        }
+
+        return $data;
     }
 
     public static function bedConfiguration(string $roomTypeCode): array

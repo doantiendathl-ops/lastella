@@ -96,6 +96,50 @@ class HousekeepingBulkActionTest extends TestCase
         $this->assertSame(RoomStatus::Inspected, $room->fresh()->status);
     }
 
+    // -------------------------------------------------------------------------
+    // bulkMarkClean / bulkMarkDirty (Room Operations Simplification)
+    // -------------------------------------------------------------------------
+
+    public function test_bulk_mark_clean_succeeds_for_eligible_rooms_and_fails_independently_for_maintenance(): void
+    {
+        $dirtyRoom = Room::factory()->create(['status' => RoomStatus::VacantDirty]);
+        $maintenanceRoom = Room::factory()->create(['status' => RoomStatus::OutOfOrder]);
+
+        $response = $this->actingAs($this->reception)
+            ->patchJson(route('admin.housekeeping.bulk.mark-clean'), ['room_ids' => [$dirtyRoom->id, $maintenanceRoom->id]])
+            ->assertOk()
+            ->assertJsonCount(1, 'succeeded')
+            ->assertJsonCount(1, 'failed');
+
+        $this->assertSame($dirtyRoom->id, $response->json('succeeded.0.room_id'));
+        $this->assertSame(RoomStatus::VacantClean, $dirtyRoom->fresh()->status);
+        $this->assertSame(RoomStatus::OutOfOrder, $maintenanceRoom->fresh()->status);
+    }
+
+    public function test_bulk_mark_dirty_succeeds_for_reception(): void
+    {
+        $room1 = Room::factory()->create(['status' => RoomStatus::VacantClean]);
+        $room2 = Room::factory()->create(['status' => RoomStatus::VacantClean]);
+
+        $this->actingAs($this->reception)
+            ->patchJson(route('admin.housekeeping.bulk.mark-dirty'), ['room_ids' => [$room1->id, $room2->id]])
+            ->assertOk()
+            ->assertJsonCount(2, 'succeeded');
+
+        $this->assertSame(RoomStatus::VacantDirty, $room1->fresh()->status);
+        $this->assertSame(RoomStatus::VacantDirty, $room2->fresh()->status);
+    }
+
+    public function test_accountant_cannot_bulk_mark_clean(): void
+    {
+        $room = Room::factory()->create(['status' => RoomStatus::VacantDirty]);
+        $accountant = tap(User::factory()->create())->assignRole('ACCOUNTANT');
+
+        $this->actingAs($accountant)
+            ->patchJson(route('admin.housekeeping.bulk.mark-clean'), ['room_ids' => [$room->id]])
+            ->assertForbidden();
+    }
+
     public function test_reception_cannot_bulk_assign(): void
     {
         $room = Room::factory()->create(['status' => RoomStatus::VacantDirty]);

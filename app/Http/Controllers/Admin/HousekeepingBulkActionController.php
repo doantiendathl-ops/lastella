@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\RunsPerRoomBulkAction;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\BulkHousekeepingActionRequest;
 use App\Http\Requests\Admin\BulkHousekeepingTransitionRequest;
+use App\Http\Requests\Admin\BulkMarkCleaningRequest;
 use App\Models\HousekeepingAssignment;
 use App\Models\Room;
 use App\Services\HousekeepingService;
@@ -19,6 +20,26 @@ class HousekeepingBulkActionController extends Controller
 
     public function __construct(private readonly HousekeepingService $housekeeping)
     {
+    }
+
+    /**
+     * Room Operations Simplification: bulk "Đánh dấu sạch" / "Đánh dấu bẩn" —
+     * the only two bulk actions the simplified Housekeeping board exposes.
+     * Each room is re-validated independently by HousekeepingService (maintenance
+     * rooms rejected, Occupied rooms only flip cleaning_status) — see runPerRoom().
+     */
+    public function bulkMarkClean(BulkMarkCleaningRequest $request): JsonResponse
+    {
+        return response()->json($this->runPerRoom($request->validated()['room_ids'], function (Room $room) use ($request): void {
+            $this->housekeeping->markClean($room, $request->user());
+        }));
+    }
+
+    public function bulkMarkDirty(BulkMarkCleaningRequest $request): JsonResponse
+    {
+        return response()->json($this->runPerRoom($request->validated()['room_ids'], function (Room $room) use ($request): void {
+            $this->housekeeping->markDirty($room, $request->user());
+        }));
     }
 
     /**

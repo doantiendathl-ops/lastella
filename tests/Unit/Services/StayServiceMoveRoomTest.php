@@ -362,10 +362,33 @@ class StayServiceMoveRoomTest extends TestCase
         app(StayService::class)->moveRoom($stay, $targetRoom, $this->admin);
 
         $this->assertSame(RoomStatus::VacantDirty, $oldRoom->fresh()->status);
+        $this->assertSame('DIRTY', $oldRoom->fresh()->cleaning_status->value);
         $this->assertSame(RoomStatus::Occupied, $targetRoom->fresh()->status);
-        $this->assertDatabaseHas('housekeeping_assignments', [
+        // Room Operations Simplification: no mandatory HousekeepingAssignment is
+        // auto-created anymore — see HousekeepingService::autoMarkDirtyOnCheckout().
+        $this->assertDatabaseMissing('housekeeping_assignments', [
             'room_id' => $oldRoom->id,
         ]);
+    }
+
+    /**
+     * Final Consistency Review (section VI.3): moving a guest into a room must NOT
+     * silently declare it Clean — autoMarkOccupied() only ever touches `status`, so
+     * whatever cleaning_status the target room already had (even Dirty) is preserved
+     * verbatim. A dirty room a guest was moved into stays flagged dirty.
+     */
+    public function test_move_room_preserves_target_rooms_prior_cleaning_status(): void
+    {
+        [$booking, $stay, $oldRoom] = $this->checkedInStayInRoom();
+        $targetRoom = Room::where('room_type_id', $this->twinType->id)
+            ->where('status', '!=', RoomStatus::OutOfOrder)
+            ->orderBy('id')->limit(3)->get()[1];
+        $targetRoom->update(['status' => RoomStatus::VacantClean, 'cleaning_status' => 'DIRTY']);
+
+        app(StayService::class)->moveRoom($stay, $targetRoom, $this->admin);
+
+        $this->assertSame(RoomStatus::Occupied, $targetRoom->fresh()->status);
+        $this->assertSame('DIRTY', $targetRoom->fresh()->cleaning_status->value);
     }
 
     public function test_move_room_updates_availability(): void

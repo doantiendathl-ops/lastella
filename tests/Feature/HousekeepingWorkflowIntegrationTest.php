@@ -170,15 +170,23 @@ class HousekeepingWorkflowIntegrationTest extends TestCase
             'payment_at'     => now()->toDateTimeString(),
         ]);
 
-        // Check-out → VACANT_DIRTY + auto-created pending assignment (ADR-84)
+        // Check-out → VACANT_DIRTY, no mandatory assignment (Room Operations Simplification).
         app(StayService::class)->checkOut($stay, null, true);
         $this->assertEquals(RoomStatus::VacantDirty, $room->refresh()->status);
+        $this->assertDatabaseMissing('housekeeping_assignments', ['room_id' => $room->id]);
+
+        // The legacy assign/start/complete/inspect pipeline still works end-to-end for
+        // anyone who explicitly opts into it (now reached via the Detail popup's "Nâng
+        // cao" menu instead of being auto-triggered) — regression-covered here. The
+        // HOUSEKEEPING actor self-assigns (assignRoom() always resolves a null assignee
+        // to the acting user — see HousekeepingService::assignRoom()).
+        $this->actingAs($this->housekeeping)
+            ->postJson("/admin/housekeeping/{$room->id}/assign", [])
+            ->assertCreated();
         $assignment = HousekeepingAssignment::where('room_id', $room->id)->latest()->firstOrFail();
         $this->assertEquals(HousekeepingAssignmentStatus::Pending, $assignment->status);
-        $this->assertNull($assignment->assigned_to);
+        $this->assertEquals($this->housekeeping->id, $assignment->assigned_to);
 
-        // Milestone 5.1 (ADR-90 auto-claim): a HOUSEKEEPING user can now start the
-        // auto-created UNASSIGNED assignment directly — startCleaning() claims it for them.
         $this->actingAs($this->housekeeping)
             ->patchJson("/admin/housekeeping/assignments/{$assignment->id}/start")
             ->assertOk();

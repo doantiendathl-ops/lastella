@@ -4,6 +4,7 @@ namespace Tests\Unit\Services;
 
 use App\Enums\CleaningPriority;
 use App\Enums\CleaningReason;
+use App\Enums\CleaningStatus;
 use App\Enums\HousekeepingAssignmentStatus;
 use App\Enums\InspectionResult;
 use App\Enums\RoomStatus;
@@ -15,7 +16,6 @@ use App\Models\User;
 use App\Services\HousekeepingService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use LogicException;
 use Spatie\Permission\Models\Permission;
@@ -52,6 +52,92 @@ class HousekeepingServiceTest extends TestCase
         $actor->givePermissionTo(['housekeeping.assign', 'room.status.update']);
 
         return $actor;
+    }
+
+    // -------------------------------------------------------------------------
+    // markClean / markDirty (Room Operations Simplification)
+    // -------------------------------------------------------------------------
+
+    public function test_mark_clean_transitions_vacant_dirty_to_vacant_clean(): void
+    {
+        $room = Room::factory()->create(['status' => RoomStatus::VacantDirty, 'cleaning_status' => CleaningStatus::Dirty]);
+        $actor = User::factory()->create();
+
+        $result = $this->service->markClean($room, $actor, 'Đã dọn xong');
+
+        $this->assertEquals(RoomStatus::VacantClean, $result->status);
+        $this->assertEquals(CleaningStatus::Clean, $result->cleaning_status);
+        $this->assertNotNull($result->last_cleaned_at);
+        $this->assertDatabaseHas('cleaning_records', [
+            'room_id'            => $room->id,
+            'cleaned_by'         => $actor->id,
+            'room_status_before' => RoomStatus::VacantDirty->value,
+            'room_status_after'  => RoomStatus::VacantClean->value,
+            'cleaning_notes'     => 'Đã dọn xong',
+        ]);
+    }
+
+    public function test_mark_dirty_transitions_vacant_clean_to_vacant_dirty(): void
+    {
+        $room = Room::factory()->create(['status' => RoomStatus::VacantClean, 'cleaning_status' => CleaningStatus::Clean]);
+        $actor = User::factory()->create();
+
+        $result = $this->service->markDirty($room, $actor);
+
+        $this->assertEquals(RoomStatus::VacantDirty, $result->status);
+        $this->assertEquals(CleaningStatus::Dirty, $result->cleaning_status);
+    }
+
+    public function test_mark_clean_on_occupied_room_only_changes_cleaning_status(): void
+    {
+        $room = Room::factory()->create(['status' => RoomStatus::Occupied, 'cleaning_status' => CleaningStatus::Dirty]);
+        $actor = User::factory()->create();
+
+        $result = $this->service->markClean($room, $actor);
+
+        $this->assertEquals(RoomStatus::Occupied, $result->status);
+        $this->assertEquals(CleaningStatus::Clean, $result->cleaning_status);
+    }
+
+    public function test_mark_dirty_on_occupied_room_only_changes_cleaning_status(): void
+    {
+        $room = Room::factory()->create(['status' => RoomStatus::Occupied, 'cleaning_status' => CleaningStatus::Clean]);
+        $actor = User::factory()->create();
+
+        $result = $this->service->markDirty($room, $actor);
+
+        $this->assertEquals(RoomStatus::Occupied, $result->status);
+        $this->assertEquals(CleaningStatus::Dirty, $result->cleaning_status);
+    }
+
+    public function test_mark_clean_throws_for_out_of_order_room(): void
+    {
+        $room = Room::factory()->create(['status' => RoomStatus::OutOfOrder]);
+        $actor = User::factory()->create();
+
+        $this->expectException(ValidationException::class);
+
+        $this->service->markClean($room, $actor);
+    }
+
+    public function test_mark_dirty_throws_for_out_of_service_room(): void
+    {
+        $room = Room::factory()->create(['status' => RoomStatus::OutOfService]);
+        $actor = User::factory()->create();
+
+        $this->expectException(ValidationException::class);
+
+        $this->service->markDirty($room, $actor);
+    }
+
+    public function test_mark_clean_does_not_create_housekeeping_assignment(): void
+    {
+        $room = Room::factory()->create(['status' => RoomStatus::VacantDirty]);
+        $actor = User::factory()->create();
+
+        $this->service->markClean($room, $actor);
+
+        $this->assertDatabaseMissing('housekeeping_assignments', ['room_id' => $room->id]);
     }
 
     // -------------------------------------------------------------------------
@@ -145,12 +231,31 @@ class HousekeepingServiceTest extends TestCase
         $this->assertEquals(HousekeepingAssignmentStatus::InProgress, $result->status);
         $this->assertNotNull($result->started_at);
         $this->assertEquals(RoomStatus::Cleaning, $room->refresh()->status);
+        $this->assertEquals(CleaningStatus::Dirty, $room->cleaning_status);
         $this->assertDatabaseHas('cleaning_records', [
             'assignment_id'      => $assignment->id,
             'room_id'            => $room->id,
             'cleaned_by'         => $actor->id,
             'room_status_before' => RoomStatus::VacantDirty->value,
         ]);
+    }
+
+    /**
+     * Final Consistency Review: a room mid-clean is always Dirty, even if
+     * cleaning_status happened to already hold a stale value beforehand.
+     */
+    public function test_start_cleaning_forces_dirty_cleaning_status_even_if_stale_clean(): void
+    {
+        $room = Room::factory()->create(['status' => RoomStatus::VacantDirty, 'cleaning_status' => CleaningStatus::Clean]);
+        $actor = User::factory()->create();
+        $assignment = HousekeepingAssignment::factory()->pending()->create([
+            'room_id'     => $room->id,
+            'assigned_to' => $actor->id,
+        ]);
+
+        $this->service->startCleaning($assignment, $actor);
+
+        $this->assertEquals(CleaningStatus::Dirty, $room->refresh()->cleaning_status);
     }
 
     public function test_start_cleaning_throws_if_not_pending(): void
@@ -296,6 +401,10 @@ class HousekeepingServiceTest extends TestCase
         $this->assertEquals(HousekeepingAssignmentStatus::Done, $assignment->refresh()->status);
         $this->assertEquals(RoomStatus::Inspected, $room->refresh()->status);
         $this->assertNotNull($room->last_cleaned_at);
+        // Final Consistency Review decision: complete = physically clean, awaiting
+        // inspection — Clean, not a stale/undefined value. See HousekeepingService
+        // docblock at completeCleaning() for the full rationale.
+        $this->assertEquals(CleaningStatus::Clean, $room->cleaning_status);
     }
 
     public function test_complete_cleaning_computes_duration(): void
@@ -348,6 +457,7 @@ class HousekeepingServiceTest extends TestCase
         $this->assertEquals(InspectionResult::Pass, $record->inspection_result);
         $this->assertEquals($inspector->id, $record->inspected_by);
         $this->assertEquals(RoomStatus::VacantClean, $room->refresh()->status);
+        $this->assertEquals(CleaningStatus::Clean, $room->cleaning_status);
     }
 
     public function test_fail_inspection_transitions_to_vacant_dirty(): void
@@ -360,6 +470,7 @@ class HousekeepingServiceTest extends TestCase
 
         $this->assertEquals(InspectionResult::Fail, $record->inspection_result);
         $this->assertEquals(RoomStatus::VacantDirty, $room->refresh()->status);
+        $this->assertEquals(CleaningStatus::Dirty, $room->cleaning_status);
     }
 
     public function test_fail_inspection_auto_escalates_priority(): void
@@ -399,6 +510,7 @@ class HousekeepingServiceTest extends TestCase
         $this->assertEquals(InspectionResult::Skip, $record->inspection_result);
         $this->assertEquals('Quản lý bỏ qua vì khách VIP quay lại gấp', $record->inspection_notes);
         $this->assertEquals(RoomStatus::VacantClean, $room->refresh()->status);
+        $this->assertEquals(CleaningStatus::Clean, $room->cleaning_status);
     }
 
     // -------------------------------------------------------------------------
@@ -416,6 +528,22 @@ class HousekeepingServiceTest extends TestCase
         $this->assertEquals(RoomStatus::OutOfOrder, $room->refresh()->status);
         $this->assertEquals(HousekeepingAssignmentStatus::Cancelled, $assignment->refresh()->status);
         $this->assertEquals($actor->id, $assignment->cancelled_by);
+    }
+
+    /**
+     * Final Consistency Review: locking a VacantClean room for maintenance must not
+     * silently flip its cleaning_status to Dirty — the pre-maintenance signal is
+     * preserved verbatim (not overwritten) so a genuinely-clean room stays recorded
+     * as clean while under maintenance.
+     */
+    public function test_mark_out_of_order_preserves_prior_cleaning_status(): void
+    {
+        $room = Room::factory()->create(['status' => RoomStatus::VacantClean, 'cleaning_status' => CleaningStatus::Clean]);
+        $actor = User::factory()->create();
+
+        $this->service->markOutOfOrder($room, $actor, 'Sơn lại tường');
+
+        $this->assertEquals(CleaningStatus::Clean, $room->refresh()->cleaning_status);
     }
 
     public function test_mark_out_of_order_throws_if_room_is_cleaning(): void
@@ -436,6 +564,24 @@ class HousekeepingServiceTest extends TestCase
         $result = $this->service->releaseFromOutOfOrder($room, $actor);
 
         $this->assertEquals(RoomStatus::VacantDirty, $result->status);
+        $this->assertEquals(CleaningStatus::Dirty, $result->cleaning_status);
+    }
+
+    /**
+     * Final Consistency Review: releasing as VacantClean must sync cleaning_status to
+     * Clean too — the explicit target_status choice at release time always wins over
+     * whatever cleaning_status was frozen from before maintenance (see
+     * releaseFromOutOfOrder() docblock).
+     */
+    public function test_release_from_out_of_order_as_vacant_clean_syncs_clean(): void
+    {
+        $room = Room::factory()->create(['status' => RoomStatus::OutOfOrder, 'cleaning_status' => CleaningStatus::Dirty]);
+        $actor = User::factory()->create();
+
+        $result = $this->service->releaseFromOutOfOrder($room, $actor, RoomStatus::VacantClean);
+
+        $this->assertEquals(RoomStatus::VacantClean, $result->status);
+        $this->assertEquals(CleaningStatus::Clean, $result->cleaning_status);
     }
 
     // -------------------------------------------------------------------------
@@ -461,30 +607,31 @@ class HousekeepingServiceTest extends TestCase
         $this->assertTrue(true);
     }
 
-    public function test_auto_mark_dirty_creates_checkout_assignment(): void
+    /**
+     * Room Operations Simplification: checkout no longer auto-creates a mandatory
+     * HousekeepingAssignment — the room simply becomes BẨN and a single
+     * markClean() tap is all that's needed. See StayServiceHousekeepingHookTest
+     * for the full checkOut() integration coverage.
+     */
+    public function test_auto_mark_dirty_sets_room_dirty_without_creating_assignment(): void
     {
-        $room = Room::factory()->create(['status' => RoomStatus::Occupied]);
+        $room = Room::factory()->create(['status' => RoomStatus::Occupied, 'cleaning_status' => CleaningStatus::Clean]);
         $stay = Stay::factory()->create(['room_id' => $room->id]);
 
         $this->service->autoMarkDirtyOnCheckout($stay);
 
-        $this->assertEquals(RoomStatus::VacantDirty, $room->refresh()->status);
-        $this->assertDatabaseHas('housekeeping_assignments', [
-            'room_id'  => $room->id,
-            'status'   => HousekeepingAssignmentStatus::Pending->value,
-            'reason'   => CleaningReason::Checkout->value,
-            'priority' => CleaningPriority::Normal->value,
-        ]);
+        $room->refresh();
+        $this->assertEquals(RoomStatus::VacantDirty, $room->status);
+        $this->assertEquals(CleaningStatus::Dirty, $room->cleaning_status);
+        $this->assertDatabaseMissing('housekeeping_assignments', ['room_id' => $room->id]);
     }
 
     public function test_auto_mark_dirty_on_checkout_never_throws(): void
     {
-        Log::shouldReceive('error')->once();
-
         $stay = Stay::factory()->make(['room_id' => 999999]);
 
         $this->service->autoMarkDirtyOnCheckout($stay);
 
-        $this->assertDatabaseMissing('housekeeping_assignments', ['room_id' => 999999]);
+        $this->assertDatabaseMissing('rooms', ['id' => 999999]);
     }
 }

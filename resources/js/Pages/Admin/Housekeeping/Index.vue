@@ -2,8 +2,7 @@
 import RoomBoardGrid from '@/Components/RoomBoard/RoomBoardGrid.vue';
 import RoomBulkActionBar from '@/Components/RoomBoard/RoomBulkActionBar.vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import { housekeepingAssignmentStatusLabels, cleaningPriorityLabels } from '@/Support/vietnameseLabels';
-import { roomStatusBadge } from '@/Support/roomStatusBadges';
+import { roomStatusBadge, cleaningStatusBadge } from '@/Support/roomStatusBadges';
 import { router } from '@inertiajs/vue3';
 import axios from 'axios';
 import { AlertTriangle, ClipboardList } from 'lucide-vue-next';
@@ -16,7 +15,25 @@ const props = defineProps({
     can: { type: Object, required: true },
 });
 
-function actionsFor(room) {
+// ---- Legacy multi-step actions (assign/start/complete/inspect/maintenance) --
+// Kept working end-to-end for anyone who explicitly opens them from the Detail
+// popup's "Nâng cao" section — the primary card no longer exposes them.
+//
+// Final Consistency Review: HOUSEKEEPING still holds housekeeping.assign/
+// room.status.update (kept so the backend/API stay backward-compatible — nothing
+// in HousekeepingService or its routes was narrowed), but the UI must not surface
+// the multi-step workflow to that role — real housekeeping staff should only ever
+// see Đánh dấu sạch/bẩn + Chi tiết. `canSeeAdvanced` gates the WHOLE "Nâng cao"
+// section on can.inspect/can.maintenance instead — both are true only for
+// ADMIN/MANAGER, so this naturally hides advanced actions for HOUSEKEEPING and
+// RECEPTION without touching any backend permission.
+const canSeeAdvanced = computed(() => props.can.inspect || props.can.maintenance);
+
+function legacyActionsFor(room) {
+    if (!canSeeAdvanced.value) {
+        return [];
+    }
+
     const actions = [];
     const assignment = room.active_assignment;
 
@@ -47,6 +64,7 @@ const dialog = ref(null); // { action, room }
 const detailRoom = ref(null);
 
 function openDialog(action, room) {
+    detailRoom.value = null;
     dialog.value = { action, room };
 }
 
@@ -56,6 +74,51 @@ function closeDialog() {
 
 function refresh() {
     router.reload({ only: ['floors', 'can'] });
+}
+
+// ---- One-tap ĐÁNH DẤU SẠCH / ĐÁNH DẤU BẨN ----------------------------------
+const processingRoomIds = ref(new Set());
+const isProcessing = (room) => processingRoomIds.value.has(room.id);
+
+const toasts = ref([]);
+let toastSeq = 0;
+function pushToast(message, variant = 'success') {
+    const id = ++toastSeq;
+    toasts.value = [...toasts.value, { id, message, variant }];
+    setTimeout(() => {
+        toasts.value = toasts.value.filter((t) => t.id !== id);
+    }, 3000);
+}
+
+async function markRoom(room, action) {
+    // Guards against double-click/double-submit — the button is also disabled
+    // while processing, this is the belt-and-suspenders check.
+    if (isProcessing(room)) return;
+
+    const next = new Set(processingRoomIds.value);
+    next.add(room.id);
+    processingRoomIds.value = next;
+
+    const url = action === 'clean'
+        ? route('admin.housekeeping.mark-clean', room.id)
+        : route('admin.housekeeping.mark-dirty', room.id);
+
+    try {
+        await axios.patch(url);
+        pushToast(`Phòng ${room.room_number}: đã đánh dấu ${action === 'clean' ? 'sạch' : 'bẩn'}.`);
+        refresh();
+    } catch (error) {
+        // No response at all (offline/timeout) vs. a server error response are different
+        // failure modes — never claim success, and never silently retry a status action.
+        const message = error.response
+            ? (error.response.data?.message ?? 'Có lỗi xảy ra.')
+            : 'Mất kết nối, thao tác chưa được lưu.';
+        pushToast(message, 'error');
+    } finally {
+        const cleared = new Set(processingRoomIds.value);
+        cleared.delete(room.id);
+        processingRoomIds.value = cleared;
+    }
 }
 
 // ---- Selection & bulk actions ----------------------------------------------
@@ -94,8 +157,6 @@ const runBulkAction = async (url) => {
         clearSelection();
         refresh();
     } catch (error) {
-        // No response at all (offline/timeout) vs. a server error response are different
-        // failure modes — never claim success, and never silently retry a charge/status action.
         resultMessage.value = error.response
             ? (error.response.data?.message ?? 'Có lỗi xảy ra.')
             : 'Mất kết nối, thao tác chưa được lưu.';
@@ -104,9 +165,8 @@ const runBulkAction = async (url) => {
     }
 };
 
-const bulkAssign = () => runBulkAction(route('admin.housekeeping.bulk.assign'));
-const bulkStart = () => runBulkAction(route('admin.housekeeping.bulk.start'));
-const bulkComplete = () => runBulkAction(route('admin.housekeeping.bulk.complete'));
+const bulkMarkClean = () => runBulkAction(route('admin.housekeeping.bulk.mark-clean'));
+const bulkMarkDirty = () => runBulkAction(route('admin.housekeeping.bulk.mark-dirty'));
 </script>
 
 <template>
@@ -115,7 +175,7 @@ const bulkComplete = () => runBulkAction(route('admin.housekeeping.bulk.complete
             <h1 class="text-lg font-semibold">Dọn phòng</h1>
         </template>
 
-        <div v-if="can.assign || can.updateStatus" class="mb-3 flex flex-wrap items-center gap-2 text-xs">
+        <div v-if="can.markCleaning" class="mb-3 flex flex-wrap items-center gap-2 text-xs">
             <span class="text-steel">Chọn nhanh:</span>
             <button type="button" class="min-h-9 border border-gray-300 px-3 py-1.5 text-steel hover:text-ink" @click="selectAllVisible">Tất cả phòng đủ điều kiện</button>
             <button v-for="floor in floors" :key="floor.id" type="button" class="min-h-9 border border-gray-300 px-3 py-1.5 text-steel hover:text-ink" @click="selectFloor(floor)">
@@ -125,14 +185,11 @@ const bulkComplete = () => runBulkAction(route('admin.housekeeping.bulk.complete
 
         <!-- sticky on mobile so the bar stays reachable without covering the card grid -->
         <RoomBulkActionBar :selected-count="selectedCount" @clear="clearSelection">
-            <button v-if="can.assign" type="button" class="min-h-11 border border-gray-400 px-4 py-2.5 text-sm font-semibold text-ink hover:bg-gray-100 disabled:opacity-50" :disabled="processing" @click="bulkAssign">
-                Chờ dọn
+            <button v-if="can.markCleaning" type="button" class="min-h-11 border border-pine bg-pine px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50" :disabled="processing" @click="bulkMarkClean">
+                Đánh dấu sạch
             </button>
-            <button v-if="can.updateStatus" type="button" class="min-h-11 border border-sky-500 px-4 py-2.5 text-sm font-semibold text-sky-600 hover:bg-sky-50 disabled:opacity-50" :disabled="processing" @click="bulkStart">
-                Đang dọn
-            </button>
-            <button v-if="can.updateStatus" type="button" class="min-h-11 border border-pine px-4 py-2.5 text-sm font-semibold text-pine hover:bg-pine hover:text-white disabled:opacity-50" :disabled="processing" @click="bulkComplete">
-                Đã xong
+            <button v-if="can.markCleaning" type="button" class="min-h-11 border border-gray-400 px-4 py-2.5 text-sm font-semibold text-ink hover:bg-gray-100 disabled:opacity-50" :disabled="processing" @click="bulkMarkDirty">
+                Đánh dấu bẩn
             </button>
         </RoomBulkActionBar>
 
@@ -140,21 +197,31 @@ const bulkComplete = () => runBulkAction(route('admin.housekeeping.bulk.complete
 
         <RoomBoardGrid :floors="floors" empty-message="Chưa có phòng nào được cấu hình.">
             <template #card="{ room }">
-                <div class="flex flex-col gap-1 border p-2 text-xs transition" :class="roomStatusBadge(room.status).card">
+                <div
+                    class="flex flex-col gap-1 border p-2 text-xs transition"
+                    :class="room.is_maintenance ? roomStatusBadge(room.status).card : cleaningStatusBadge(room.cleaning_status).card"
+                >
                     <div class="flex items-start justify-between gap-1">
                         <label class="flex items-center gap-1.5">
                             <input
-                                v-if="can.assign || can.updateStatus"
+                                v-if="can.markCleaning"
                                 type="checkbox"
                                 class="h-3.5 w-3.5"
+                                :disabled="!room.is_eligible_for_bulk"
                                 :checked="isSelected(room)"
                                 @change="toggleRoom(room)"
                             />
                             <span class="text-sm font-semibold leading-tight text-ink">{{ room.room_number }}</span>
                         </label>
-                        <span class="shrink-0 px-1.5 py-0.5 text-[10px] font-semibold" :class="roomStatusBadge(room.status).badge">
-                            {{ room.status_label }}
-                        </span>
+                        <div class="flex shrink-0 flex-col items-end gap-0.5">
+                            <span
+                                class="px-1.5 py-0.5 text-[10px] font-semibold"
+                                :class="room.is_maintenance ? roomStatusBadge(room.status).badge : cleaningStatusBadge(room.cleaning_status).badge"
+                            >
+                                {{ room.is_maintenance ? room.status_label : room.cleaning_status_label }}
+                            </span>
+                            <span class="text-[10px] text-steel">{{ room.operational_status_label }}</span>
+                        </div>
                     </div>
 
                     <span v-if="room.guest_name" class="truncate text-steel">{{ room.guest_name }}</span>
@@ -167,28 +234,33 @@ const bulkComplete = () => runBulkAction(route('admin.housekeeping.bulk.complete
                         </span>
                     </div>
 
-                    <div v-if="room.active_assignment" class="space-y-0.5 text-[11px] text-steel">
-                        <div v-if="room.active_assignment.assigned_to"><span class="text-gray-400">NV: </span>{{ room.active_assignment.assigned_to }}</div>
-                        <div><span class="text-gray-400">Ưu tiên: </span>{{ cleaningPriorityLabels[room.active_assignment.priority] ?? room.active_assignment.priority }}</div>
-                    </div>
-
                     <div v-if="room.last_cleaned_at" class="text-[10px] text-gray-400">Dọn lần cuối: {{ room.last_cleaned_at }}</div>
 
-                    <!-- grid-cols-2 (not flex-wrap) so every button gets a full 44px-tall tap
-                         target instead of shrinking to fit a crowded row on a phone. -->
-                    <div class="mt-1 grid grid-cols-2 gap-1.5">
+                    <!-- Đúng 1 nút hành động chính (SẠCH khi bẩn, BẨN khi sạch) + nút Chi tiết —
+                         không hiển thị workflow nhiều bước ở đây (xem HousekeepingDetailModal). -->
+                    <div class="mt-1 flex flex-col gap-1.5">
                         <button
-                            v-for="action in actionsFor(room)"
-                            :key="action.key"
+                            v-if="can.markCleaning && !room.is_maintenance && room.cleaning_status === 'DIRTY'"
                             type="button"
-                            class="min-h-11 border border-gray-300 bg-white px-2 py-2 text-xs font-semibold text-ink hover:border-pine hover:text-pine"
-                            @click="openDialog(action.key, room)"
+                            class="min-h-11 border border-pine bg-pine px-2 py-2 text-xs font-bold text-white hover:bg-pine/90 disabled:opacity-50"
+                            :disabled="isProcessing(room)"
+                            @click="markRoom(room, 'clean')"
                         >
-                            {{ action.label }}
+                            {{ isProcessing(room) ? 'Đang xử lý...' : 'ĐÁNH DẤU SẠCH' }}
                         </button>
                         <button
+                            v-else-if="can.markCleaning && !room.is_maintenance"
                             type="button"
-                            class="col-span-2 inline-flex min-h-11 items-center justify-center gap-1 border border-gray-300 bg-white px-2 py-2 text-xs font-semibold text-steel hover:border-pine hover:text-pine"
+                            class="min-h-11 border border-gray-400 bg-white px-2 py-2 text-xs font-semibold text-steel hover:bg-gray-50 disabled:opacity-50"
+                            :disabled="isProcessing(room)"
+                            @click="markRoom(room, 'dirty')"
+                        >
+                            {{ isProcessing(room) ? 'Đang xử lý...' : 'Đánh dấu bẩn' }}
+                        </button>
+
+                        <button
+                            type="button"
+                            class="inline-flex min-h-11 items-center justify-center gap-1 border border-gray-300 bg-white px-2 py-2 text-xs font-semibold text-steel hover:border-pine hover:text-pine"
                             @click="detailRoom = room"
                         >
                             <ClipboardList class="h-3.5 w-3.5" /> Chi tiết
@@ -209,7 +281,21 @@ const bulkComplete = () => runBulkAction(route('admin.housekeeping.bulk.complete
         <HousekeepingDetailModal
             v-if="detailRoom"
             :room="detailRoom"
+            :legacy-actions="legacyActionsFor(detailRoom)"
             @close="detailRoom = null"
+            @open-action="(key) => openDialog(key, detailRoom)"
         />
+
+        <!-- Toast ngắn — không popup xác nhận cho thao tác đánh dấu sạch/bẩn thường xuyên. -->
+        <div class="pointer-events-none fixed inset-x-0 bottom-4 z-[60] flex flex-col items-center gap-2 px-4 sm:items-end sm:right-4 sm:left-auto">
+            <div
+                v-for="toast in toasts"
+                :key="toast.id"
+                class="pointer-events-auto w-full max-w-xs border px-3 py-2 text-xs font-semibold shadow-lg sm:w-auto"
+                :class="toast.variant === 'error' ? 'border-coral bg-white text-coral' : 'border-pine bg-white text-pine'"
+            >
+                {{ toast.message }}
+            </div>
+        </div>
     </AppLayout>
 </template>

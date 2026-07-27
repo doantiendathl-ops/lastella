@@ -12,6 +12,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Housekeeping\AssignHousekeepingRequest;
 use App\Http\Requests\Housekeeping\CompleteCleaningRequest;
 use App\Http\Requests\Housekeeping\InspectionRequest;
+use App\Http\Requests\Housekeeping\MarkCleanRequest;
+use App\Http\Requests\Housekeeping\MarkDirtyRequest;
 use App\Http\Requests\Housekeeping\OutOfOrderRequest;
 use App\Http\Requests\Housekeeping\ReleaseFromOutOfOrderRequest;
 use App\Http\Requests\Housekeeping\StartCleaningRequest;
@@ -64,6 +66,10 @@ class HousekeepingController extends Controller
                 'room_number'      => $room->room_number,
                 'status'           => $room->status->value,
                 'status_label'     => $room->status->label(),
+                'cleaning_status'       => $room->normalizedCleaningStatus()->value,
+                'cleaning_status_label' => $room->normalizedCleaningStatus()->label(),
+                'operational_status_label' => $room->status->operationalLabel(),
+                'is_occupied'      => $room->status === RoomStatus::Occupied,
                 'is_maintenance'   => in_array($room->status, $maintenanceStatuses, true),
                 'is_eligible_for_bulk' => ! in_array($room->status, $maintenanceStatuses, true),
                 'last_cleaned_at'  => $room->last_cleaned_at?->toDateTimeString(),
@@ -97,6 +103,7 @@ class HousekeepingController extends Controller
         return Inertia::render('Admin/Housekeeping/Index', [
             'floors' => $floors,
             'can'   => [
+                'markCleaning' => $request->user()->can('markCleaning', HousekeepingAssignment::class),
                 'assign'       => $request->user()->can('assign', HousekeepingAssignment::class),
                 'updateStatus' => $request->user()->can('updateStatus', HousekeepingAssignment::class),
                 'inspect'      => $request->user()->can('inspect', HousekeepingAssignment::class),
@@ -128,6 +135,10 @@ class HousekeepingController extends Controller
                 'started_at' => $record->started_at?->toDateTimeString(),
                 'completed_at' => $record->completed_at?->toDateTimeString(),
                 'cleaned_by' => $record->cleanedBy?->name,
+                'reason_label' => $record->reason?->label(),
+                'room_status_before' => $record->room_status_before,
+                'room_status_after' => $record->room_status_after,
+                'cleaning_notes' => $record->cleaning_notes,
                 'inspection_result' => $record->inspection_result?->value,
                 'inspected_by' => $record->inspectedBy?->name,
                 'inspected_at' => $record->inspected_at?->toDateTimeString(),
@@ -140,6 +151,9 @@ class HousekeepingController extends Controller
                 'room_type' => $room->roomType?->name,
                 'status' => $room->status->value,
                 'status_label' => $room->status->label(),
+                'cleaning_status' => $room->normalizedCleaningStatus()->value,
+                'cleaning_status_label' => $room->normalizedCleaningStatus()->label(),
+                'operational_status_label' => $room->status->operationalLabel(),
                 'notes' => $room->notes,
             ],
             'active_assignment' => $room->activeHousekeepingAssignment === null ? null : [
@@ -160,6 +174,20 @@ class HousekeepingController extends Controller
             ],
             'recent_cleanings' => $recentCleanings,
         ]);
+    }
+
+    public function markClean(MarkCleanRequest $request, Room $room): JsonResponse
+    {
+        $result = $this->housekeeping->markClean($room, $request->user(), $request->validated()['notes'] ?? null);
+
+        return response()->json($result);
+    }
+
+    public function markDirty(MarkDirtyRequest $request, Room $room): JsonResponse
+    {
+        $result = $this->housekeeping->markDirty($room, $request->user(), $request->validated()['notes'] ?? null);
+
+        return response()->json($result);
     }
 
     public function assign(AssignHousekeepingRequest $request, Room $room): JsonResponse

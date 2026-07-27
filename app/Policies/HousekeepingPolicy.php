@@ -27,6 +27,17 @@ class HousekeepingPolicy
         return $user->can('room.status.update');
     }
 
+    /**
+     * Room Operations Simplification: deliberately a separate ability from
+     * updateStatus() (room.status.update), which also gates the legacy
+     * assign/start/complete pipeline. Reception/Housekeeping get one-tap
+     * mark clean/dirty without gaining access to the legacy multi-step actions.
+     */
+    public function markCleaning(User $user): bool
+    {
+        return $user->can('room.cleaning.update');
+    }
+
     public function inspect(User $user): bool
     {
         return $user->can('room.inspect');

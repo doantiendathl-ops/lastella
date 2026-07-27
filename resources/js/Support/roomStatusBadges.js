@@ -55,3 +55,22 @@ const fallback = {
 export function roomStatusBadge(status) {
     return roomStatusBadges[status] ?? fallback;
 }
+
+/**
+ * Room Operations Simplification: styling for the standalone SẠCH/BẨN badge
+ * (CleaningStatus), independent of the operational roomStatusBadges above.
+ */
+export const cleaningStatusBadges = {
+    CLEAN: {
+        card: 'border-green-200 bg-green-50',
+        badge: 'bg-green-100 text-green-800',
+    },
+    DIRTY: {
+        card: 'border-yellow-300 bg-yellow-50',
+        badge: 'bg-yellow-100 text-yellow-800',
+    },
+};
+
+export function cleaningStatusBadge(status) {
+    return cleaningStatusBadges[status] ?? fallback;
+}

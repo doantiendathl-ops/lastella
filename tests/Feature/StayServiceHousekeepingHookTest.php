@@ -4,9 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\BookingStatus;
 use App\Enums\BookingType;
-use App\Enums\CleaningReason;
 use App\Enums\CustomerType;
-use App\Enums\HousekeepingAssignmentStatus;
 use App\Enums\RoomStatus;
 use App\Models\Booking;
 use App\Models\Room;
@@ -69,7 +67,13 @@ class StayServiceHousekeepingHookTest extends TestCase
         $this->assertEquals(RoomStatus::Occupied, $room->refresh()->status);
     }
 
-    public function test_checkout_auto_creates_cleaning_assignment(): void
+    /**
+     * Room Operations Simplification: checkout marks the room BẨN directly —
+     * no mandatory HousekeepingAssignment is created anymore (there is no
+     * "chờ dọn" step in the simplified workflow; a single markClean() tap
+     * is all that's needed).
+     */
+    public function test_checkout_marks_room_dirty_without_mandatory_assignment(): void
     {
         $room = Room::where('room_type_id', $this->twinType->id)->firstOrFail();
         $booking = $this->createBooking();
@@ -88,12 +92,42 @@ class StayServiceHousekeepingHookTest extends TestCase
 
         app(StayService::class)->checkOut($stay, null, true);
 
-        $this->assertEquals(RoomStatus::VacantDirty, $room->refresh()->status);
-        $this->assertDatabaseHas('housekeeping_assignments', [
-            'room_id' => $room->id,
-            'status'  => HousekeepingAssignmentStatus::Pending->value,
-            'reason'  => CleaningReason::Checkout->value,
+        $room->refresh();
+        $this->assertEquals(RoomStatus::VacantDirty, $room->status);
+        $this->assertEquals('DIRTY', $room->cleaning_status->value);
+        $this->assertDatabaseMissing('housekeeping_assignments', ['room_id' => $room->id]);
+    }
+
+    /**
+     * Final Consistency Review (section VI.4): checkOut() must not dirty the room
+     * when the transaction fails before reaching autoMarkDirtyOnCheckout() — here,
+     * calling checkOut() on a stay that was never checked in fails the very first
+     * guard (assignment status !== CheckedIn), so the whole transaction rolls back
+     * and the room's pre-existing status/cleaning_status must be untouched.
+     */
+    public function test_failed_checkout_does_not_dirty_the_room(): void
+    {
+        $room = Room::where('room_type_id', $this->twinType->id)->firstOrFail();
+        $statusBefore = $room->status;
+        $cleaningStatusBefore = $room->cleaning_status;
+        $booking = $this->createBooking();
+
+        [$assignment] = app(RoomAssignmentService::class)->assignRooms($booking, [
+            ['room_id' => $room->id, 'room_type_id' => $room->room_type_id, 'start_at' => '2026-07-01 14:00:00', 'end_at' => '2026-07-02 12:00:00'],
         ]);
+        $stay = app(StayService::class)->createStayFromAssignment($assignment);
+        // Deliberately never checked in — checkOut() must reject this before any DML.
+
+        try {
+            app(StayService::class)->checkOut($stay, null, true);
+            $this->fail('Expected checkOut() to throw for a stay that was never checked in.');
+        } catch (\Illuminate\Validation\ValidationException) {
+            // expected
+        }
+
+        $room->refresh();
+        $this->assertEquals($statusBefore, $room->status);
+        $this->assertEquals($cleaningStatusBefore, $room->cleaning_status);
     }
 
     private function createBooking(array $overrides = []): Booking

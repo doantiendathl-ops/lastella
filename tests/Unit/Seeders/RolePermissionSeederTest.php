@@ -113,6 +113,25 @@ class RolePermissionSeederTest extends TestCase
         $this->assertFalse($sales->hasPermissionTo('room.maintenance'));
     }
 
+    /**
+     * Room Operations Simplification: room.cleaning.update is a new, separate ability
+     * from room.status.update — granted to ADMIN/MANAGER/RECEPTION/HOUSEKEEPING, not
+     * SALES/ACCOUNTANT.
+     */
+    public function test_room_cleaning_update_granted_to_the_four_operational_roles(): void
+    {
+        $this->assertTrue(Role::findByName('ADMIN')->hasPermissionTo('room.cleaning.update'));
+        $this->assertTrue(Role::findByName('MANAGER')->hasPermissionTo('room.cleaning.update'));
+        $this->assertTrue(Role::findByName('RECEPTION')->hasPermissionTo('room.cleaning.update'));
+        $this->assertTrue(Role::findByName('HOUSEKEEPING')->hasPermissionTo('room.cleaning.update'));
+    }
+
+    public function test_room_cleaning_update_not_granted_to_sales_or_accountant(): void
+    {
+        $this->assertFalse(Role::findByName('SALES')->hasPermissionTo('room.cleaning.update'));
+        $this->assertFalse(Role::findByName('ACCOUNTANT')->hasPermissionTo('room.cleaning.update'));
+    }
+
     public function test_reception_kept_pre_existing_phase3_permissions(): void
     {
         $reception = Role::findByName('RECEPTION');
@@ -139,8 +158,8 @@ class RolePermissionSeederTest extends TestCase
 
         $housekeeping = Role::findByName('HOUSEKEEPING');
 
-        // Was 4 before this feature added checkout_inspection.view / checkout_inspection.perform to HOUSEKEEPING.
-        $this->assertCount(6, $housekeeping->permissions);
+        // Was 6 before Room Operations Simplification added room.cleaning.update to HOUSEKEEPING.
+        $this->assertCount(7, $housekeeping->permissions);
         $this->assertFalse($housekeeping->hasPermissionTo('rooms.manage'));
         $this->assertTrue($housekeeping->hasPermissionTo('housekeeping.view'));
     }

@@ -57,6 +57,11 @@ class HousekeepingPolicyTest extends TestCase
         $this->assertTrue($this->policy->maintenance($this->userWithRole('ADMIN')));
     }
 
+    public function test_admin_can_mark_cleaning(): void
+    {
+        $this->assertTrue($this->policy->markCleaning($this->userWithRole('ADMIN')));
+    }
+
     // -------------------------------------------------------------------------
     // MANAGER matrix — all true
     // -------------------------------------------------------------------------
@@ -84,6 +89,11 @@ class HousekeepingPolicyTest extends TestCase
     public function test_manager_can_maintenance(): void
     {
         $this->assertTrue($this->policy->maintenance($this->userWithRole('MANAGER')));
+    }
+
+    public function test_manager_can_mark_cleaning(): void
+    {
+        $this->assertTrue($this->policy->markCleaning($this->userWithRole('MANAGER')));
     }
 
     // -------------------------------------------------------------------------
@@ -115,13 +125,25 @@ class HousekeepingPolicyTest extends TestCase
         $this->assertFalse($this->policy->maintenance($this->userWithRole('HOUSEKEEPING')));
     }
 
+    public function test_housekeeping_can_mark_cleaning(): void
+    {
+        $this->assertTrue($this->policy->markCleaning($this->userWithRole('HOUSEKEEPING')));
+    }
+
     // -------------------------------------------------------------------------
-    // RECEPTION matrix — only view true
+    // RECEPTION matrix — view + markCleaning true (Room Operations Simplification
+    // gave Reception one-tap mark clean/dirty); assign/updateStatus/inspect/
+    // maintenance (the legacy multi-step abilities) remain false.
     // -------------------------------------------------------------------------
 
     public function test_reception_can_view(): void
     {
         $this->assertTrue($this->policy->view($this->userWithRole('RECEPTION')));
+    }
+
+    public function test_reception_can_mark_cleaning(): void
+    {
+        $this->assertTrue($this->policy->markCleaning($this->userWithRole('RECEPTION')));
     }
 
     public function test_reception_cannot_assign(): void
@@ -173,6 +195,11 @@ class HousekeepingPolicyTest extends TestCase
         $this->assertFalse($this->policy->maintenance($this->userWithRole('ACCOUNTANT')));
     }
 
+    public function test_accountant_cannot_mark_cleaning(): void
+    {
+        $this->assertFalse($this->policy->markCleaning($this->userWithRole('ACCOUNTANT')));
+    }
+
     // -------------------------------------------------------------------------
     // SALES matrix — all false
     // -------------------------------------------------------------------------
@@ -200,5 +227,10 @@ class HousekeepingPolicyTest extends TestCase
     public function test_sales_cannot_maintenance(): void
     {
         $this->assertFalse($this->policy->maintenance($this->userWithRole('SALES')));
+    }
+
+    public function test_sales_cannot_mark_cleaning(): void
+    {
+        $this->assertFalse($this->policy->markCleaning($this->userWithRole('SALES')));
     }
 }

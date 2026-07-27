@@ -11,6 +11,7 @@ enum CleaningReason: string
     case DeepCleaning   = 'DEEP_CLEANING';
     case EarlyCheckin   = 'EARLY_CHECKIN';
     case SpecialRequest = 'SPECIAL_REQUEST';
+    case Manual          = 'MANUAL';
 
     public function label(): string
     {
@@ -22,6 +23,7 @@ enum CleaningReason: string
             self::DeepCleaning   => 'Vệ sinh sâu',
             self::EarlyCheckin   => 'Nhận phòng sớm',
             self::SpecialRequest => 'Yêu cầu đặc biệt',
+            self::Manual         => 'Thao tác thủ công',
         };
     }
 }

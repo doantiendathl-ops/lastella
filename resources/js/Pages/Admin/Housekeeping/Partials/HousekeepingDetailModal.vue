@@ -5,9 +5,10 @@ import { onMounted, ref } from 'vue';
 
 const props = defineProps({
     room: { type: Object, required: true },
+    legacyActions: { type: Array, default: () => [] },
 });
 
-const emit = defineEmits(['close']);
+const emit = defineEmits(['close', 'open-action']);
 
 const loading = ref(true);
 const detail = ref(null);
@@ -48,10 +49,12 @@ const inspectionResultLabels = {
                     <dl class="grid grid-cols-2 gap-x-3 gap-y-2">
                         <dt class="text-xs uppercase text-steel">Loại phòng</dt>
                         <dd>{{ detail.room.room_type ?? '—' }}</dd>
-                        <dt class="text-xs uppercase text-steel">Trạng thái phòng</dt>
-                        <dd>{{ detail.room.status_label }}</dd>
-                        <dt class="text-xs uppercase text-steel">Trạng thái dọn phòng</dt>
-                        <dd>{{ detail.active_assignment?.status ?? 'Không có phân công' }}</dd>
+                        <dt class="text-xs uppercase text-steel">Trạng thái vận hành</dt>
+                        <dd>{{ detail.room.operational_status_label }}</dd>
+                        <dt class="text-xs uppercase text-steel">Sạch/Bẩn</dt>
+                        <dd class="font-semibold" :class="detail.room.cleaning_status === 'DIRTY' ? 'text-amber-700' : 'text-pine'">
+                            {{ detail.room.cleaning_status_label }}
+                        </dd>
                         <dt class="text-xs uppercase text-steel">Người cập nhật gần nhất</dt>
                         <dd>{{ detail.active_assignment?.assigned_to ?? '—' }}</dd>
                         <dt class="text-xs uppercase text-steel">Thời gian cập nhật</dt>
@@ -83,15 +86,32 @@ const inspectionResultLabels = {
                     </div>
 
                     <div v-if="detail.recent_cleanings?.length" class="mt-4 border-t border-gray-100 pt-3">
-                        <h3 class="mb-2 text-xs font-semibold uppercase text-steel">Lịch sử dọn phòng gần đây</h3>
+                        <h3 class="mb-2 text-xs font-semibold uppercase text-steel">Lịch sử thay đổi</h3>
                         <ul class="space-y-1 text-xs text-steel">
                             <li v-for="(record, i) in detail.recent_cleanings" :key="i">
                                 {{ record.started_at }} — {{ record.cleaned_by ?? '—' }}
+                                <span v-if="record.reason_label">· {{ record.reason_label }}</span>
                                 <span v-if="record.inspection_result">
                                     · Kiểm tra: {{ inspectionResultLabels[record.inspection_result] ?? record.inspection_result }} ({{ record.inspected_by ?? '—' }})
                                 </span>
+                                <div v-if="record.cleaning_notes" class="text-[11px] italic text-gray-400">{{ record.cleaning_notes }}</div>
                             </li>
                         </ul>
+                    </div>
+
+                    <div v-if="legacyActions.length" class="mt-4 border-t border-gray-100 pt-3">
+                        <h3 class="mb-2 text-xs font-semibold uppercase text-steel">Nâng cao</h3>
+                        <div class="flex flex-wrap gap-1.5">
+                            <button
+                                v-for="action in legacyActions"
+                                :key="action.key"
+                                type="button"
+                                class="min-h-9 border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-steel hover:border-pine hover:text-pine"
+                                @click="emit('open-action', action.key)"
+                            >
+                                {{ action.label }}
+                            </button>
+                        </div>
                     </div>
                 </template>
             </div>
