@@ -441,6 +441,45 @@ Căn cứ:
 
 Hạn chế cần lưu ý (không chặn commit, nhưng nên biết): chưa test trên thiết bị thật (chỉ render engine Chrome thật qua kỹ thuật iframe, không phải giả lập/suy luận, nhưng khác thiết bị vật lý thật); chưa test bàn phím ảo thật; chưa test nhánh Reception trên mobile UI. Đề xuất QA thật trên điện thoại trước khi đưa vào sử dụng chính thức cho nhân viên buồng phòng.
 
+## 28. Commit Closure
+
+**Trạng thái: COMMITTED — NOT PUSHED**
+
+- **Commit hash:** `d8c8d01`
+- **Branch:** `phase-3` (ahead of `origin/phase-3` by 1 commit)
+- **Commit message:**
+  ```
+  feat(room-operations): add mobile-ready housekeeping and checkout inspection
+
+  Adds Room Board conversions for Rooms and Housekeeping with bulk actions,
+  a dynamic Product/Service catalog, quick checkout inspection posting to
+  folio with duplicate-post protection, product/service add-to-booking, and
+  a non-blocking checkout inspection warning supporting multi-room/partial
+  checkout. Includes a mobile-first pass (nav drawer, 44px touch targets,
+  card-list layouts) for the Housekeeping and Checkout Inspection screens.
+
+  Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+  ```
+- **File tạo mới:** 50
+- **File chỉnh sửa:** 24
+- **Tổng:** 74 file, +5204/-97 dòng (`git show --stat` xác nhận).
+- **Loại trừ khỏi commit (đúng chủ đích, không thuộc phạm vi tính năng này):** `.gitignore` (thay đổi không liên quan, pre-existing), `.env.production.example`, `docs/pilot/` (2 file), `docs/reports/*.md` (5 báo cáo closure của phase/sprint trước), `storage/backups/` (chứa file backup DB `.sql.gz`/`.tar.gz` — tuyệt đối không đưa vào commit). Đã rà soát thủ công từng file trước khi stage, không dùng `git add -A`/`.`.
+- **Quét bí mật/credential:** đã grep diff đã stage theo các pattern API key/secret/private key/password gán cứng — không phát hiện gì.
+- **Build/test cuối trước commit:**
+  ```
+  npm run build → PASS (không lỗi)
+  php artisan test (9 file: 7 test mới + HousekeepingControllerTest + RolePermissionSeederTest)
+    → 88 passed (332 assertions), 0 failed
+  ```
+- **Trạng thái push:** **CHƯA PUSH** — theo đúng chỉ đạo, chờ chỉ đạo tiếp theo.
+- **Known limitations còn lại trước khi vận hành thật:**
+  1. Chưa test trên thiết bị mobile thật (chỉ render engine Chrome thật qua kỹ thuật iframe cùng-origin, không phải thiết bị vật lý).
+  2. Chưa test bàn phím ảo che nội dung trên thiết bị thật (chỉ suy luận cấu trúc CSS).
+  3. Chưa test nhánh "Reception không có quyền override kiểm đồ" trên mobile UI (đã có PHPUnit test backend).
+  4. 23 lỗi test pre-existing trên toàn bộ suite (không liên quan commit này, đã xác minh bằng baseline `git stash` — xem Mục 18) — nên có ticket riêng để điều tra/fix.
+  5. Chưa xây quy trình "điều chỉnh phiếu kiểm đồ đã hoàn tất" đầy đủ (reverse + re-post) — hiện tại chỉ chặn sửa phiếu đã hoàn tất (đáp ứng mức tối thiểu spec yêu cầu).
+  6. Chưa có PWA/manifest/service worker (ngoài phạm vi sprint này theo yêu cầu, chỉ đã ghi nhận điểm cần lưu ý cho sau này ở Mục 26).
+
 ---
 
-Không commit. Không push. Chờ ChatGPT (Product Architect) review.
+Đã commit (`d8c8d01`). Chưa push. Chờ chỉ đạo tiếp theo.
