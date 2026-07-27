@@ -445,12 +445,11 @@ Hạn chế cần lưu ý (không chặn commit, nhưng nên biết): chưa test
 
 **Trạng thái: COMMITTED — NOT PUSHED**
 
-- **Commit hash:** `d8c8d01`
-- **Branch:** `phase-3` (ahead of `origin/phase-3` by 1 commit)
-- **Commit message:**
-  ```
-  feat(room-operations): add mobile-ready housekeeping and checkout inspection
+Branch `phase-3` hiện **ahead of `origin/phase-3` by 2 commit** (đã xác minh bằng `git log origin/phase-3..HEAD --oneline`, liệt kê đúng 2 dòng dưới đây, theo đúng thứ tự cũ → mới):
 
+- **Main implementation commit:** `d8c8d01`
+  `feat(room-operations): add mobile-ready housekeeping and checkout inspection`
+  ```
   Adds Room Board conversions for Rooms and Housekeeping with bulk actions,
   a dynamic Product/Service catalog, quick checkout inspection posting to
   folio with duplicate-post protection, product/service add-to-booking, and
@@ -460,10 +459,18 @@ Hạn chế cần lưu ý (không chặn commit, nhưng nên biết): chưa test
 
   Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
   ```
+  File tạo mới: 50 · File chỉnh sửa: 24 · Tổng: 74 file, +5204/-97 dòng (`git show --stat d8c8d01` xác nhận).
+
+- **Documentation closure commit:** `913824d`
+  `docs(room-operations): record implementation commit closure`
+  1 file thay đổi (`docs/implementation-reports/room-operations-checkout-inspection-implementation-report.md`), +40/-1 dòng (`git show --stat 913824d` xác nhận). Đây là commit bổ sung Mục 28 (bản đầu, đã có sai lệch số liệu — xem ghi chú hiệu chỉnh bên dưới).
+
+**Ghi chú hiệu chỉnh:** Bản đầu của Mục 28 (viết trước khi commit `913824d` được tạo) chỉ ghi `d8c8d01` và "ahead by 1 commit" — con số đó đúng tại **thời điểm soạn nội dung**, nhưng vì nội dung đó lại được đóng gói thành chính commit `913824d`, nên ngay sau khi commit xong, trạng thái thực tế trở thành "ahead by 2". Sai lệch này đã được phát hiện qua đối chiếu `git log origin/phase-3..HEAD` và được sửa tại đây — **không amend `d8c8d01` hay `913824d`** — bằng một commit tài liệu hiệu chỉnh thứ ba riêng biệt: `docs(room-operations): correct commit closure metadata`.
+
 - **File tạo mới:** 50
 - **File chỉnh sửa:** 24
-- **Tổng:** 74 file, +5204/-97 dòng (`git show --stat` xác nhận).
-- **Loại trừ khỏi commit (đúng chủ đích, không thuộc phạm vi tính năng này):** `.gitignore` (thay đổi không liên quan, pre-existing), `.env.production.example`, `docs/pilot/` (2 file), `docs/reports/*.md` (5 báo cáo closure của phase/sprint trước), `storage/backups/` (chứa file backup DB `.sql.gz`/`.tar.gz` — tuyệt đối không đưa vào commit). Đã rà soát thủ công từng file trước khi stage, không dùng `git add -A`/`.`.
+- **Tổng:** 74 file, +5204/-97 dòng (đo tại `d8c8d01`; commit tài liệu `913824d` và commit hiệu chỉnh sau đó chỉ động vào file báo cáo, không tính vào số liệu tính năng).
+- **Loại trừ khỏi commit (đúng chủ đích, không thuộc phạm vi tính năng này):** `.gitignore` (thay đổi không liên quan, pre-existing), `.env.production.example`, `docs/pilot/` (2 file), `docs/reports/*.md` (5 báo cáo closure của phase/sprint trước), `storage/backups/` (chứa file backup DB `.sql.gz`/`.tar.gz` — tuyệt đối không đưa vào commit). Đã rà soát thủ công từng file trước khi stage, không dùng `git add -A`/`.`. Đã re-verify sau khi thêm commit hiệu chỉnh — working tree vẫn chỉ còn đúng các mục ngoài phạm vi này.
 - **Quét bí mật/credential:** đã grep diff đã stage theo các pattern API key/secret/private key/password gán cứng — không phát hiện gì.
 - **Build/test cuối trước commit:**
   ```
