@@ -303,10 +303,46 @@ Căn cứ:
 - **Checkout/move-room/partial checkout đúng**, xác nhận qua cả code review (thứ tự lock/DML trong transaction) lẫn test tự động.
 - **Luồng Nâng cao không còn làm hỏng mô hình 2 trạng thái** — mọi transition đều ghi `cleaning_status` tường minh, không còn giá trị đông cứng/kế thừa sai.
 - **HOUSEKEEPING UI thực sự chỉ còn thao tác đơn giản** — đã gate "Nâng cao" theo `can.inspect || can.maintenance`, QA trực tiếp bằng tài khoản HOUSEKEEPING/RECEPTION thật xác nhận không còn thấy workflow nhiều bước, không thấy bảo trì, không thấy tài chính.
-- **Chưa commit, chưa push** — toàn bộ thay đổi vẫn ở working tree.
+- Tại thời điểm viết mục này: chưa commit, chưa push. *(Đã commit ngay sau đó — xem mục 26.)*
 
 **Điểm cần ChatGPT xác nhận thêm (không phải blocker, nhưng là quyết định sản phẩm nên chốt tường minh):** quyết định "complete cleaning = CLEAN" (mục 23.IV) — đây là suy luận hợp lý nhất theo mapping đã thống nhất nhưng vẫn là lựa chọn nghiệp vụ, nên xác nhận trước khi coi là chốt cuối cùng.
 
+*(→ Đã được ChatGPT Product Architect chính thức phê duyệt — xem mục 25.)*
+
 ---
+
+## 25. Product Decision Closure
+
+ChatGPT Product Architect đã review báo cáo này và chính thức chốt các quyết định sản phẩm sau — **trạng thái review: APPROVED FOR COMMIT**:
+
+- **`cleaning_status` là source of truth duy nhất** cho trạng thái vệ sinh — approved.
+- **Giao diện vận hành thông thường** (Housekeeping board) **chỉ còn SẠCH/BẨN** — approved.
+- **HOUSEKEEPING và RECEPTION không thấy workflow nhiều bước** (assign/start/complete/inspect/maintenance) — chỉ Admin/Manager mới thấy mục "Nâng cao" — approved.
+- **Checkout tự động chuyển phòng thành BẨN**, không còn bước trung gian bắt buộc — approved.
+- **`markClean`/`markDirty` là thao tác chính** của luồng vận hành hằng ngày — approved.
+- **Luồng legacy (assign/start/complete/inspect/maintenance) chỉ giữ cho Admin/Manager** trong phần Nâng cao — approved.
+- **`OUT_OF_ORDER`/`OUT_OF_SERVICE` backfill thành DIRTY** được xác nhận là phương án an toàn (không mặc định phòng khóa bảo trì là sạch) — approved.
+- **"complete cleaning = CLEAN" — chính thức được phê duyệt.** Giải thích nghiệp vụ (ChatGPT): "complete cleaning" nghĩa là nhân viên đã hoàn thành việc dọn phòng, nên trạng thái vệ sinh phải là CLEAN ngay lúc đó — không cần trạng thái vệ sinh trung gian. Nếu Admin/Manager kiểm tra lại sau (inspect):
+  - `inspect pass` → **CLEAN** (giữ nguyên).
+  - `inspect fail` → **DIRTY** (đảo lại vì kiểm tra phát hiện chưa đạt).
+
+**Trạng thái: APPROVED FOR COMMIT.**
+
+---
+
+## 26. Commit Closure
+
+- **Commit hash:** `6f2d8bb6fce3c09cf3158cc8d9c430cce23bfec2` (short: `6f2d8bb`)
+- **Commit message:** `feat(housekeeping): simplify workflow to clean and dirty states`
+- **Build cuối:** `npm run build` — PASS.
+- **Test cuối trước commit** (đúng 10 file được chỉ định): `php artisan test tests/Unit/Enums/RoomStatusTest.php tests/Unit/Services/HousekeepingServiceTest.php tests/Feature/HousekeepingControllerTest.php tests/Feature/HousekeepingBulkActionTest.php tests/Unit/Policies/HousekeepingPolicyTest.php tests/Unit/Seeders/RolePermissionSeederTest.php tests/Feature/StayServiceHousekeepingHookTest.php tests/Feature/HousekeepingWorkflowIntegrationTest.php tests/Unit/Services/StayServiceMoveRoomTest.php tests/Feature/RoomCrudTest.php` — **184 passed, 0 failed** (495 assertions).
+- **Số file:** 30 file thay đổi trong commit chính (7 file mới, 23 file sửa) — 1526 dòng thêm, 89 dòng xóa.
+- **Trạng thái push: NOT PUSHED.**
+- **Known limitations** (kế thừa từ mục 23.IX):
+  - Mobile QA ở đúng 3 breakpoint pixel (360×800/390×844/412×915) chưa xác nhận được bằng ảnh chụp thật do giới hạn công cụ trong phiên này — đã bù bằng review code (class `min-h-11`, layout responsive kế thừa nguyên vẹn từ `RoomBoardGrid.vue`).
+  - Toàn bộ thay đổi (permission `room.cleaning.update`, migration `cleaning_status`, mapping OUT_OF_ORDER/OUT_OF_SERVICE→DIRTY) mới chỉ áp dụng trên DB dev cục bộ — môi trường khác (staging/Pilot) cần chạy `php artisan migrate` + re-seed `RolePermissionSeeder` trước khi nhận các thay đổi này.
+  - File `.gitignore` đang có 1 thay đổi chưa commit (từ phiên làm việc Pilot Day 0 trước đó, không thuộc phạm vi patch này) — cố ý không đưa vào commit này.
+
+**Trạng thái: COMMITTED — NOT PUSHED.**
 
 Không commit. Không push. Chờ ChatGPT review.
