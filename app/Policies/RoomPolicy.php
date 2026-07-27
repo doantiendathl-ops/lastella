@@ -36,4 +36,9 @@ class RoomPolicy
     {
         return $user->can('rooms.manage');
     }
+
+    public function bulkUpdate(User $user): bool
+    {
+        return $user->can('rooms.bulk_update') || $user->can('rooms.manage');
+    }
 }

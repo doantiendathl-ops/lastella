@@ -91,6 +91,11 @@ class Booking extends Model
         return $this->hasMany(BookingSpecialRequest::class);
     }
 
+    public function checkoutInspections(): HasMany
+    {
+        return $this->hasMany(CheckoutInspection::class);
+    }
+
     public function salesUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'sales_user_id');

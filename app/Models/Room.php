@@ -78,4 +78,9 @@ class Room extends Model
         return $this->hasOne(HousekeepingAssignment::class)
             ->whereIn('status', HousekeepingAssignmentStatus::activeValues());
     }
+
+    public function checkoutInspections(): HasMany
+    {
+        return $this->hasMany(CheckoutInspection::class);
+    }
 }

@@ -29,11 +29,27 @@ const checkoutDisabled = (stay) =>
 const lastStayConfirmTarget = ref(null)
 const checkoutWarningStay = ref(null)
 const checkOutAllConfirming = ref(false)
+const inspectionWarningStay = ref(null)
+const inspectionSkipReason = ref('')
 
 const checkIn = (stay) =>
     router.post(`/admin/bookings/${props.booking.id}/stays/${stay.id}/check-in`, {}, { preserveScroll: true })
 
+// Checkout-inspection warning: purely advisory, never an absolute lock — any user with
+// checkout permission can dismiss and proceed. Only the formal "skip with reason" record
+// (below) is permission-gated. Checked client-side from data already on the page, so this
+// cannot regress the (unmodified) server-side checkout flow in any way.
 const checkOut = (stay) => {
+    if (stay.inspection_status === 'none') {
+        inspectionWarningStay.value = stay
+        inspectionSkipReason.value = ''
+        return
+    }
+
+    proceedCheckout(stay)
+}
+
+const proceedCheckout = (stay) => {
     const balance = props.paymentSummary?.balance_due ?? 0
 
     // Non-last stay with outstanding balance — warn before proceeding (UX only; checkout will succeed)
@@ -45,6 +61,28 @@ const checkOut = (stay) => {
     // ADR-55: for final checkouts, backend is authoritative. Send without confirmed; if backend
     // fires FinalCheckoutConfirmationRequiredException the flash watcher shows the dialog.
     router.post(`/admin/bookings/${props.booking.id}/stays/${stay.id}/check-out`, {}, { preserveScroll: true })
+}
+
+// "Vẫn trả phòng" — dismiss the advisory warning and proceed with the normal, unmodified
+// checkout flow. Records nothing; available to any user regardless of override permission.
+const dismissInspectionWarningAndCheckOut = () => {
+    if (!inspectionWarningStay.value) return
+    const stay = inspectionWarningStay.value
+    inspectionWarningStay.value = null
+    proceedCheckout(stay)
+}
+
+// "Bỏ qua và trả phòng" — records a permission-gated, reasoned skip first, then proceeds.
+const skipInspectionAndCheckOut = () => {
+    if (!inspectionWarningStay.value || !inspectionSkipReason.value.trim()) return
+    const stay = inspectionWarningStay.value
+    const reason = inspectionSkipReason.value.trim()
+    inspectionWarningStay.value = null
+    router.post(
+        `/admin/bookings/${props.booking.id}/stays/${stay.id}/inspection-skip`,
+        { reason },
+        { preserveScroll: true, onSuccess: () => proceedCheckout(stay) },
+    )
 }
 
 // ADR-55: resend with confirmed=true after user approves the charge-review dialog
@@ -337,6 +375,59 @@ function requestStatusClass(status) {
                     </tr>
                 </tbody>
             </table>
+        </div>
+    </div>
+
+    <!-- Checkout-inspection warning (not an absolute lock) -->
+    <div v-if="inspectionWarningStay" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+        <div class="w-full max-w-md border border-gray-200 bg-white p-5 shadow-xl">
+            <h2 class="text-base font-semibold text-coral">Chưa kiểm đồ phòng {{ inspectionWarningStay.room_number }}</h2>
+            <p class="mt-2 text-sm text-steel">
+                Phòng này chưa được kiểm đồ khi trả phòng. Vui lòng mở kiểm đồ nhanh để ghi nhận đồ dùng/minibar phát sinh trước khi trả phòng.
+            </p>
+            <a
+                href="/admin/checkout-inspections"
+                target="_blank"
+                class="mt-3 inline-block text-sm font-semibold text-pine underline"
+            >
+                Mở kiểm đồ nhanh (tab mới)
+            </a>
+
+            <template v-if="can.overrideCheckoutInspection">
+                <p class="mt-4 text-xs font-semibold uppercase tracking-wide text-steel">Hoặc bỏ qua kiểm đồ (yêu cầu lý do)</p>
+                <textarea
+                    v-model="inspectionSkipReason"
+                    rows="2"
+                    placeholder="Lý do bỏ qua kiểm đồ..."
+                    class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm"
+                />
+            </template>
+
+            <div class="mt-5 flex flex-wrap justify-end gap-2">
+                <button
+                    type="button"
+                    class="border border-gray-300 px-4 py-2 text-sm font-semibold text-steel hover:text-ink"
+                    @click="inspectionWarningStay = null"
+                >
+                    Đóng
+                </button>
+                <button
+                    v-if="can.overrideCheckoutInspection"
+                    type="button"
+                    class="border border-coral px-4 py-2 text-sm font-semibold text-coral hover:bg-coral hover:text-white disabled:opacity-50"
+                    :disabled="!inspectionSkipReason.trim()"
+                    @click="skipInspectionAndCheckOut"
+                >
+                    Bỏ qua và trả phòng
+                </button>
+                <button
+                    type="button"
+                    class="border border-pine bg-pine px-4 py-2 text-sm font-semibold text-white hover:bg-pine/90"
+                    @click="dismissInspectionWarningAndCheckOut"
+                >
+                    Vẫn trả phòng
+                </button>
+            </div>
         </div>
     </div>
 

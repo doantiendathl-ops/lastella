@@ -18,6 +18,8 @@ class DatabaseSeeder extends Seeder
             SettingSeeder::class,
             HotelSettingsSeeder::class,
             ServiceRateSeeder::class,
+            ProductServiceCategorySeeder::class,
+            ProductServiceSeeder::class,
         ]);
     }
 }

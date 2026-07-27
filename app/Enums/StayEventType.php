@@ -9,6 +9,8 @@ enum StayEventType: string
     case PartialCheckout = 'PARTIAL_CHECKOUT';
     case Checkout = 'CHECKOUT';
     case RoomMove = 'ROOM_MOVE';
+    case InspectionCompleted = 'INSPECTION_COMPLETED';
+    case InspectionSkipped = 'INSPECTION_SKIPPED';
 
     public function label(): string
     {
@@ -18,6 +20,8 @@ enum StayEventType: string
             self::PartialCheckout => 'Trả phòng một phần',
             self::Checkout => 'Trả phòng',
             self::RoomMove => 'Đổi phòng',
+            self::InspectionCompleted => 'Hoàn tất kiểm đồ',
+            self::InspectionSkipped => 'Bỏ qua kiểm đồ',
         };
     }
 }

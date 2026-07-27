@@ -16,6 +16,7 @@ use App\Services\Posting\LateCheckoutFeePostingJob;
 use App\Services\Posting\PostingContext;
 use App\Services\Posting\RoomChargePostingJob;
 use Carbon\CarbonInterface;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -208,6 +209,45 @@ class StayService
             // Phase 4.2: auto-mark room VACANT_DIRTY and create cleaning assignment on checkout.
             // autoMarkDirtyOnCheckout never throws — see HousekeepingService (ADR-84).
             $this->housekeeping->autoMarkDirtyOnCheckout($lockedStay);
+
+            return $lockedStay->refresh();
+        });
+    }
+
+    /**
+     * Records an authorized, reasoned skip of the checkout inspection for a single stay.
+     * Deliberately kept as a standalone action — never called from inside checkOut() —
+     * so the core checkout transaction/guards remain completely unchanged and this
+     * cannot regress check-in/checkout/partial-checkout/folio behavior. The frontend
+     * calls this (when applicable) before submitting the normal, unmodified checkout
+     * request; checkOut() itself is not aware this ever happened except by reading the
+     * recorded columns for display purposes.
+     */
+    public function skipCheckoutInspection(Stay $stay, User $actor, string $reason): Stay
+    {
+        if (! $actor->can('checkout_inspection.override')) {
+            throw new AuthorizationException('Bạn không có quyền bỏ qua kiểm đồ khi trả phòng.');
+        }
+
+        return DB::transaction(function () use ($stay, $actor, $reason): Stay {
+            $lockedStay = Stay::whereKey($stay->id)->lockForUpdate()->firstOrFail();
+
+            if ($lockedStay->status !== StayStatus::CheckedIn) {
+                throw ValidationException::withMessages([
+                    'stay' => 'Chỉ có thể bỏ qua kiểm đồ cho phòng đang lưu trú.',
+                ]);
+            }
+
+            $lockedStay->update([
+                'inspection_skipped_at' => now(),
+                'inspection_skipped_by' => $actor->id,
+                'inspection_skip_reason' => $reason,
+            ]);
+
+            $this->stayEvents->record($lockedStay, StayEventType::InspectionSkipped, $actor, [
+                'version' => 1,
+                'reason' => $reason,
+            ]);
 
             return $lockedStay->refresh();
         });

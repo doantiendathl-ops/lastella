@@ -18,6 +18,7 @@ use App\Http\Requests\Booking\RestoreBookingRequest;
 use App\Http\Requests\Booking\StoreBookingRequest;
 use App\Http\Requests\Booking\UpdateBookingRequest;
 use App\Models\Booking;
+use App\Models\ProductService;
 use App\Models\Room;
 use App\Models\RoomType;
 use App\Models\Stay;
@@ -127,6 +128,7 @@ class BookingController extends Controller
             'roomAssignments.stay',
             'stays.room',
             'stays.roomAssignment',
+            'stays.checkoutInspection',
             'packageFlags',
             'specialRequests.requestedBy',
             'specialRequests.acknowledgedBy',
@@ -161,9 +163,23 @@ class BookingController extends Controller
                 'unit_price'  => (float) $rate->unit_price,
                 'unit_label'  => $rate->unit_label,
             ], $activeRates)),
+            'productServices'     => ProductService::addableToBooking()
+                ->with('category')
+                ->orderBy('sort_order')
+                ->get()
+                ->map(fn (ProductService $p): array => [
+                    'id' => $p->id,
+                    'name' => $p->name,
+                    'category_name' => $p->category?->name,
+                    'charge_type' => $p->resolveChargeType()->value,
+                    'unit_price' => (float) $p->price,
+                    'unit_label' => $p->unit,
+                ])
+                ->values(),
             'checkableStays'      => $checkableStays,
             'currentBusinessDate' => $currentBusinessDate->toDateString(),
             'can' => $this->permissions() + [
+                'overrideProductPrice' => $request->user()?->can('product_services.manage') ?? false,
                 'editBooking' => $this->canEdit($booking, $request->user()) && $request->user()?->can('booking.update'),
                 'editDisabledReason' => $this->canEdit($booking, $request->user()) ? null : self::CLOSED_BOOKING_EDIT_MESSAGE,
                 'cancelBookingNormally' => ($request->user()?->can('booking.cancel') ?? false)
@@ -233,6 +249,23 @@ class BookingController extends Controller
         $this->bookings->restoreCancelledBooking($booking);
 
         return redirect()->route('admin.bookings.show', $booking)->with('success', self::RESTORE_SUCCESS_MESSAGE);
+    }
+
+    private function inspectionStatusFor(Stay $stay): string
+    {
+        if ($stay->checkoutInspection?->status === \App\Enums\CheckoutInspectionStatus::Completed) {
+            return 'completed';
+        }
+
+        if ($stay->checkoutInspection !== null) {
+            return 'draft';
+        }
+
+        if ($stay->inspection_skipped_at !== null) {
+            return 'skipped';
+        }
+
+        return 'none';
     }
 
     private function canEdit(Booking $booking, ?User $user): bool
@@ -382,6 +415,8 @@ class BookingController extends Controller
                     && $stay->roomAssignment?->status === AssignmentStatus::CheckedIn,
                 'can_move_room' => $stay->status === StayStatus::CheckedIn
                     && $stay->roomAssignment?->status === AssignmentStatus::CheckedIn,
+                'inspection_status' => $this->inspectionStatusFor($stay),
+                'inspection_skip_reason' => $stay->inspection_skip_reason,
                 'special_requests' => $booking->specialRequests
                     ->filter(fn ($r) => $r->stay_id === $stay->id)
                     ->map(fn ($r) => [
@@ -645,6 +680,7 @@ class BookingController extends Controller
             'createSpecialRequest'    => $user?->can('special_request.create') ?? false,
             'fulfillSpecialRequest'   => $user?->can('special_request.fulfill') ?? false,
             'cancelSpecialRequest'    => $user?->can('special_request.cancel') ?? false,
+            'overrideCheckoutInspection' => $user?->can('checkout_inspection.override') ?? false,
         ];
     }
 }

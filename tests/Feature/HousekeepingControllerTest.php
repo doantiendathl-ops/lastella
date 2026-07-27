@@ -53,7 +53,7 @@ class HousekeepingControllerTest extends TestCase
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Admin/Housekeeping/Index')
-                ->has('rooms')
+                ->has('floors')
                 ->has('can.assign')
                 ->has('can.updateStatus')
                 ->has('can.inspect')
@@ -116,13 +116,16 @@ class HousekeepingControllerTest extends TestCase
             ->get('/admin/housekeeping')
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->where('rooms', fn ($rooms): bool => collect($rooms)->contains(fn (array $r): bool =>
-                    $r['id'] === $room->id
-                    && $r['status'] === RoomStatus::VacantDirty->value
-                    && $r['active_assignment']['id'] === $assignment->id
-                    && $r['active_assignment']['assigned_to'] === $this->housekeeping->name
-                    && $r['active_assignment']['priority'] === CleaningPriority::High->value
-                ))
+                ->where('floors', fn ($floors): bool => collect($floors)
+                    ->pluck('rooms')
+                    ->flatten(1)
+                    ->contains(fn (array $r): bool =>
+                        $r['id'] === $room->id
+                        && $r['status'] === RoomStatus::VacantDirty->value
+                        && $r['active_assignment']['id'] === $assignment->id
+                        && $r['active_assignment']['assigned_to'] === $this->housekeeping->name
+                        && $r['active_assignment']['priority'] === CleaningPriority::High->value
+                    ))
             );
     }
 

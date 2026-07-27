@@ -32,6 +32,10 @@ class HandleInertiaRequests extends Middleware
             'flash' => [
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),
+                // Pre-existing bug fix: StayController already sets this via redirect()->with(...)
+                // but it never reached the frontend — this key was missing from the shared 'flash'
+                // prop, so RoomBoardPanel.vue's final-checkout-confirmation watcher never fired.
+                'final_checkout_confirmation_required' => fn () => $request->session()->get('final_checkout_confirmation_required'),
             ],
         ];
     }

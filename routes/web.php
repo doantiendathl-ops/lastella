@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\PostingTimelineController;
 use App\Http\Controllers\Admin\ReconciliationController;
 use App\Http\Controllers\Admin\RevenueReportController;
 use App\Http\Controllers\Admin\HotelSettingsController;
+use App\Http\Controllers\Admin\HousekeepingBulkActionController;
 use App\Http\Controllers\Admin\NightAuditController;
 use App\Http\Controllers\Admin\ServiceRateController;
 use App\Http\Controllers\Admin\Booking\BookingController;
@@ -18,10 +19,14 @@ use App\Http\Controllers\Admin\Booking\BookingPackageController;
 use App\Http\Controllers\Admin\PackageEnrollmentController;
 use App\Http\Controllers\Admin\Booking\BookingSpecialRequestController;
 use App\Http\Controllers\Admin\Booking\StayController;
+use App\Http\Controllers\Admin\CheckoutInspectionController;
 use App\Http\Controllers\Admin\FloorController;
 use App\Http\Controllers\Admin\HousekeepingController;
 use App\Http\Controllers\Admin\PermissionController;
+use App\Http\Controllers\Admin\ProductServiceCategoryController;
+use App\Http\Controllers\Admin\ProductServiceController;
 use App\Http\Controllers\Admin\RoleController;
+use App\Http\Controllers\Admin\RoomBulkActionController;
 use App\Http\Controllers\Admin\RoomController;
 use App\Http\Controllers\Admin\RoomRateController;
 use App\Http\Controllers\Admin\RoomTypeController;
@@ -47,7 +52,14 @@ Route::middleware('auth')->group(function (): void {
     Route::resource('floors', FloorController::class)->except(['show']);
     Route::resource('room-types', RoomTypeController::class)->except(['show'])->parameters(['room-types' => 'roomType']);
     Route::resource('rooms', RoomController::class)->except(['show']);
+    Route::patch('rooms/bulk/out-of-order', [RoomBulkActionController::class, 'markOutOfOrder'])->name('rooms.bulk.out-of-order');
+    Route::patch('rooms/bulk/release', [RoomBulkActionController::class, 'release'])->name('rooms.bulk.release');
     Route::resource('room-rates', RoomRateController::class)->except(['show'])->parameters(['room-rates' => 'roomRate']);
+    Route::resource('product-service-categories', ProductServiceCategoryController::class)->except(['show'])->parameters(['product-service-categories' => 'productServiceCategory']);
+    Route::get('product-services', [ProductServiceController::class, 'index'])->name('product-services.index');
+    Route::post('product-services', [ProductServiceController::class, 'store'])->name('product-services.store');
+    Route::patch('product-services/{productService}', [ProductServiceController::class, 'update'])->name('product-services.update');
+    Route::patch('product-services/{productService}/toggle', [ProductServiceController::class, 'toggleActive'])->name('product-services.toggle');
     Route::resource('settings', SettingController::class)->except(['show']);
     Route::get('audit-logs', [AuditLogController::class, 'index'])->name('audit-logs.index');
 
@@ -68,6 +80,13 @@ Route::middleware('auth')->group(function (): void {
         Route::post('night-audit/{nightAuditRun}/retry', [NightAuditController::class, 'retry'])->name('night-audit.retry');
 
         Route::get('room-availability', [RoomAvailabilityController::class, 'index'])->name('room-availability.index');
+
+        Route::prefix('checkout-inspections')->name('checkout-inspections.')->group(function (): void {
+            Route::get('/', [CheckoutInspectionController::class, 'index'])->name('index');
+            Route::post('stays/{stay}/draft', [CheckoutInspectionController::class, 'draft'])->name('draft');
+            Route::patch('{checkoutInspection}/save', [CheckoutInspectionController::class, 'saveDraft'])->name('save');
+            Route::post('{checkoutInspection}/complete', [CheckoutInspectionController::class, 'complete'])->name('complete');
+        });
 
         Route::get('reports/revenue', [RevenueReportController::class, 'index'])->name('reports.revenue.index');
         Route::get('reports/revenue/export', [RevenueReportController::class, 'export'])->name('reports.revenue.export');
@@ -94,6 +113,7 @@ Route::middleware('auth')->group(function (): void {
         Route::post('bookings/{booking}/room-board/conflict/{assignment}/release', [RoomAssignmentController::class, 'releaseConflict'])->name('bookings.room-board.conflict.release');
         Route::post('bookings/{booking}/stays/{stay}/check-in', [StayController::class, 'checkIn'])->name('bookings.stays.check-in');
         Route::post('bookings/{booking}/stays/{stay}/check-out', [StayController::class, 'checkOut'])->name('bookings.stays.check-out');
+        Route::post('bookings/{booking}/stays/{stay}/inspection-skip', [StayController::class, 'skipInspection'])->name('bookings.stays.inspection-skip');
         Route::post('bookings/{booking}/stays/{stay}/extend', [StayController::class, 'extend'])->name('bookings.stays.extend');
         Route::post('bookings/{booking}/stays/{stay}/move-room', [StayController::class, 'moveRoom'])->name('bookings.stays.move-room');
         Route::get('bookings/{booking}/packages', [PackageEnrollmentController::class, 'show'])->name('bookings.packages');
@@ -110,6 +130,7 @@ Route::middleware('auth')->group(function (): void {
         // Phase 4.2 Milestone 4 — Housekeeping Workflow
         Route::prefix('housekeeping')->name('housekeeping.')->group(function (): void {
             Route::get('/', [HousekeepingController::class, 'index'])->name('index');
+            Route::get('{room}/detail', [HousekeepingController::class, 'show'])->name('detail');
             Route::post('{room}/assign', [HousekeepingController::class, 'assign'])->name('assign');
             Route::patch('assignments/{assignment}/start', [HousekeepingController::class, 'startCleaning'])->name('start');
             Route::patch('assignments/{assignment}/complete', [HousekeepingController::class, 'completeCleaning'])->name('complete');
@@ -118,6 +139,10 @@ Route::middleware('auth')->group(function (): void {
             Route::patch('{room}/skip-inspection', [HousekeepingController::class, 'skipInspection'])->name('inspect.skip');
             Route::patch('{room}/out-of-order', [HousekeepingController::class, 'markOutOfOrder'])->name('out-of-order');
             Route::patch('{room}/release', [HousekeepingController::class, 'releaseFromOutOfOrder'])->name('release');
+
+            Route::patch('bulk/assign', [HousekeepingBulkActionController::class, 'bulkAssign'])->name('bulk.assign');
+            Route::patch('bulk/start', [HousekeepingBulkActionController::class, 'bulkStart'])->name('bulk.start');
+            Route::patch('bulk/complete', [HousekeepingBulkActionController::class, 'bulkComplete'])->name('bulk.complete');
         });
     });
 });

@@ -6,7 +6,11 @@ use App\Models\AuditLog;
 use App\Models\Booking;
 use App\Models\BookingSpecialRequest;
 use App\Models\HotelSetting;
+use App\Models\CheckoutInspection;
+use App\Models\CheckoutInspectionItem;
 use App\Models\NightAuditRun;
+use App\Models\ProductService;
+use App\Models\ProductServiceCategory;
 use App\Models\ServiceRate;
 use App\Models\BookingPayment;
 use App\Models\BookingRequirement;
@@ -39,7 +43,10 @@ use App\Policies\RoomRatePolicy;
 use App\Policies\RoomTypePolicy;
 use App\Policies\HotelSettingPolicy;
 use App\Policies\HousekeepingPolicy;
+use App\Policies\CheckoutInspectionPolicy;
 use App\Policies\NightAuditRunPolicy;
+use App\Policies\ProductServicePolicy;
+use App\Policies\ProductServiceCategoryPolicy;
 use App\Policies\ServiceRatePolicy;
 use App\Policies\SettingPolicy;
 use App\Policies\BookingSpecialRequestPolicy;
@@ -80,6 +87,9 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Stay::class, StayPolicy::class);
         Gate::policy(BookingSpecialRequest::class, BookingSpecialRequestPolicy::class);
         Gate::policy(HousekeepingAssignment::class, HousekeepingPolicy::class);
+        Gate::policy(ProductServiceCategory::class, ProductServiceCategoryPolicy::class);
+        Gate::policy(ProductService::class, ProductServicePolicy::class);
+        Gate::policy(CheckoutInspection::class, CheckoutInspectionPolicy::class);
 
         User::observe(AuditObserver::class);
         Role::observe(AuditObserver::class);
@@ -100,5 +110,9 @@ class AppServiceProvider extends ServiceProvider
         BookingSpecialRequest::observe(AuditObserver::class);
         HousekeepingAssignment::observe(AuditObserver::class);
         CleaningRecord::observe(AuditObserver::class);
+        ProductServiceCategory::observe(AuditObserver::class);
+        ProductService::observe(AuditObserver::class);
+        CheckoutInspection::observe(AuditObserver::class);
+        CheckoutInspectionItem::observe(AuditObserver::class);
     }
 }

@@ -16,10 +16,21 @@ interface CheckableStay {
     room_number: string
 }
 
+interface ProductServiceItem {
+    id: number
+    name: string
+    category_name: string | null
+    charge_type: string
+    unit_price: number
+    unit_label: string
+}
+
 const props = defineProps<{
     bookingId: number
     chargeTypes: { value: string; label: string }[]
     serviceRates: ServiceRate[]
+    productServices?: ProductServiceItem[]
+    canOverrideProductPrice?: boolean
     checkableStays: CheckableStay[]
 }>()
 
@@ -28,6 +39,24 @@ const emit = defineEmits<{
 }>()
 
 const selectedRateId = ref<number | null>(null)
+const selectedProductId = ref<number | null>(null)
+
+const priceLocked = computed(() => selectedProductId.value !== null && !props.canOverrideProductPrice)
+
+const selectProduct = (product: ProductServiceItem) => {
+    if (selectedProductId.value === product.id) {
+        selectedProductId.value = null
+        form.charge_type = 'OTHER'
+        form.unit_price = 0
+        form.description = ''
+    } else {
+        selectedProductId.value = product.id
+        selectedRateId.value = null
+        form.charge_type = product.charge_type
+        form.unit_price = product.unit_price
+        form.description = product.name
+    }
+}
 
 const manualChargeTypes = computed(() =>
     props.chargeTypes.filter(t => t.value !== 'ROOM')
@@ -57,6 +86,7 @@ const selectRate = (rate: ServiceRate) => {
         form.description = ''
     } else {
         selectedRateId.value = rate.id
+        selectedProductId.value = null
         form.charge_type = rate.charge_type
         form.unit_price = rate.unit_price
         form.description = rate.name
@@ -69,6 +99,7 @@ const submit = () => {
         onSuccess: () => {
             form.reset()
             selectedRateId.value = null
+            selectedProductId.value = null
             emit('cancel')
         },
     })
@@ -97,6 +128,27 @@ const submit = () => {
             </div>
         </div>
 
+        <!-- Product/service catalog tiles -->
+        <div v-if="(productServices ?? []).length > 0">
+            <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-steel">Sản phẩm/dịch vụ</div>
+            <div class="flex flex-wrap gap-2">
+                <button
+                    v-for="product in productServices"
+                    :key="product.id"
+                    type="button"
+                    class="inline-flex flex-col items-start border px-3 py-2 text-left text-xs transition-colors"
+                    :class="selectedProductId === product.id
+                        ? 'border-pine bg-pine text-white'
+                        : 'border-gray-300 bg-white text-ink hover:border-pine'"
+                    @click="selectProduct(product)"
+                >
+                    <span class="font-semibold">{{ product.name }}</span>
+                    <span class="mt-0.5 opacity-80">{{ formatCurrency(product.unit_price) }} / {{ product.unit_label }}</span>
+                    <span v-if="product.category_name" class="opacity-60">{{ product.category_name }}</span>
+                </button>
+            </div>
+        </div>
+
         <!-- Manual form fields -->
         <form class="grid gap-3 md:grid-cols-5" @submit.prevent="submit">
             <div>
@@ -118,7 +170,15 @@ const submit = () => {
 
             <div>
                 <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Đơn giá</label>
-                <input v-model="form.unit_price" type="number" min="0" step="0.01" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm" />
+                <input
+                    v-model="form.unit_price"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    :disabled="priceLocked"
+                    :title="priceLocked ? 'Không có quyền sửa giá danh mục sản phẩm/dịch vụ' : ''"
+                    class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-steel"
+                />
             </div>
 
             <div>

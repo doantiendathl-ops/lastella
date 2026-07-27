@@ -125,7 +125,7 @@ const firstError = computed(() => Object.values(errors.value)[0]?.[0]);
         <div class="w-full max-w-md border border-gray-200 bg-white shadow-xl">
             <div class="flex items-center justify-between border-b border-gray-200 px-4 py-3">
                 <span class="text-sm font-semibold text-ink">{{ config.title(room) }}</span>
-                <button type="button" class="text-steel hover:text-ink" @click="emit('close')">
+                <button type="button" class="flex min-h-11 min-w-11 items-center justify-center text-steel hover:text-ink" @click="emit('close')">
                     <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                     </svg>
@@ -193,11 +193,11 @@ const firstError = computed(() => Object.values(errors.value)[0]?.[0]);
 
                 <p v-if="firstError" class="text-sm text-coral">{{ firstError }}</p>
 
-                <div class="flex justify-end gap-2 pt-2">
-                    <button type="button" class="border border-gray-300 px-3 py-1.5 text-xs font-semibold text-steel hover:text-ink" @click="emit('close')">Hủy</button>
+                <div class="flex flex-col gap-2 pt-2 sm:flex-row sm:justify-end">
+                    <button type="button" class="min-h-11 border border-gray-300 px-3 py-2 text-sm font-semibold text-steel hover:text-ink" @click="emit('close')">Hủy</button>
                     <button
                         type="submit"
-                        class="border border-pine bg-pine px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                        class="min-h-11 border border-pine bg-pine px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                         :disabled="processing"
                     >
                         {{ config.confirmLabel }}

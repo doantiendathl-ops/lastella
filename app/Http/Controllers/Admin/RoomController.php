@@ -25,34 +25,54 @@ class RoomController extends Controller
     {
         $this->authorize('viewAny', Room::class);
 
-        $items = $this->rooms->paginate($request->validated())->through(fn (Room $room): array => [
-            'id' => $room->id,
-            'room_number' => $room->room_number,
-            'floor' => $room->floor?->code,
-            'room_type' => $room->roomType?->code,
-            'status' => $room->status?->label(),
-            'resource' => $room->resource?->code,
-            'created_at' => $room->created_at?->toDateTimeString(),
-        ]);
+        $filters = $request->validated();
 
-        return Inertia::render('Admin/CrudIndex', [
-            'title' => 'Phòng',
-            'baseUrl' => '/rooms',
-            'items' => $items,
-            'filters' => $request->validated(),
-            'columns' => [
-                ['key' => 'room_number', 'label' => 'Phòng', 'sortable' => true],
-                ['key' => 'floor', 'label' => 'Tầng'],
-                ['key' => 'room_type', 'label' => 'Loại'],
-                ['key' => 'status', 'label' => 'Trạng thái', 'sortable' => true],
-                ['key' => 'resource', 'label' => 'Tài nguyên'],
+        $rooms = Room::query()
+            ->with(['roomType', 'floor'])
+            ->when($filters['floor_id'] ?? null, fn ($q, $v) => $q->where('floor_id', $v))
+            ->when($filters['room_type_id'] ?? null, fn ($q, $v) => $q->where('room_type_id', $v))
+            ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
+            ->when($filters['search'] ?? null, fn ($q, $v) => $q->where('room_number', 'like', "%{$v}%"))
+            ->get();
+
+        $maintenanceStatuses = [RoomStatus::OutOfOrder, RoomStatus::OutOfService];
+
+        $floors = Floor::query()
+            ->orderBy('sort_order')
+            ->get()
+            ->map(function (Floor $floor) use ($rooms, $maintenanceStatuses): array {
+                $floorRooms = $rooms->where('floor_id', $floor->id)->sortBy('room_number')->values();
+
+                return [
+                    'id' => $floor->id,
+                    'code' => $floor->code,
+                    'name' => $floor->name,
+                    'rooms' => $floorRooms->map(fn (Room $room): array => [
+                        'id' => $room->id,
+                        'room_number' => $room->room_number,
+                        'floor_id' => $room->floor_id,
+                        'room_type' => $room->roomType?->code,
+                        'status' => $room->status->value,
+                        'status_label' => $room->status->label(),
+                        'is_maintenance' => in_array($room->status, $maintenanceStatuses, true),
+                        'is_eligible_for_bulk' => ! in_array($room->status, $maintenanceStatuses, true),
+                    ])->values(),
+                ];
+            })
+            ->filter(fn (array $floor): bool => count($floor['rooms']) > 0)
+            ->values();
+
+        return Inertia::render('Admin/Rooms/Index', [
+            'floors' => $floors,
+            'filters' => $filters,
+            'floorOptions' => $this->floorOptions(),
+            'roomTypeOptions' => $this->roomTypeOptions(),
+            'statusOptions' => RoomStatus::options(),
+            'can' => [
+                'create' => $request->user()->can('create', Room::class),
+                'bulkUpdate' => $request->user()->can('bulkUpdate', Room::class),
+                'maintenance' => $request->user()->can('room.maintenance'),
             ],
-            'filterFields' => [
-                ['name' => 'floor_id', 'label' => 'Tầng', 'type' => 'select', 'options' => $this->floorOptions()],
-                ['name' => 'room_type_id', 'label' => 'Loại phòng', 'type' => 'select', 'options' => $this->roomTypeOptions()],
-                ['name' => 'status', 'label' => 'Trạng thái', 'type' => 'select', 'options' => RoomStatus::options()],
-            ],
-            'canCreate' => true,
         ]);
     }
 

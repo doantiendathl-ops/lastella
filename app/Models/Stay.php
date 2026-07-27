@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Stay extends Model
 {
@@ -26,6 +27,9 @@ class Stay extends Model
         'checked_in_by',
         'checked_out_by',
         'note',
+        'inspection_skipped_at',
+        'inspection_skipped_by',
+        'inspection_skip_reason',
     ];
 
     protected function casts(): array
@@ -36,6 +40,7 @@ class Stay extends Model
             'actual_checkin_at' => 'datetime',
             'actual_checkout_at' => 'datetime',
             'status' => StayStatus::class,
+            'inspection_skipped_at' => 'datetime',
         ];
     }
 
@@ -72,5 +77,15 @@ class Stay extends Model
     public function stayEvents(): HasMany
     {
         return $this->hasMany(StayEvent::class);
+    }
+
+    public function checkoutInspection(): HasOne
+    {
+        return $this->hasOne(CheckoutInspection::class);
+    }
+
+    public function inspectionSkippedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'inspection_skipped_by');
     }
 }

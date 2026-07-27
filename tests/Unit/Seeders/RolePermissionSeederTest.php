@@ -139,7 +139,8 @@ class RolePermissionSeederTest extends TestCase
 
         $housekeeping = Role::findByName('HOUSEKEEPING');
 
-        $this->assertCount(4, $housekeeping->permissions);
+        // Was 4 before this feature added checkout_inspection.view / checkout_inspection.perform to HOUSEKEEPING.
+        $this->assertCount(6, $housekeeping->permissions);
         $this->assertFalse($housekeeping->hasPermissionTo('rooms.manage'));
         $this->assertTrue($housekeeping->hasPermissionTo('housekeeping.view'));
     }

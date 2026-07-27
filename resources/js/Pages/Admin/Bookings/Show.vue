@@ -18,6 +18,7 @@ const props = defineProps({
     options: { type: Object, required: true },
     can: { type: Object, required: true },
     serviceRates: { type: Array, default: () => [] },
+    productServices: { type: Array, default: () => [] },
     checkableStays: { type: Array, default: () => [] },
     currentBusinessDate: { type: String, default: '' },
 });
@@ -836,9 +837,11 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                     voidCharge: can.voidCharge,
                     addPayment: can.addPayment,
                     deletePayment: can.deletePayment,
+                    overrideProductPrice: can.overrideProductPrice,
                 }"
                 :has-active-stays="hasActiveStays"
                 :service-rates="serviceRates"
+                :product-services="productServices"
                 :checkable-stays="checkableStays"
             />
             <div v-if="tab === 'room_map'" class="space-y-5 p-5">

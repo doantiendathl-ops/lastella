@@ -9,6 +9,7 @@ use App\Http\Requests\Booking\CheckInStayRequest;
 use App\Http\Requests\Booking\CheckOutStayRequest;
 use App\Http\Requests\Booking\ExtendStayRequest;
 use App\Http\Requests\Booking\MoveRoomRequest;
+use App\Http\Requests\Booking\SkipCheckoutInspectionRequest;
 use App\Models\Booking;
 use App\Models\Room;
 use App\Models\Stay;
@@ -56,6 +57,23 @@ class StayController extends Controller
         }
 
         return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'room_map'])->with('success', 'Đã trả phòng.');
+    }
+
+    /**
+     * Records an authorized, reasoned skip of the checkout inspection for this stay only.
+     * Standalone action — does not itself perform checkout. The frontend calls this first
+     * (when the acting user has permission and chooses to skip), then submits the normal,
+     * unmodified checkout request. Never blocks or alters checkOut() in any way.
+     */
+    public function skipInspection(SkipCheckoutInspectionRequest $request, Booking $booking, Stay $stay): RedirectResponse
+    {
+        abort_unless($stay->booking_id === $booking->id, 404);
+
+        $this->stays->skipCheckoutInspection($stay, $request->user(), $request->validated('reason'));
+
+        return redirect()
+            ->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'room_map'])
+            ->with('success', 'Đã ghi nhận bỏ qua kiểm đồ cho phòng này.');
     }
 
     public function extend(ExtendStayRequest $request, Booking $booking, Stay $stay): RedirectResponse

@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Admin;
 use App\Enums\CleaningPriority;
 use App\Enums\CleaningReason;
 use App\Enums\RoomStatus;
+use App\Enums\StayStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Housekeeping\AssignHousekeepingRequest;
 use App\Http\Requests\Housekeeping\CompleteCleaningRequest;
@@ -14,8 +15,12 @@ use App\Http\Requests\Housekeeping\InspectionRequest;
 use App\Http\Requests\Housekeeping\OutOfOrderRequest;
 use App\Http\Requests\Housekeeping\ReleaseFromOutOfOrderRequest;
 use App\Http\Requests\Housekeeping\StartCleaningRequest;
+use App\Models\Booking;
+use App\Models\BookingSpecialRequest;
+use App\Models\Floor;
 use App\Models\HousekeepingAssignment;
 use App\Models\Room;
+use App\Models\Stay;
 use App\Models\User;
 use App\Services\HousekeepingService;
 use Illuminate\Http\JsonResponse;
@@ -33,31 +38,127 @@ class HousekeepingController extends Controller
     {
         $this->authorize('view', HousekeepingAssignment::class);
 
-        $rooms = Room::with(['roomType', 'floor', 'activeHousekeepingAssignment.assignedTo'])
-            ->get()
-            ->map(fn (Room $room): array => [
+        $canViewBooking = $request->user()?->can('viewAny', Booking::class) ?? false;
+        $today = today();
+
+        $rooms = Room::with([
+            'roomType',
+            'floor',
+            'activeHousekeepingAssignment.assignedTo',
+            'stays' => fn ($q) => $q->whereIn('status', [StayStatus::CheckedIn->value, StayStatus::Reserved->value])
+                ->with('booking:id,customer_name')
+                ->orderByDesc('planned_checkin_at'),
+        ])->get();
+
+        $pendingRequestCounts = BookingSpecialRequest::pendingCountByRoom($rooms->pluck('id')->all());
+
+        $maintenanceStatuses = [RoomStatus::OutOfOrder, RoomStatus::OutOfService];
+
+        $roomRows = $rooms->map(function (Room $room) use ($canViewBooking, $today, $pendingRequestCounts, $maintenanceStatuses): array {
+            /** @var Stay|null $currentStay */
+            $currentStay = $room->stays->firstWhere('status', StayStatus::CheckedIn) ?? $room->stays->first();
+
+            return [
                 'id'               => $room->id,
+                'floor_id'         => $room->floor_id,
                 'room_number'      => $room->room_number,
                 'status'           => $room->status->value,
                 'status_label'     => $room->status->label(),
+                'is_maintenance'   => in_array($room->status, $maintenanceStatuses, true),
+                'is_eligible_for_bulk' => ! in_array($room->status, $maintenanceStatuses, true),
                 'last_cleaned_at'  => $room->last_cleaned_at?->toDateTimeString(),
                 'active_assignment' => $room->activeHousekeepingAssignment === null ? null : [
                     'id'          => $room->activeHousekeepingAssignment->id,
                     'status'      => $room->activeHousekeepingAssignment->status->value,
                     'assigned_to' => $room->activeHousekeepingAssignment->assignedTo?->name,
                     'priority'    => $room->activeHousekeepingAssignment->priority->value,
+                    'updated_at'  => $room->activeHousekeepingAssignment->updated_at?->toDateTimeString(),
                 ],
+                'guest_name'            => $canViewBooking ? $currentStay?->booking?->customer_name : null,
+                'booking_id'            => $canViewBooking ? $currentStay?->booking_id : null,
+                'is_checkin_today'      => $currentStay?->planned_checkin_at?->isSameDay($today) ?? false,
+                'is_checkout_today'     => $currentStay?->planned_checkout_at?->isSameDay($today) ?? false,
+                'special_request_count' => $pendingRequestCounts[$room->id] ?? 0,
+            ];
+        });
+
+        $floors = Floor::query()
+            ->orderBy('sort_order')
+            ->get()
+            ->map(fn (Floor $floor): array => [
+                'id' => $floor->id,
+                'code' => $floor->code,
+                'name' => $floor->name,
+                'rooms' => $roomRows->where('floor_id', $floor->id)->sortBy('room_number')->values(),
             ])
+            ->filter(fn (array $f): bool => count($f['rooms']) > 0)
             ->values();
 
         return Inertia::render('Admin/Housekeeping/Index', [
-            'rooms' => $rooms,
+            'floors' => $floors,
             'can'   => [
                 'assign'       => $request->user()->can('assign', HousekeepingAssignment::class),
                 'updateStatus' => $request->user()->can('updateStatus', HousekeepingAssignment::class),
                 'inspect'      => $request->user()->can('inspect', HousekeepingAssignment::class),
                 'maintenance'  => $request->user()->can('maintenance', HousekeepingAssignment::class),
             ],
+        ]);
+    }
+
+    public function show(Request $request, Room $room): JsonResponse
+    {
+        $this->authorize('view', HousekeepingAssignment::class);
+
+        $canViewBooking = $request->user()?->can('viewAny', Booking::class) ?? false;
+
+        $room->load(['roomType', 'floor', 'activeHousekeepingAssignment.assignedTo']);
+
+        $currentStay = Stay::where('room_id', $room->id)
+            ->whereIn('status', [StayStatus::CheckedIn->value, StayStatus::Reserved->value])
+            ->with(['booking', 'specialRequests' => fn ($q) => $q->latest()->limit(10)])
+            ->orderByDesc('planned_checkin_at')
+            ->first();
+
+        $recentCleanings = $room->cleaningRecords()
+            ->with(['cleanedBy', 'inspectedBy'])
+            ->latest('started_at')
+            ->limit(5)
+            ->get()
+            ->map(fn ($record): array => [
+                'started_at' => $record->started_at?->toDateTimeString(),
+                'completed_at' => $record->completed_at?->toDateTimeString(),
+                'cleaned_by' => $record->cleanedBy?->name,
+                'inspection_result' => $record->inspection_result?->value,
+                'inspected_by' => $record->inspectedBy?->name,
+                'inspected_at' => $record->inspected_at?->toDateTimeString(),
+            ]);
+
+        return response()->json([
+            'room' => [
+                'id' => $room->id,
+                'room_number' => $room->room_number,
+                'room_type' => $room->roomType?->name,
+                'status' => $room->status->value,
+                'status_label' => $room->status->label(),
+                'notes' => $room->notes,
+            ],
+            'active_assignment' => $room->activeHousekeepingAssignment === null ? null : [
+                'status' => $room->activeHousekeepingAssignment->status->value,
+                'assigned_to' => $room->activeHousekeepingAssignment->assignedTo?->name,
+                'notes' => $room->activeHousekeepingAssignment->notes,
+                'updated_at' => $room->activeHousekeepingAssignment->updated_at?->toDateTimeString(),
+            ],
+            'stay' => $currentStay === null ? null : [
+                'guest_name' => $canViewBooking ? $currentStay->booking?->customer_name : null,
+                'checked_in_at' => $currentStay->actual_checkin_at?->toDateTimeString(),
+                'planned_checkout_at' => $currentStay->planned_checkout_at?->toDateTimeString(),
+                'note' => $currentStay->note,
+                'special_requests' => $currentStay->specialRequests->map(fn ($r) => [
+                    'note' => $r->note,
+                    'status' => $r->status->value,
+                ]),
+            ],
+            'recent_cleanings' => $recentCleanings,
         ]);
     }
 

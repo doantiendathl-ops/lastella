@@ -57,6 +57,11 @@ class RolePermissionSeeder extends Seeder
         'room.status.update',
         'room.inspect',
         'room.maintenance',
+        'rooms.bulk_update',
+        'product_services.manage',
+        'checkout_inspection.view',
+        'checkout_inspection.perform',
+        'checkout_inspection.override',
     ];
 
     public function run(): void
@@ -109,6 +114,11 @@ class RolePermissionSeeder extends Seeder
             'room.status.update',
             'room.inspect',
             'room.maintenance',
+            'rooms.bulk_update',
+            'product_services.manage',
+            'checkout_inspection.view',
+            'checkout_inspection.perform',
+            'checkout_inspection.override',
         ]);
 
         Role::findByName('SALES')->syncPermissions([
@@ -137,6 +147,8 @@ class RolePermissionSeeder extends Seeder
             'report.view',
             'special_request.create',
             'housekeeping.view',
+            'checkout_inspection.view',
+            'checkout_inspection.perform',
         ]);
 
         Role::findByName('HOUSEKEEPING')->syncPermissions([
@@ -144,6 +156,8 @@ class RolePermissionSeeder extends Seeder
             'housekeeping.assign',
             'room.status.update',
             'special_request.fulfill',
+            'checkout_inspection.view',
+            'checkout_inspection.perform',
         ]);
 
         Role::findByName('ACCOUNTANT')->syncPermissions([

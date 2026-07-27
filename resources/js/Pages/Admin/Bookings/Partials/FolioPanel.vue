@@ -82,9 +82,11 @@ const props = defineProps<{
         voidCharge: boolean
         addPayment: boolean
         deletePayment: boolean
+        overrideProductPrice: boolean
     }
     hasActiveStays: boolean
     serviceRates?: { id: number; name: string; charge_type: string; unit_price: number; unit_label: string }[]
+    productServices?: { id: number; name: string; category_name: string | null; charge_type: string; unit_price: number; unit_label: string }[]
     checkableStays?: { id: number; room_number: string }[]
 }>()
 
@@ -165,6 +167,8 @@ const reopenFolio = () => {
                 :booking-id="booking.id"
                 :charge-types="options.chargeTypes"
                 :service-rates="serviceRates ?? []"
+                :product-services="productServices ?? []"
+                :can-override-product-price="can.overrideProductPrice"
                 :checkable-stays="checkableStays ?? []"
                 @cancel="showAddChargeForm = false"
             />
