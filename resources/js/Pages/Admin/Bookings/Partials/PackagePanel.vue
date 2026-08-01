@@ -14,7 +14,7 @@ const page = usePage();
 const packageError = computed(() => page.props.errors?.package ?? null);
 
 const PACKAGE_LABELS = {
-    BREAKFAST_PER_NIGHT: 'Bữa sáng mỗi đêm',
+    BREAKFAST_PER_NIGHT: 'Ăn sáng mỗi đêm',
 };
 
 const packageLabel = (key) => PACKAGE_LABELS[key] ?? key;
@@ -72,7 +72,7 @@ const unenroll = (packageKey) => {
         <p v-else class="mb-3 text-sm text-steel">Chưa đăng ký gói dịch vụ nào.</p>
 
         <form v-if="canEnrollBreakfast" class="flex items-center gap-2" @submit.prevent="enroll">
-            <span class="text-sm text-steel">Bữa sáng mỗi đêm</span>
+            <span class="text-sm text-steel">Ăn sáng mỗi đêm</span>
             <button
                 type="submit"
                 class="inline-flex items-center gap-1 bg-pine px-3 py-1.5 text-xs font-semibold text-white disabled:bg-gray-300"
