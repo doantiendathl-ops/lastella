@@ -156,13 +156,21 @@ class BookingController extends Controller
             'assignmentSummary'   => $assignments->getAssignmentSummary($booking),
             'roomBoard'           => $assignments->getRoomBoard($booking),
             'options'             => $this->options(includeRooms: true, booking: $booking),
-            'serviceRates'        => array_values(array_map(fn ($rate): array => [
-                'id'          => $rate->id,
-                'name'        => $rate->name,
-                'charge_type' => $rate->charge_type,
-                'unit_price'  => (float) $rate->unit_price,
-                'unit_label'  => $rate->unit_label,
-            ], $activeRates)),
+            // activeRatesGrouped() groups rates by charge_type (charge_type is the array key,
+            // not a field on each entry), so flatten per group and reattach charge_type.
+            'serviceRates'        => collect($activeRates)
+                ->flatMap(fn (array $rates, string $chargeType): array => array_map(
+                    fn (array $rate): array => [
+                        'id'          => $rate['id'],
+                        'name'        => $rate['name'],
+                        'charge_type' => $chargeType,
+                        'unit_price'  => (float) $rate['unit_price'],
+                        'unit_label'  => $rate['unit_label'],
+                    ],
+                    $rates
+                ))
+                ->values()
+                ->all(),
             'productServices'     => ProductService::addableToBooking()
                 ->with('category')
                 ->orderBy('sort_order')
