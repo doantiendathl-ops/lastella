@@ -50,6 +50,7 @@ use App\Policies\CheckoutInspectionPolicy;
 use App\Policies\NightAuditRunPolicy;
 use App\Policies\ProductServicePolicy;
 use App\Policies\ProductServiceCategoryPolicy;
+use App\Policies\ServicePackagePolicy;
 use App\Policies\ServiceRatePolicy;
 use App\Policies\SettingPolicy;
 use App\Policies\BookingSpecialRequestPolicy;
@@ -81,6 +82,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(HotelSetting::class, HotelSettingPolicy::class);
         Gate::policy(NightAuditRun::class, NightAuditRunPolicy::class);
         Gate::policy(ServiceRate::class, ServiceRatePolicy::class);
+        Gate::policy(ServicePackage::class, ServicePackagePolicy::class);
         Gate::policy(AuditLog::class, AuditLogPolicy::class);
         Gate::policy(Booking::class, BookingPolicy::class);
         Gate::policy(BookingPayment::class, BookingPaymentPolicy::class);

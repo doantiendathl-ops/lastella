@@ -41,6 +41,21 @@ enum PackageCalculationStrategy: string
         return in_array($this, self::implemented(), true);
     }
 
+    /** @return array<PackageQuantityMode> Quantity modes this strategy accepts. */
+    public function compatibleQuantityModes(): array
+    {
+        return match ($this) {
+            self::OncePerStayPerNight => [PackageQuantityMode::None],
+            self::ManualQuantityPerNight => [PackageQuantityMode::ManualInput],
+            default => [],
+        };
+    }
+
+    public function isCompatibleWith(PackageQuantityMode $quantityMode): bool
+    {
+        return in_array($quantityMode, $this->compatibleQuantityModes(), true);
+    }
+
     public static function options(): array
     {
         return array_map(

@@ -66,11 +66,37 @@ class ServicePackage extends Model
     }
 
     /**
+     * A package is "used" once it has any price history or has ever been
+     * enrolled on a booking (booking_package_flags.package_key). Deliberately
+     * does not query FolioEntry by name/description — package identity is
+     * tracked via code/rates only.
+     */
+    public function hasBeenUsed(): bool
+    {
+        return $this->rates()->exists()
+            || BookingPackageFlag::where('package_key', $this->getOriginal('code') ?? $this->code)->exists();
+    }
+
+    /** Resolves the rate in effect for the given business date, latest-created wins on ties. */
+    public function currentRate(string $businessDate): ?ServicePackageRate
+    {
+        return $this->rates()
+            ->active()
+            ->effectiveOn($businessDate)
+            ->orderByDesc('effective_from')
+            ->orderByDesc('id')
+            ->first();
+    }
+
+    /**
      * Milestone-1 domain invariant: a package must never be saved with a
      * strategy/quantity-mode/posting-frequency the posting engine cannot
-     * actually execute yet. This is a defense-in-depth guard — Milestone 2's
-     * admin form is expected to validate the same rule before it ever
-     * reaches the model.
+     * actually execute yet. Milestone 2 adds: once a package has been used
+     * (has rates or booking_package_flags history), its identity fields
+     * (code/charge_type/calculation_strategy/quantity_mode/posting_frequency)
+     * become immutable — this is a defense-in-depth guard; the admin
+     * Controller/FormRequest are expected to enforce the same rule before it
+     * ever reaches the model.
      */
     protected static function booted(): void
     {
@@ -96,22 +122,24 @@ class ServicePackage extends Model
                 );
             }
 
-            if (! self::isQuantityModeCompatible($strategy, $quantityMode)) {
+            if (! $strategy->isCompatibleWith($quantityMode)) {
                 throw new InvalidArgumentException(
                     "quantity_mode [{$quantityMode->value}] is not compatible with calculation_strategy [{$strategy->value}]."
                 );
             }
-        });
-    }
 
-    private static function isQuantityModeCompatible(
-        PackageCalculationStrategy $strategy,
-        PackageQuantityMode $quantityMode,
-    ): bool {
-        return match ($strategy) {
-            PackageCalculationStrategy::OncePerStayPerNight => $quantityMode === PackageQuantityMode::None,
-            PackageCalculationStrategy::ManualQuantityPerNight => $quantityMode === PackageQuantityMode::ManualInput,
-            default => false,
-        };
+            if (! $package->exists) {
+                return;
+            }
+
+            $lockedFields = ['code', 'charge_type', 'calculation_strategy', 'quantity_mode', 'posting_frequency'];
+            $changedLockedFields = array_intersect($lockedFields, array_keys($package->getDirty()));
+
+            if ($changedLockedFields !== [] && $package->hasBeenUsed()) {
+                throw new InvalidArgumentException(
+                    'Cannot change ['.implode(', ', $changedLockedFields).'] after the package has been used (has rates or booking_package_flags history).'
+                );
+            }
+        });
     }
 }

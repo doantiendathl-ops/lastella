@@ -48,7 +48,7 @@ const navItems = computed(() => [
     { label: 'Loại phòng', href: '/room-types', icon: Tags, show: can('room_types.manage') },
     { label: 'Phòng', href: '/rooms', icon: BedDouble, show: can('rooms.manage') },
     { label: 'Giá phòng', href: '/room-rates', icon: DollarSign, show: can('rates.manage') },
-    { label: 'Biểu giá dịch vụ', href: '/admin/service-rates', icon: DollarSign, show: can('service_rates.manage') },
+    { label: 'Gói dịch vụ', href: '/admin/service-packages', icon: DollarSign, show: can('service_packages.manage') },
     { label: 'Sản phẩm/Dịch vụ', href: '/product-services', icon: PackagePlus, show: can('product_services.manage') },
     { label: 'Cài đặt', href: '/settings', icon: Settings, show: can('settings.manage') },
     { label: 'Nhật ký', href: '/audit-logs', icon: ClipboardList, show: can('report.view') },

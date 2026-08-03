@@ -7,6 +7,8 @@ use App\Http\Controllers\Admin\RevenueReportController;
 use App\Http\Controllers\Admin\HotelSettingsController;
 use App\Http\Controllers\Admin\HousekeepingBulkActionController;
 use App\Http\Controllers\Admin\NightAuditController;
+use App\Http\Controllers\Admin\ServicePackageController;
+use App\Http\Controllers\Admin\ServicePackageRateController;
 use App\Http\Controllers\Admin\ServiceRateController;
 use App\Http\Controllers\Admin\Booking\BookingController;
 use App\Http\Controllers\Admin\RoomAvailabilityController;
@@ -72,6 +74,14 @@ Route::middleware('auth')->group(function (): void {
         Route::patch('service-rates/{serviceRate}', [ServiceRateController::class, 'update'])->name('service-rates.update');
         Route::patch('service-rates/{serviceRate}/toggle', [ServiceRateController::class, 'toggleActive'])->name('service-rates.toggle');
         Route::get('service-rates/history/{chargeType}', [ServiceRateController::class, 'history'])->name('service-rates.history');
+
+        Route::get('service-packages', [ServicePackageController::class, 'index'])->name('service-packages.index');
+        Route::post('service-packages', [ServicePackageController::class, 'store'])->name('service-packages.store');
+        Route::patch('service-packages/{servicePackage}', [ServicePackageController::class, 'update'])->name('service-packages.update');
+        Route::patch('service-packages/{servicePackage}/toggle', [ServicePackageController::class, 'toggle'])->name('service-packages.toggle');
+        Route::get('service-packages/{servicePackage}/history', [ServicePackageController::class, 'history'])->name('service-packages.history');
+        Route::post('service-packages/{servicePackage}/rates', [ServicePackageRateController::class, 'store'])->name('service-packages.rates.store');
+        Route::patch('service-packages/{servicePackage}/rates/{rate}/toggle', [ServicePackageRateController::class, 'toggle'])->name('service-packages.rates.toggle');
 
         Route::get('night-audit', [NightAuditController::class, 'index'])->name('night-audit.index');
         Route::get('night-audit/{nightAuditRun}', [NightAuditController::class, 'show'])->name('night-audit.show');
