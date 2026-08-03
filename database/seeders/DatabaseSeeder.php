@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
             SettingSeeder::class,
             HotelSettingsSeeder::class,
             ServiceRateSeeder::class,
+            ServicePackageSeeder::class,
             ProductServiceCategorySeeder::class,
             ProductServiceSeeder::class,
         ]);

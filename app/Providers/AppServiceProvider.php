@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Models\AuditLog;
 use App\Models\Booking;
+use App\Models\BookingPackageFlag;
 use App\Models\BookingSpecialRequest;
 use App\Models\HotelSetting;
 use App\Models\CheckoutInspection;
@@ -12,6 +13,8 @@ use App\Models\NightAuditRun;
 use App\Models\ProductService;
 use App\Models\ProductServiceCategory;
 use App\Models\ServiceRate;
+use App\Models\ServicePackage;
+use App\Models\ServicePackageRate;
 use App\Models\BookingPayment;
 use App\Models\BookingRequirement;
 use App\Models\Folio;
@@ -114,5 +117,8 @@ class AppServiceProvider extends ServiceProvider
         ProductService::observe(AuditObserver::class);
         CheckoutInspection::observe(AuditObserver::class);
         CheckoutInspectionItem::observe(AuditObserver::class);
+        ServicePackage::observe(AuditObserver::class);
+        ServicePackageRate::observe(AuditObserver::class);
+        BookingPackageFlag::observe(AuditObserver::class);
     }
 }
