@@ -33,7 +33,11 @@ class RoomAssignmentController extends Controller
             ->values();
         $rooms = Room::query()->whereKey($roomIds)->get()->keyBy('id');
 
-        $assignments = $this->assignments->assignRooms(
+        // Room Demand/Room Board Unification M2: atomic requirement mapping —
+        // every assignment created here gets booking_requirement_id resolved and
+        // written in the same transaction. assignRooms() (legacy) is unchanged
+        // and still used by every other call site.
+        $assignments = $this->assignments->assignRoomsWithRequirementLink(
             $booking,
             $roomIds->map(function (int $roomId) use ($rooms, $data): array {
                 $room = $rooms->get($roomId);
@@ -45,6 +49,7 @@ class RoomAssignmentController extends Controller
                     'end_at' => $data['end_at'],
                 ];
             })->all(),
+            $data['target_requirement_id'] ?? [],
         );
 
         foreach ($assignments as $assignment) {

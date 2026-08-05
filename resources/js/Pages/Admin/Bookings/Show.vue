@@ -84,6 +84,10 @@ const assignmentForm = useForm({
     room_ids: [],
     start_at: props.booking.checkin_at,
     end_at: props.booking.checkout_at,
+    // Room Demand/Room Board Unification M2: room_type_id => booking_requirement_id,
+    // only populated for room_types that had more than one eligible requirement
+    // line (see groupsNeedingChoice above).
+    target_requirement_id: {},
 });
 
 const submitRequirement = () => {
@@ -202,6 +206,46 @@ const existingRemainingRooms = computed(() => props.assignmentSummary.reduce(
 
 const hasAssignmentShortage = computed(() => assignmentSummaryWithSelection.value.some((item) => item.remaining_after_selection > 0));
 const hasAssignmentOverage = computed(() => selectedRoomIds.value.length > existingRemainingRooms.value);
+
+// Room Demand/Room Board Unification M2: for each room_type currently selected
+// on the Room Board, mirror (not replace) the backend resolution rule in
+// RoomAssignmentService::assignRoomsWithRequirementLink() — a room_type with
+// exactly one eligible requirement line (quantity > 0, a line reduced to 0 is
+// hidden per Product Owner Decision #18) auto-resolves with no extra step; a
+// room_type with more than one eligible line must have one explicitly chosen
+// before submit is allowed; a room_type with none must be blocked with a
+// message to add demand first. The backend re-validates ownership/eligibility
+// inside its own transaction regardless of what this computed decides.
+const selectedRoomTypeIds = computed(() => [...new Set(selectedRooms.value.map((room) => Number(room.room_type_id)))]);
+
+const targetRequirementByRoomType = ref({});
+
+const roomTypeChoiceGroups = computed(() => selectedRoomTypeIds.value.map((roomTypeId) => {
+    const lines = (props.booking.requirements ?? [])
+        .filter((requirement) => Number(requirement.room_type_id) === roomTypeId && Number(requirement.quantity) > 0);
+    const summary = props.assignmentSummary.find((item) => Number(item.room_type_id) === roomTypeId);
+    const room = selectedRooms.value.find((r) => Number(r.room_type_id) === roomTypeId);
+
+    return {
+        room_type_id: roomTypeId,
+        room_type_code: room?.room_type ?? summary?.room_type_code ?? String(roomTypeId),
+        lines,
+        needsChoice: lines.length > 1,
+        hasNoRequirement: lines.length === 0,
+        assignedSoFar: summary ? Number(summary.assigned) : 0,
+    };
+}));
+
+const groupsNeedingChoice = computed(() => roomTypeChoiceGroups.value.filter((group) => group.needsChoice));
+const groupsWithNoRequirement = computed(() => roomTypeChoiceGroups.value.filter((group) => group.hasNoRequirement));
+
+const hasUnresolvedRequirementChoice = computed(() =>
+    groupsNeedingChoice.value.some((group) => !targetRequirementByRoomType.value[group.room_type_id]));
+
+const canSubmitAssignment = computed(() =>
+    selectedRoomIds.value.length > 0
+    && groupsWithNoRequirement.value.length === 0
+    && !hasUnresolvedRequirementChoice.value);
 
 const buildRoomTypeSummaryWithSelection = (summaryList) => summaryList.map((summary) => {
     const pendingCount = selectedRooms.value.filter((r) => Number(r.room_type_id) === Number(summary.room_type_id)).length;
@@ -410,6 +454,15 @@ const roomStatusDotClass = (room) => {
 };
 
 const submitAssignment = () => {
+    // Room Demand/Room Board Unification M2: client-side gate mirrors the
+    // backend rule — never submits a batch with a room_type that has no
+    // eligible requirement line or an unresolved multi-line choice. The
+    // "Lưu phân phòng" button is disabled the same way; this is a second
+    // guard for any programmatic call to submitAssignment().
+    if (!canSubmitAssignment.value) {
+        return;
+    }
+
     if (hasExtraSelection.value) {
         const details = extraSelectionDetails.value
             .map((i) => `${i.room_type_code}: Yêu cầu 0, Đang chọn ${i.selected}`)
@@ -424,11 +477,17 @@ const submitAssignment = () => {
     }
 
     assignmentForm.room_ids = selectedRoomIds.value;
+    assignmentForm.target_requirement_id = Object.fromEntries(
+        groupsNeedingChoice.value
+            .filter((group) => targetRequirementByRoomType.value[group.room_type_id])
+            .map((group) => [group.room_type_id, targetRequirementByRoomType.value[group.room_type_id]]),
+    );
     assignmentForm.post(`/admin/bookings/${props.booking.id}/assignments`, {
         preserveScroll: true,
         onSuccess: () => {
             selectedRoomIds.value = [];
-            assignmentForm.reset('room_ids');
+            targetRequirementByRoomType.value = {};
+            assignmentForm.reset('room_ids', 'target_requirement_id');
         },
     });
 };
@@ -990,13 +1049,40 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                             <div class="text-sm font-semibold">Sơ đồ phòng</div>
                             <div class="mt-1 text-sm text-steel">{{ booking.checkin_at }} - {{ booking.checkout_at }}</div>
                         </div>
-                        <button type="submit" class="inline-flex items-center justify-center gap-2 bg-pine px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300" :disabled="selectedRoomIds.length === 0 || assignmentForm.processing">
+                        <button type="submit" class="inline-flex items-center justify-center gap-2 bg-pine px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300" :disabled="!canSubmitAssignment || assignmentForm.processing">
                             <BedDouble class="h-4 w-4" />
                             Lưu phân phòng
                         </button>
                     </div>
 
                     <p v-if="Object.keys(assignmentForm.errors).length" class="text-sm text-coral">{{ Object.values(assignmentForm.errors)[0] }}</p>
+
+                    <!-- Room Demand/Room Board Unification M2: loại phòng đang chọn nhưng chưa có
+                         dòng nhu cầu nào — chặn hẳn, không cho frontend tự tạo nhu cầu (thuộc M3). -->
+                    <div v-if="groupsWithNoRequirement.length" class="space-y-1 border border-coral/40 bg-coral/5 p-3 text-sm text-coral">
+                        <p v-for="group in groupsWithNoRequirement" :key="`no-req-${group.room_type_id}`">
+                            Loại phòng {{ group.room_type_code }} chưa có dòng nhu cầu phù hợp. Hãy thêm nhu cầu phòng trước khi phân phòng.
+                        </p>
+                    </div>
+
+                    <!-- Room Demand/Room Board Unification M2: loại phòng có nhiều dòng nhu cầu —
+                         bắt buộc chọn đúng dòng trước khi được phép lưu phân phòng (panel tối
+                         thiểu, không phải panel giá đầy đủ của Milestone 3). -->
+                    <div v-if="groupsNeedingChoice.length" class="space-y-3 border border-amber-300 bg-amber-50 p-3">
+                        <p class="text-sm font-semibold text-ink">Loại phòng sau có nhiều dòng nhu cầu — vui lòng chọn dòng phù hợp trước khi phân phòng:</p>
+                        <div v-for="group in groupsNeedingChoice" :key="`choice-${group.room_type_id}`" class="space-y-1.5 border-t border-amber-200 pt-2 first:border-t-0 first:pt-0">
+                            <div class="text-sm font-medium text-ink">{{ group.room_type_code }} — Đã phân {{ group.assignedSoFar }}</div>
+                            <select
+                                v-model="targetRequirementByRoomType[group.room_type_id]"
+                                class="w-full border border-gray-300 px-2 py-2 text-sm sm:max-w-md"
+                            >
+                                <option value="">-- Chọn dòng nhu cầu --</option>
+                                <option v-for="line in group.lines" :key="line.id" :value="line.id">
+                                    SL {{ line.quantity }} · {{ formatCurrency(line.room_price) }} · {{ line.price_source }}{{ line.note ? ` · ${line.note}` : '' }}
+                                </option>
+                            </select>
+                        </div>
+                    </div>
 
                     <div class="space-y-1.5">
                         <section v-for="floor in roomBoard.floors" :key="floor.id" class="flex flex-nowrap items-center gap-2">
