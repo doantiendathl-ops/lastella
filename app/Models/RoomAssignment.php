@@ -18,6 +18,7 @@ class RoomAssignment extends Model
         'booking_id',
         'room_id',
         'room_type_id',
+        'booking_requirement_id',
         'start_at',
         'end_at',
         'status',
@@ -50,6 +51,16 @@ class RoomAssignment extends Model
     public function roomType(): BelongsTo
     {
         return $this->belongsTo(RoomType::class);
+    }
+
+    /**
+     * Room Demand/Room Board Unification M1: the demand line this assignment
+     * consumes. Nullable — legacy rows created before this column existed, or
+     * rows left ambiguous by the backfill command, have no value here.
+     */
+    public function bookingRequirement(): BelongsTo
+    {
+        return $this->belongsTo(BookingRequirement::class);
     }
 
     public function assignedBy(): BelongsTo

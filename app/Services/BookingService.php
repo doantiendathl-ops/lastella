@@ -9,6 +9,7 @@ use App\Enums\PaymentType;
 use App\Enums\StayStatus;
 use App\Exceptions\OutstandingBalanceException;
 use App\Exceptions\RequirementLockedAfterRoomChargeException;
+use App\Exceptions\RequirementReferencedByAssignmentException;
 use App\Models\Booking;
 use App\Models\BookingPayment;
 use App\Models\BookingRequirement;
@@ -97,20 +98,58 @@ class BookingService
         });
     }
 
+    /**
+     * Room Demand/Room Board Unification M1: locks Booking first, then locks
+     * every existing requirement line of the same room_type, before creating
+     * the new line — canonical order Booking → BookingRequirement (id asc).
+     * The room_type lock closes a duplicate-merge-key race against the
+     * future Room-Board-first allocation path (M2/M3), which reads-then-
+     * decides whether to reuse or create a line for the same room_type.
+     * Business behaviour is unchanged: this still always creates a new line,
+     * never merges — only the locking is new.
+     */
     public function addRequirement(Booking $booking, array $data): BookingRequirement
     {
-        /** @var BookingRequirement $requirement */
-        $requirement = $booking->bookingRequirements()->create($data);
-        $this->updateBookingAssignmentStatus($booking);
+        return DB::transaction(function () use ($booking, $data): BookingRequirement {
+            $lockedBooking = Booking::whereKey($booking->id)->lockForUpdate()->firstOrFail();
 
-        return $requirement->load('roomType');
+            BookingRequirement::where('booking_id', $lockedBooking->id)
+                ->where('room_type_id', $data['room_type_id'])
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+
+            /** @var BookingRequirement $requirement */
+            $requirement = $lockedBooking->bookingRequirements()->create($data);
+            $this->updateBookingAssignmentStatus($lockedBooking);
+
+            return $requirement->load('roomType');
+        });
     }
 
+    /**
+     * Room Demand/Room Board Unification M1: locks Booking, then re-queries
+     * and locks the requirement row itself (the pre-transaction $requirement
+     * instance is never written to directly), before running the existing
+     * Folio room-charge guard and updating. Canonical order Booking →
+     * BookingRequirement, matching addRequirement()/deleteRequirement().
+     */
     public function updateRequirement(BookingRequirement $requirement, array $data): BookingRequirement
     {
         return DB::transaction(function () use ($requirement, $data): BookingRequirement {
-            $booking = $requirement->booking;
-            $folioId = $booking->folio?->id;
+            $lockedBooking = Booking::whereKey($requirement->booking_id)->lockForUpdate()->firstOrFail();
+
+            $lockedRequirement = BookingRequirement::whereKey($requirement->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($lockedRequirement->booking_id !== $lockedBooking->id) {
+                throw ValidationException::withMessages([
+                    'requirement' => 'Yêu cầu phòng không thuộc booking này.',
+                ]);
+            }
+
+            $folioId = $lockedBooking->folio?->id;
 
             if ($folioId !== null) {
                 if (FolioEntry::where('folio_id', $folioId)
@@ -122,18 +161,43 @@ class BookingService
                 }
             }
 
-            $requirement->update($data);
-            $this->updateBookingAssignmentStatus($booking);
+            $lockedRequirement->update($data);
+            $this->updateBookingAssignmentStatus($lockedBooking);
 
-            return $requirement->refresh()->load('roomType');
+            return $lockedRequirement->refresh()->load('roomType');
         });
     }
 
+    /**
+     * Room Demand/Room Board Unification M1: locks Booking, then the
+     * requirement row, then guards against hard-deleting a requirement that
+     * any RoomAssignment (any status, including Released) still references
+     * via booking_requirement_id — restrictOnDelete() on that column is the
+     * database-level backstop for this same rule (Architecture Review
+     * REVISION 3, Product Owner Decision #13/Mục V).
+     */
     public function deleteRequirement(BookingRequirement $requirement): void
     {
-        $booking = $requirement->booking;
-        $requirement->delete();
-        $this->updateBookingAssignmentStatus($booking);
+        DB::transaction(function () use ($requirement): void {
+            $lockedBooking = Booking::whereKey($requirement->booking_id)->lockForUpdate()->firstOrFail();
+
+            $lockedRequirement = BookingRequirement::whereKey($requirement->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($lockedRequirement->booking_id !== $lockedBooking->id) {
+                throw ValidationException::withMessages([
+                    'requirement' => 'Yêu cầu phòng không thuộc booking này.',
+                ]);
+            }
+
+            if (RoomAssignment::where('booking_requirement_id', $lockedRequirement->id)->exists()) {
+                throw new RequirementReferencedByAssignmentException();
+            }
+
+            $lockedRequirement->delete();
+            $this->updateBookingAssignmentStatus($lockedBooking);
+        });
     }
 
     public function updateBooking(Booking $booking, array $data): Booking

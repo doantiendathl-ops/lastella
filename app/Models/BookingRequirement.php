@@ -7,6 +7,7 @@ use Database\Factories\BookingRequirementFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class BookingRequirement extends Model
 {
@@ -45,5 +46,16 @@ class BookingRequirement extends Model
     public function roomType(): BelongsTo
     {
         return $this->belongsTo(RoomType::class);
+    }
+
+    /**
+     * Room Demand/Room Board Unification M1: assignments that consume this
+     * demand line (any status, including Released) — used by the
+     * deleteRequirement() reference guard and by tests. Not filtered by
+     * status here on purpose: the guard must see released assignments too.
+     */
+    public function roomAssignments(): HasMany
+    {
+        return $this->hasMany(RoomAssignment::class);
     }
 }
