@@ -8,10 +8,12 @@ use App\Enums\StayStatus;
 use App\Models\Booking;
 use App\Models\BookingRequirement;
 use App\Models\Floor;
+use App\Models\ReleaseBatch;
 use App\Models\Room;
 use App\Models\RoomAssignment;
 use App\Models\Stay;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -534,7 +536,14 @@ class RoomAssignmentService
 
     public function releaseAssignment(RoomAssignment $assignment, ?string $reason = null): RoomAssignment
     {
-        return DB::transaction(function () use ($assignment, $reason): RoomAssignment {
+        // Final Gap Closure — Mục VI: capture the actor ONCE, at the same
+        // point the transaction begins, instead of letting the shared helper
+        // re-read Auth::id() internally. Behaviorally identical for single
+        // release (only ever one call), but establishes the single pattern
+        // bulkReleaseAssignments() below also uses for the whole batch.
+        $actorId = Auth::id();
+
+        return DB::transaction(function () use ($assignment, $reason, $actorId): RoomAssignment {
             // Match StayService and BookingService lock direction on shared rows.
             $stay = Stay::where('room_assignment_id', $assignment->id)
                 ->orderBy('id')
@@ -543,17 +552,6 @@ class RoomAssignmentService
 
             $locked = RoomAssignment::whereKey($assignment->id)->lockForUpdate()->firstOrFail();
 
-            if ($locked->status !== AssignmentStatus::Assigned) {
-                throw ValidationException::withMessages([
-                    'assignment' => match ($locked->status) {
-                        AssignmentStatus::Released => 'Phòng đã được giải phóng. Không thể giải phóng lại.',
-                        AssignmentStatus::CheckedIn => 'Phòng đã nhận phòng thực tế. Vui lòng trả phòng trước khi giải phóng.',
-                        AssignmentStatus::CheckedOut => 'Phòng đã hoàn thành lưu trú. Không thể giải phóng phòng lịch sử.',
-                        default => 'Chỉ có thể giải phóng phòng đang ở trạng thái đã phân.',
-                    },
-                ]);
-            }
-
             if ($stay === null) {
                 $stay = Stay::where('room_assignment_id', $locked->id)
                     ->orderBy('id')
@@ -561,28 +559,343 @@ class RoomAssignmentService
                     ->first();
             }
 
-            if ($stay !== null && $stay->actual_checkin_at !== null) {
-                throw ValidationException::withMessages([
-                    'assignment' => 'Phòng đã nhận phòng thực tế. Vui lòng trả phòng trước khi giải phóng.',
+            $released = $this->releaseAssignmentWithinTransaction($locked, $stay, $reason, null, $actorId);
+
+            $this->bookings->updateBookingAssignmentStatus($released->booking);
+            $this->bookings->updateBookingStayStatus($released->booking);
+
+            return $released;
+        });
+    }
+
+    /**
+     * Room Demand/Room Board Unification M4: the ONE place that validates and
+     * writes a single RoomAssignment release — shared by the pre-existing
+     * single-room `releaseAssignment()` (above, release_batch_id always null,
+     * behavior/exceptions unchanged from before M4) and
+     * `bulkReleaseAssignments()` (below, release_batch_id set to the new
+     * batch). Does not open its own transaction and does not lock anything
+     * itself — the caller must pass an already-locked `$assignment` (and the
+     * already-locked `$stay`, if one exists) so both single and bulk release
+     * can control lock ORDER themselves (single: Stay→RoomAssignment,
+     * unchanged; bulk: Stay[asc]→RoomAssignment[asc] across the whole batch —
+     * Architecture Review REVISION 3 Mục 20.B). Never touches demand — quantity
+     * reduction is entirely the bulk method's responsibility, applied only
+     * after every assignment in the batch has been validated releasable.
+     *
+     * Final Gap Closure — Mục VI: `$releasedBy` is now an EXPLICIT parameter,
+     * captured once by the caller (`releaseAssignment()` or
+     * `bulkReleaseAssignments()`), never re-read from `Auth::id()` inside this
+     * helper. This guarantees every assignment released within the same bulk
+     * batch — and the ReleaseBatch row itself — records the byte-identical
+     * actor, rather than relying on ambient auth state staying constant
+     * across N loop iterations.
+     */
+    private function releaseAssignmentWithinTransaction(
+        RoomAssignment $lockedAssignment,
+        ?Stay $lockedStay,
+        ?string $reason,
+        ?int $releaseBatchId,
+        ?int $releasedBy,
+    ): RoomAssignment {
+        if ($lockedAssignment->status !== AssignmentStatus::Assigned) {
+            throw ValidationException::withMessages([
+                'assignment' => match ($lockedAssignment->status) {
+                    AssignmentStatus::Released => 'Phòng đã được giải phóng. Không thể giải phóng lại.',
+                    AssignmentStatus::CheckedIn => 'Phòng đã nhận phòng thực tế. Vui lòng trả phòng trước khi giải phóng.',
+                    AssignmentStatus::CheckedOut => 'Phòng đã hoàn thành lưu trú. Không thể giải phóng phòng lịch sử.',
+                    default => 'Chỉ có thể giải phóng phòng đang ở trạng thái đã phân.',
+                },
+            ]);
+        }
+
+        if ($lockedStay !== null && $lockedStay->actual_checkin_at !== null) {
+            throw ValidationException::withMessages([
+                'assignment' => 'Phòng đã nhận phòng thực tế. Vui lòng trả phòng trước khi giải phóng.',
+            ]);
+        }
+
+        $lockedAssignment->update([
+            'status' => AssignmentStatus::Released,
+            'released_by' => $releasedBy,
+            'released_at' => now(),
+            'release_reason' => $reason,
+            'release_batch_id' => $releaseBatchId,
+        ]);
+
+        if ($lockedStay !== null && $lockedStay->status === StayStatus::Reserved) {
+            $lockedStay->update(['status' => StayStatus::Cancelled]);
+        }
+
+        return $lockedAssignment->refresh();
+    }
+
+    /**
+     * Room Demand/Room Board Unification M4 — atomic bulk room release.
+     * Selecting N assignments, a shared reason/note, and an optional
+     * `reduce_demand` flag releases all N in one transaction: all-or-nothing,
+     * never a partial batch (Product Owner Decision #8/#14).
+     *
+     * Lock order B (Architecture Review REVISION 3 Mục 20.B — deliberately
+     * DIFFERENT from assign's order A, matching the existing precedent in
+     * `releaseAssignment()`/`StayService::checkIn()` where Stay is locked
+     * before RoomAssignment): Booking → Stay [by room_assignment_id asc] →
+     * RoomAssignment [by id asc] → BookingRequirement [by id asc, only when
+     * reduce_demand=true]. Every assignment is validated BEFORE any write
+     * happens (Product Owner Decision #10) — the write phase only starts once
+     * the whole batch, and the whole reduce_demand plan, is known to be valid.
+     *
+     * Final Gap Closure — Mục IV/VI: `$reason` is a required, non-nullable
+     * `string` — trimmed and validated non-empty BEFORE the transaction opens
+     * (fail fast, same discipline as the duplicate-ID check below), so a
+     * null/blank/whitespace-only reason can never reach `ReleaseBatch::create()`
+     * even if some future caller bypasses `BulkReleaseAssignmentRequest`. The
+     * SAME trimmed string is used for both `release_batches.reason` and every
+     * assignment's `release_reason` — never two different normalizations of
+     * the same input. `$actorId` is captured once, here, and threaded
+     * explicitly through every write in the batch (Mục VI) — never re-read
+     * from `Auth::id()` per assignment. A batch with no resolvable actor is
+     * rejected outright (an authenticated bulk-release action must always
+     * have a real actor; this is not a background/system job).
+     *
+     * @param  int[]  $assignmentIds
+     * @return array{batch: ReleaseBatch, assignments: RoomAssignment[]}
+     */
+    public function bulkReleaseAssignments(
+        Booking $booking,
+        array $assignmentIds,
+        string $reason,
+        ?string $note,
+        bool $reduceDemand,
+    ): array {
+        $trimmedReason = trim($reason);
+
+        if ($trimmedReason === '') {
+            throw ValidationException::withMessages([
+                'reason' => 'Lý do gỡ phòng là bắt buộc.',
+            ]);
+        }
+
+        $actorId = Auth::id();
+
+        if ($actorId === null) {
+            throw ValidationException::withMessages([
+                'assignment_ids' => 'Không xác định được người thực hiện. Vui lòng đăng nhập lại.',
+            ]);
+        }
+
+        $sortedIds = collect($assignmentIds)->map(fn ($id): int => (int) $id)->values();
+
+        if ($sortedIds->count() !== $sortedIds->unique()->count()) {
+            throw ValidationException::withMessages([
+                'assignment_ids' => 'Danh sách phòng chọn để gỡ bị trùng lặp.',
+            ]);
+        }
+
+        $sortedIds = $sortedIds->sort()->values();
+
+        return DB::transaction(function () use ($booking, $sortedIds, $trimmedReason, $note, $reduceDemand, $actorId): array {
+            $lockedBooking = Booking::whereKey($booking->id)->lockForUpdate()->firstOrFail();
+
+            $this->assertBookingAcceptsBulkRelease($lockedBooking);
+
+            // Lock order B: Stay [asc] before RoomAssignment [asc].
+            $lockedStaysByAssignmentId = Stay::whereIn('room_assignment_id', $sortedIds)
+                ->orderBy('room_assignment_id')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('room_assignment_id');
+
+            $lockedAssignments = RoomAssignment::whereIn('id', $sortedIds)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+
+            // Validate every assignment in the batch BEFORE writing anything —
+            // one bad element rejects the whole request (Product Owner Decision #8).
+            foreach ($sortedIds as $id) {
+                $assignment = $lockedAssignments->get($id);
+
+                if ($assignment === null) {
+                    throw ValidationException::withMessages([
+                        'assignment_ids' => "Phòng #{$id} không tồn tại.",
+                    ]);
+                }
+
+                if ($assignment->booking_id !== $lockedBooking->id) {
+                    throw ValidationException::withMessages([
+                        'assignment_ids' => "Phòng #{$id} không thuộc booking này.",
+                    ]);
+                }
+
+                if ($assignment->status !== AssignmentStatus::Assigned) {
+                    throw ValidationException::withMessages([
+                        'assignment_ids' => match ($assignment->status) {
+                            AssignmentStatus::Released => "Phòng #{$id} đã được giải phóng trước đó.",
+                            AssignmentStatus::CheckedIn => "Phòng #{$id} đã nhận phòng thực tế. Vui lòng trả phòng trước khi giải phóng.",
+                            AssignmentStatus::CheckedOut => "Phòng #{$id} đã hoàn thành lưu trú.",
+                            default => "Phòng #{$id} không ở trạng thái có thể giải phóng.",
+                        },
+                    ]);
+                }
+
+                $stay = $lockedStaysByAssignmentId->get($id);
+
+                if ($stay !== null && $stay->actual_checkin_at !== null) {
+                    throw ValidationException::withMessages([
+                        'assignment_ids' => "Phòng #{$id} đã nhận phòng thực tế. Vui lòng trả phòng trước khi giải phóng.",
+                    ]);
+                }
+            }
+
+            // reduce_demand=true: plan and validate the ENTIRE quantity reduction
+            // before any write (Product Owner Decision #14/#9/#11/#12) — never a
+            // partial demand reduction, never max(0, ...) guessing.
+            $requirementAdjustments = $reduceDemand
+                ? $this->planBulkReleaseDemandReduction($lockedBooking, $lockedAssignments, $sortedIds)
+                : [];
+
+            $batch = ReleaseBatch::create([
+                'booking_id' => $lockedBooking->id,
+                'released_by' => $actorId,
+                'reason' => $trimmedReason,
+                'note' => $note,
+                'reduce_demand' => $reduceDemand,
+                'released_at' => now(),
+            ]);
+
+            $releasedAssignments = [];
+
+            foreach ($sortedIds as $id) {
+                $releasedAssignments[] = $this->releaseAssignmentWithinTransaction(
+                    $lockedAssignments->get($id),
+                    $lockedStaysByAssignmentId->get($id),
+                    $trimmedReason,
+                    $batch->id,
+                    $actorId,
+                );
+            }
+
+            foreach ($requirementAdjustments as $adjustment) {
+                // Reuses BookingService::updateRequirement() — the SAME guarded
+                // path every other requirement mutation uses, so
+                // RequirementLockedAfterRoomChargeException can never be
+                // bypassed here either (defense in depth on top of the
+                // pre-check in planBulkReleaseDemandReduction()).
+                $this->bookings->updateRequirement($adjustment['requirement'], [
+                    'quantity' => $adjustment['new_quantity'],
                 ]);
             }
 
-            $locked->update([
-                'status' => AssignmentStatus::Released,
-                'released_by' => Auth::id(),
-                'released_at' => now(),
-                'release_reason' => $reason,
-            ]);
+            $this->bookings->updateBookingAssignmentStatus($lockedBooking);
+            $this->bookings->updateBookingStayStatus($lockedBooking);
 
-            if ($stay !== null && $stay->status === StayStatus::Reserved) {
-                $stay->update(['status' => StayStatus::Cancelled]);
+            return ['batch' => $batch, 'assignments' => $releasedAssignments];
+        });
+    }
+
+    /**
+     * Room Demand/Room Board Unification M4 — reduce_demand=true planning
+     * (Architecture Review REVISION 3 Mục 19 step 3-4 / Implementation task
+     * Mục XIV). Pure validation, no writes: locks every BookingRequirement
+     * referenced by the batch (id asc, lock order B), then for EACH one:
+     *
+     *   release_count                   = assignments in this batch referencing it
+     *   remaining_active_after_release  = active assignments for it, minus release_count
+     *   proposed_quantity                = current quantity - release_count
+     *
+     * Rejects the WHOLE batch (never a partial reduction, never max(0, ...))
+     * if any line has a NULL-mapped assignment, is folio-locked, would go
+     * negative, or would drop below its own remaining active assignments.
+     *
+     * @param  Collection<int, RoomAssignment>  $lockedAssignments
+     * @param  Collection<int, int>  $sortedIds
+     * @return array<int, array{requirement: BookingRequirement, new_quantity: int}>
+     */
+    private function planBulkReleaseDemandReduction(Booking $lockedBooking, Collection $lockedAssignments, Collection $sortedIds): array
+    {
+        $nullMappedCount = $sortedIds->filter(fn ($id) => $lockedAssignments->get($id)->booking_requirement_id === null)->count();
+
+        if ($nullMappedCount > 0) {
+            throw ValidationException::withMessages([
+                'reduce_demand' => 'Một hoặc nhiều phòng trong lượt gỡ chưa xác định được dòng nhu cầu tương ứng (dữ liệu cũ). Không thể tự động giảm nhu cầu — hãy bỏ chọn "Đồng thời giảm nhu cầu phòng tương ứng" hoặc loại các phòng này khỏi lượt gỡ.',
+            ]);
+        }
+
+        if ($this->bookings->hasActiveRoomCharge($lockedBooking)) {
+            throw ValidationException::withMessages([
+                'reduce_demand' => 'Booking đã phát sinh charge tiền phòng — không thể tự động giảm nhu cầu. Hãy bỏ chọn "Đồng thời giảm nhu cầu phòng tương ứng" và thử lại.',
+            ]);
+        }
+
+        $releaseCountByRequirementId = $sortedIds
+            ->map(fn ($id) => $lockedAssignments->get($id)->booking_requirement_id)
+            ->countBy();
+
+        $lockedRequirements = BookingRequirement::whereIn('id', $releaseCountByRequirementId->keys())
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('id');
+
+        $activeStatuses = [AssignmentStatus::Assigned, AssignmentStatus::CheckedIn, AssignmentStatus::CheckedOut];
+        $plan = [];
+
+        foreach ($releaseCountByRequirementId as $requirementId => $releaseCount) {
+            $requirement = $lockedRequirements->get($requirementId);
+
+            if ($requirement === null || $requirement->booking_id !== $lockedBooking->id) {
+                throw ValidationException::withMessages([
+                    'reduce_demand' => "Dòng nhu cầu #{$requirementId} không hợp lệ cho booking này.",
+                ]);
             }
 
-            $this->bookings->updateBookingAssignmentStatus($locked->booking);
-            $this->bookings->updateBookingStayStatus($locked->booking);
+            $totalActiveNow = RoomAssignment::where('booking_requirement_id', $requirementId)
+                ->whereIn('status', $activeStatuses)
+                ->count();
 
-            return $locked->refresh();
-        });
+            // The assignments in THIS batch are still status=Assigned in the DB
+            // at this point (write phase hasn't run yet), so they are already
+            // counted in $totalActiveNow — subtract them back out to get what
+            // remains active AFTER this batch releases.
+            $remainingActiveAfterRelease = $totalActiveNow - $releaseCount;
+            $proposedQuantity = $requirement->quantity - $releaseCount;
+
+            if ($proposedQuantity < 0 || $proposedQuantity < $remainingActiveAfterRelease) {
+                throw ValidationException::withMessages([
+                    'reduce_demand' => "Không thể giảm nhu cầu dòng #{$requirementId}: số lượng sau khi giảm ({$proposedQuantity}) không hợp lệ so với số phòng đang giữ dòng này ({$remainingActiveAfterRelease}).",
+                ]);
+            }
+
+            $plan[$requirementId] = ['requirement' => $requirement, 'new_quantity' => $proposedQuantity];
+        }
+
+        return $plan;
+    }
+
+    /**
+     * Room Demand/Room Board Unification M4 — State Matrix (Architecture
+     * Review REVISION 3 Mục 22): blocks bulk release the same way M3 blocks
+     * Room-Board-first assignment — isTerminal() (Cancelled/NoShow/CheckedOut)
+     * plus PartiallyCheckedOut explicitly. A SEPARATE method from
+     * assertBookingAcceptsRoomBoardAssignment() on purpose — release and
+     * assign are different business operations with their own message text,
+     * even though the underlying blocked-status set happens to be identical.
+     */
+    private function assertBookingAcceptsBulkRelease(Booking $booking): void
+    {
+        if ($booking->status->isTerminal() || $booking->status === BookingStatus::PartiallyCheckedOut) {
+            throw ValidationException::withMessages([
+                'booking' => match ($booking->status) {
+                    BookingStatus::Cancelled => 'Booking đã hủy. Không thể gỡ phòng.',
+                    BookingStatus::NoShow => 'Booking không đến (No-Show). Không thể gỡ phòng.',
+                    BookingStatus::CheckedOut => 'Booking đã trả phòng. Không thể gỡ phòng.',
+                    BookingStatus::PartiallyCheckedOut => 'Booking đang trong quá trình trả phòng. Không thể gỡ phòng hàng loạt.',
+                    default => 'Booking hiện không cho phép gỡ phòng.',
+                },
+            ]);
+        }
     }
 
     public function checkRoomConflict(Room|int $room, CarbonInterface|string $startAt, CarbonInterface|string $endAt, ?int $ignoreAssignmentId = null): bool

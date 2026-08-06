@@ -12,6 +12,7 @@ use App\Models\CheckoutInspectionItem;
 use App\Models\NightAuditRun;
 use App\Models\ProductService;
 use App\Models\ProductServiceCategory;
+use App\Models\ReleaseBatch;
 use App\Models\ServiceRate;
 use App\Models\ServicePackage;
 use App\Models\ServicePackageRate;
@@ -112,6 +113,7 @@ class AppServiceProvider extends ServiceProvider
         FolioEntry::observe(AuditObserver::class);
         RoomAssignment::observe(AuditObserver::class);
         Stay::observe(AuditObserver::class);
+        ReleaseBatch::observe(AuditObserver::class);
         BookingSpecialRequest::observe(AuditObserver::class);
         HousekeepingAssignment::observe(AuditObserver::class);
         CleaningRecord::observe(AuditObserver::class);

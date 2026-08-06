@@ -120,6 +120,11 @@ Route::middleware('auth')->group(function (): void {
         Route::patch('bookings/{booking}/folio/entries/{entry}', [FolioEntryController::class, 'void'])->name('bookings.folio.entries.void');
         Route::post('bookings/{booking}/assignments', [RoomAssignmentController::class, 'store'])->name('bookings.assignments.store');
         Route::post('bookings/{booking}/assignments/{assignment}/release', [RoomAssignmentController::class, 'release'])->name('bookings.assignments.release');
+        // Room Demand/Room Board Unification M4: atomic bulk room release —
+        // separate route/action from the single-assignment release above, same
+        // bulkReleaseAssignments() service core shared with it via
+        // releaseAssignmentWithinTransaction().
+        Route::post('bookings/{booking}/assignments/bulk-release', [RoomAssignmentController::class, 'bulkRelease'])->name('bookings.assignments.bulk-release');
         Route::post('bookings/{booking}/room-board/conflict/{assignment}/release', [RoomAssignmentController::class, 'releaseConflict'])->name('bookings.room-board.conflict.release');
         // Room Demand/Room Board Unification M3: Room-Board-first reverse sync —
         // separate route/action from bookings.assignments.store (Implementation

@@ -663,19 +663,140 @@ const handleGlobalEsc = (event) => {
 onMounted(() => document.addEventListener('keydown', handleGlobalEsc));
 onBeforeUnmount(() => document.removeEventListener('keydown', handleGlobalEsc));
 
+// Room Demand/Room Board Unification M4: atomic bulk room release. A SEPARATE
+// selection state from selectedRoomIds (Room-Board multi-select for NEW
+// assignments, above) — this one tracks EXISTING assignments picked for
+// release. releaseAll() no longer does the old non-atomic sequential
+// router.post() loop (Architecture Review Mục 3/25); it now just pre-selects
+// every releasable assignment and opens the same bulk-release panel single
+// selections use, which posts ONCE to the new atomic bulk-release endpoint.
+const bulkReleaseSelectedIds = ref([]);
+const showBulkReleasePanel = ref(false);
+
+const releasableAssignments = computed(() => props.booking.assignments.filter((a) => a.can_release));
+
+const toggleBulkReleaseSelection = (assignment) => {
+    if (!assignment.can_release) {
+        return;
+    }
+
+    const idx = bulkReleaseSelectedIds.value.indexOf(assignment.id);
+    if (idx === -1) {
+        bulkReleaseSelectedIds.value = [...bulkReleaseSelectedIds.value, assignment.id];
+    } else {
+        bulkReleaseSelectedIds.value = bulkReleaseSelectedIds.value.filter((id) => id !== assignment.id);
+    }
+};
+
+const allReleasableSelected = computed(() => releasableAssignments.value.length > 0
+    && releasableAssignments.value.every((a) => bulkReleaseSelectedIds.value.includes(a.id)));
+
+const toggleSelectAllReleasable = () => {
+    bulkReleaseSelectedIds.value = allReleasableSelected.value
+        ? []
+        : releasableAssignments.value.map((a) => a.id);
+};
+
+const bulkReleaseSelectedAssignments = computed(() =>
+    props.booking.assignments.filter((a) => bulkReleaseSelectedIds.value.includes(a.id)));
+
+const bulkReleaseForm = useForm({
+    assignment_ids: [],
+    reason: '',
+    note: '',
+    reduce_demand: false,
+});
+
+const openBulkReleasePanel = () => {
+    if (bulkReleaseSelectedIds.value.length === 0) {
+        return;
+    }
+
+    bulkReleaseForm.clearErrors();
+    bulkReleaseForm.reason = '';
+    bulkReleaseForm.note = '';
+    bulkReleaseForm.reduce_demand = false;
+    showBulkReleasePanel.value = true;
+};
+
+const closeBulkReleasePanel = () => {
+    showBulkReleasePanel.value = false;
+    bulkReleaseForm.clearErrors();
+};
+
 const releaseAll = () => {
-    const releasable = props.booking.assignments.filter((a) => !a.is_released && a.can_release);
-    if (!releasable.length) return;
-    if (!window.confirm(`Giải phóng tất cả ${releasable.length} phân phòng?`)) return;
-    const doNext = (i) => {
-        if (i >= releasable.length) return;
-        router.post(
-            `/admin/bookings/${props.booking.id}/assignments/${releasable[i].id}/release`,
-            { release_reason: '' },
-            { preserveScroll: true, onSuccess: () => doNext(i + 1) },
-        );
-    };
-    doNext(0);
+    const ids = releasableAssignments.value.map((a) => a.id);
+    if (ids.length === 0) {
+        return;
+    }
+    bulkReleaseSelectedIds.value = ids;
+    openBulkReleasePanel();
+};
+
+// Client-side preview mirroring the exact backend formula (Architecture Review
+// REVISION 3 Mục 19 step 3-5 / reduce_demand rules) — best-effort only; the
+// server re-derives everything under lock inside the transaction and is the
+// sole source of truth, never trusted from this preview alone.
+const bulkReleaseRequirementPreview = computed(() => {
+    const groups = new Map();
+
+    for (const assignment of bulkReleaseSelectedAssignments.value) {
+        const key = assignment.booking_requirement_id;
+        if (!groups.has(key)) {
+            groups.set(key, []);
+        }
+        groups.get(key).push(assignment);
+    }
+
+    return Array.from(groups.entries()).map(([requirementId, assignments]) => {
+        const requirement = requirementId === null
+            ? null
+            : (props.booking.requirements ?? []).find((r) => r.id === requirementId);
+        const releaseCount = assignments.length;
+        const currentQuantity = requirement ? Number(requirement.quantity) : null;
+        const remainingActiveAfterRelease = requirement ? Number(requirement.active_assignment_count) - releaseCount : null;
+        const newQuantity = requirement ? currentQuantity - releaseCount : null;
+        const isFolioLocked = Boolean(requirement?.is_folio_locked);
+        const isInvalid = requirement !== null
+            && (newQuantity < 0 || newQuantity < remainingActiveAfterRelease);
+
+        return {
+            requirement_id: requirementId,
+            room_type: assignments[0]?.room_type,
+            release_count: releaseCount,
+            current_quantity: currentQuantity,
+            new_quantity: newQuantity,
+            is_null_mapping: requirementId === null,
+            is_folio_locked: isFolioLocked,
+            is_invalid: isInvalid,
+        };
+    });
+});
+
+const bulkReleaseHasBlockingIssue = computed(() =>
+    bulkReleaseForm.reduce_demand
+    && bulkReleaseRequirementPreview.value.some((g) => g.is_null_mapping || g.is_folio_locked || g.is_invalid));
+
+const canSubmitBulkRelease = computed(() =>
+    bulkReleaseSelectedIds.value.length > 0
+    && bulkReleaseForm.reason.trim().length > 0
+    && !bulkReleaseHasBlockingIssue.value
+    && !bulkReleaseForm.processing);
+
+const submitBulkRelease = () => {
+    if (!canSubmitBulkRelease.value) {
+        return;
+    }
+
+    bulkReleaseForm.assignment_ids = bulkReleaseSelectedIds.value;
+    bulkReleaseForm.post(`/admin/bookings/${props.booking.id}/assignments/bulk-release`, {
+        preserveScroll: true,
+        onSuccess: () => {
+            bulkReleaseSelectedIds.value = [];
+            showBulkReleasePanel.value = false;
+            bulkReleaseForm.reset();
+        },
+    });
 };
 
 const canConfirmCancel = computed(() => cancelForm.booking_code_confirmation === props.booking.booking_code
@@ -1429,13 +1550,23 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                         <div class="h-5 w-1 bg-pine"></div>
                         <span class="text-sm font-bold uppercase tracking-wide">Phân phòng</span>
                     </div>
-                    <div class="flex items-center gap-3">
+                    <div class="flex flex-wrap items-center gap-3">
+                        <!-- Room Demand/Room Board Unification M4: was "Giải phóng tất cả"
+                             (non-atomic sequential loop) — now pre-selects every releasable
+                             assignment and opens the same atomic bulk-release panel the
+                             checkboxes below feed into. -->
                         <button
-                            v-if="can.releaseRoom && booking.assignments.some(a => !a.is_released && a.can_release)"
+                            v-if="can.releaseRoom && releasableAssignments.length > 0"
                             type="button"
                             class="inline-flex items-center gap-1 border border-gray-300 px-3 py-1 text-xs font-semibold text-steel hover:border-coral hover:text-coral"
                             @click="releaseAll"
                         >Giải phóng tất cả</button>
+                        <button
+                            v-if="can.releaseRoom && bulkReleaseSelectedIds.length > 0"
+                            type="button"
+                            class="inline-flex items-center gap-1 bg-coral px-3 py-1 text-xs font-semibold text-white hover:opacity-90"
+                            @click="openBulkReleasePanel"
+                        >Gỡ các phòng đã chọn ({{ bulkReleaseSelectedIds.length }})</button>
                         <label class="flex cursor-pointer items-center gap-2 text-xs text-steel">
                             <input v-model="showAssignmentHistory" type="checkbox" class="h-3.5 w-3.5 accent-pine" />
                             Hiển thị lịch sử phân phòng
@@ -1445,10 +1576,31 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                 <div class="overflow-x-auto">
                     <table class="min-w-full divide-y divide-gray-200 text-left text-sm">
                         <thead class="bg-gray-50 text-xs uppercase tracking-wide text-steel">
-                            <tr><th class="px-4 py-3">Phòng</th><th class="px-4 py-3">Loại</th><th class="px-4 py-3">Bắt đầu</th><th class="px-4 py-3">Kết thúc</th><th class="px-4 py-3">Trạng thái</th><th class="px-4 py-3">Phân bởi</th><th class="px-4 py-3">Giải phóng lúc</th><th class="px-4 py-3">Lý do</th><th class="px-4 py-3 text-right">Thao tác</th></tr>
+                            <tr>
+                                <th v-if="can.releaseRoom" class="px-4 py-3">
+                                    <input
+                                        type="checkbox"
+                                        class="h-3.5 w-3.5 accent-pine"
+                                        :checked="allReleasableSelected"
+                                        :disabled="releasableAssignments.length === 0"
+                                        aria-label="Chọn tất cả phòng có thể gỡ"
+                                        @change="toggleSelectAllReleasable"
+                                    />
+                                </th>
+                                <th class="px-4 py-3">Phòng</th><th class="px-4 py-3">Loại</th><th class="px-4 py-3">Bắt đầu</th><th class="px-4 py-3">Kết thúc</th><th class="px-4 py-3">Trạng thái</th><th class="px-4 py-3">Phân bởi</th><th class="px-4 py-3">Giải phóng lúc</th><th class="px-4 py-3">Lý do</th><th class="px-4 py-3 text-right">Thao tác</th></tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
                             <tr v-for="assignment in visibleAssignments" :key="assignment.id" :class="assignment.is_released ? 'opacity-60' : ''">
+                                <td v-if="can.releaseRoom" class="px-4 py-3">
+                                    <input
+                                        v-if="assignment.can_release"
+                                        type="checkbox"
+                                        class="h-3.5 w-3.5 accent-pine"
+                                        :checked="bulkReleaseSelectedIds.includes(assignment.id)"
+                                        :aria-label="`Chọn phòng ${assignment.room_number} để gỡ hàng loạt`"
+                                        @change="toggleBulkReleaseSelection(assignment)"
+                                    />
+                                </td>
                                 <td class="px-4 py-3">{{ assignment.room_number }}</td>
                                 <td class="px-4 py-3">{{ assignment.room_type }}</td>
                                 <td class="px-4 py-3">{{ assignment.start_at }}</td>
@@ -1476,10 +1628,77 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                                     </template>
                                 </td>
                             </tr>
-                            <tr v-if="visibleAssignments.length === 0"><td colspan="9" class="px-4 py-10 text-center text-sm text-steel">{{ booking.assignments.length > 0 ? 'Không có phân phòng đang hoạt động. Bật "Hiển thị lịch sử" để xem tất cả.' : 'Chưa có phân phòng.' }}</td></tr>
+                            <tr v-if="visibleAssignments.length === 0"><td :colspan="can.releaseRoom ? 10 : 9" class="px-4 py-10 text-center text-sm text-steel">{{ booking.assignments.length > 0 ? 'Không có phân phòng đang hoạt động. Bật "Hiển thị lịch sử" để xem tất cả.' : 'Chưa có phân phòng.' }}</td></tr>
                         </tbody>
                     </table>
                 </div>
+            </div>
+
+            <!-- Room Demand/Room Board Unification M4 — Bulk Release Panel.
+                 SEPARATE modal from the single "Release Assignment Dialog" below;
+                 that dialog and releaseAssignment()/releaseForm remain 100%
+                 untouched for the single-room release flow. Centered modal with
+                 max-h/overflow-y-auto so it stays usable on narrow mobile
+                 viewports without a wide table (Section XX.13). -->
+            <div v-if="showBulkReleasePanel" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" @mousedown.self="closeBulkReleasePanel">
+                <form class="flex max-h-[85vh] w-full max-w-lg flex-col border border-gray-200 bg-white shadow-xl" @click.stop @submit.prevent="submitBulkRelease">
+                    <div class="flex shrink-0 items-center justify-between border-b border-gray-100 px-5 py-4">
+                        <span class="text-sm font-semibold text-ink">Gỡ {{ bulkReleaseSelectedIds.length }} phòng đã chọn</span>
+                        <button type="button" class="text-steel hover:text-ink" @click="closeBulkReleasePanel">
+                            <X class="h-4 w-4" />
+                        </button>
+                    </div>
+
+                    <div class="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+                        <div>
+                            <div class="text-xs font-medium text-steel">Danh sách phòng</div>
+                            <ul class="mt-1 max-h-32 space-y-1 overflow-y-auto text-sm">
+                                <li v-for="assignment in bulkReleaseSelectedAssignments" :key="assignment.id" class="flex items-center justify-between border-b border-gray-50 py-1">
+                                    <span>{{ assignment.room_number }} <span class="text-steel">({{ assignment.room_type }})</span></span>
+                                    <button type="button" class="text-xs text-coral hover:underline" @click="toggleBulkReleaseSelection(assignment)">Bỏ chọn</button>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-medium text-steel">Lý do <span class="text-coral">*</span></label>
+                            <textarea v-model="bulkReleaseForm.reason" rows="2" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm focus:border-pine focus:outline-none focus:ring-1 focus:ring-pine" placeholder="Lý do gỡ phòng" />
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-medium text-steel">Ghi chú</label>
+                            <textarea v-model="bulkReleaseForm.note" rows="2" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm focus:border-pine focus:outline-none focus:ring-1 focus:ring-pine" placeholder="Ghi chú (không bắt buộc)" />
+                        </div>
+
+                        <label v-if="can.reduceDemand" class="flex cursor-pointer items-start gap-2 text-sm text-ink">
+                            <input v-model="bulkReleaseForm.reduce_demand" type="checkbox" class="mt-0.5 h-4 w-4 accent-pine" />
+                            <span>Đồng thời giảm nhu cầu phòng tương ứng</span>
+                        </label>
+
+                        <div v-if="bulkReleaseForm.reduce_demand" class="space-y-2 border-t border-gray-100 pt-3">
+                            <div class="text-xs font-semibold text-ink">Xem trước thay đổi nhu cầu</div>
+                            <div v-for="group in bulkReleaseRequirementPreview" :key="group.requirement_id ?? 'null'" class="border border-gray-200 p-2 text-xs">
+                                <template v-if="group.is_null_mapping">
+                                    <div class="font-medium text-coral">{{ group.room_type }} — {{ group.release_count }} phòng chưa xác định dòng nhu cầu (dữ liệu cũ)</div>
+                                    <div class="mt-0.5 text-coral">Không thể tự động giảm nhu cầu cho các phòng này. Bỏ chọn "Đồng thời giảm nhu cầu" hoặc bỏ các phòng này khỏi lượt gỡ.</div>
+                                </template>
+                                <template v-else>
+                                    <div class="font-medium text-ink">{{ group.room_type }} — dòng nhu cầu #{{ group.requirement_id }}</div>
+                                    <div class="mt-0.5 text-steel">Hiện tại: {{ group.current_quantity }} · Gỡ: {{ group.release_count }} · Sau khi gỡ: {{ group.new_quantity }}</div>
+                                    <div v-if="group.is_folio_locked" class="mt-0.5 text-coral">Dòng nhu cầu này đã bị khóa vì booking đã có charge tiền phòng — không thể tự động giảm.</div>
+                                    <div v-else-if="group.is_invalid" class="mt-0.5 text-coral">Số lượng sau khi giảm không hợp lệ (âm hoặc thấp hơn số phòng đang giữ dòng này).</div>
+                                </template>
+                            </div>
+                        </div>
+
+                        <p v-if="Object.keys(bulkReleaseForm.errors).length" class="text-sm text-coral">{{ Object.values(bulkReleaseForm.errors)[0] }}</p>
+                    </div>
+
+                    <div class="flex shrink-0 justify-end gap-2 border-t border-gray-100 px-5 py-3">
+                        <button type="button" class="border border-gray-300 px-3 py-2 text-sm font-semibold text-steel hover:text-ink" @click="closeBulkReleasePanel">Hủy</button>
+                        <button type="submit" class="bg-coral px-3 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:bg-gray-300" :disabled="!canSubmitBulkRelease">Xác nhận gỡ phòng</button>
+                    </div>
+                </form>
             </div>
 
             <RoomBoardPanel

@@ -396,6 +396,10 @@ class BookingController extends Controller
                 'id' => $assignment->id,
                 'room_number' => $assignment->room?->room_number,
                 'room_type' => $assignment->roomType?->code,
+                // Room Demand/Room Board Unification M4: needed by the bulk-release
+                // reduce-demand preview to cross-reference booking.requirements[].
+                'room_type_id' => $assignment->room_type_id,
+                'booking_requirement_id' => $assignment->booking_requirement_id,
                 'start_at' => $assignment->start_at?->format('Y-m-d H:i'),
                 'end_at' => $assignment->end_at?->format('Y-m-d H:i'),
                 'status' => $assignment->status?->value,
@@ -405,6 +409,10 @@ class BookingController extends Controller
                 'is_released' => $assignment->status === AssignmentStatus::Released,
                 'is_checked_in' => $assignment->status === AssignmentStatus::CheckedIn,
                 'is_checked_out' => $assignment->status === AssignmentStatus::CheckedOut,
+                // can_release intentionally UNCHANGED (M4 scope: bulk release must
+                // not alter single-release eligibility semantics) — the actual
+                // check-in-fact/booking-status guards are re-validated server-side
+                // regardless of this flag, same as before M4.
                 'can_release' => $assignment->status === AssignmentStatus::Assigned,
                 'can_check_in' => $assignment->status === AssignmentStatus::Assigned
                     && ($assignment->stay?->planned_checkin_at === null || now()->gte($assignment->stay->planned_checkin_at)),
@@ -700,6 +708,17 @@ class BookingController extends Controller
             'reopenFolio'   => $user?->hasRole('ADMIN') ?? false,
             'assignRoom'              => $user?->can('room.assign') ?? false,
             'releaseRoom'             => $user?->can('room.unassign') ?? false,
+            // Room Demand/Room Board Unification M4: gates the "Đồng thời giảm
+            // nhu cầu phòng tương ứng" checkbox in the bulk-release panel.
+            // permissions() has no $booking in scope (also called from the
+            // bookings index, with no single booking context) — BookingPolicy::
+            // update() only ever checks this same `booking.update` permission
+            // string regardless of the model instance, so checking it directly
+            // here is equivalent and avoids threading a nullable $booking
+            // parameter through every call site. Backend re-checks the real
+            // permission in BulkReleaseAssignmentRequest::authorize() regardless
+            // of this flag.
+            'reduceDemand'            => $user?->can('booking.update') ?? false,
             'checkIn'                 => $user?->can('stay.checkin') ?? false,
             'checkOut'                => $user?->can('stay.checkout') ?? false,
             'extend'                  => $user?->can('stay.extend') ?? false,

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin\Booking;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Booking\BulkReleaseAssignmentRequest;
 use App\Http\Requests\Booking\ReleaseAssignmentRequest;
 use App\Http\Requests\Booking\StoreRoomAssignmentRequest;
 use App\Http\Requests\Booking\StoreRoomBoardAssignmentRequest;
@@ -114,5 +115,36 @@ class RoomAssignmentController extends Controller
         return redirect()
             ->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'room_map'])
             ->with('success', 'Đã gỡ phòng khỏi booking đang chiếm phòng.');
+    }
+
+    /**
+     * Room Demand/Room Board Unification M4 — atomic bulk room release entry
+     * point. Thin by design: all validation/locking/atomicity lives in
+     * RoomAssignmentService::bulkReleaseAssignments(). Authorization
+     * (room.unassign always, booking.update additionally when
+     * reduce_demand=true) is fully enforced by
+     * BulkReleaseAssignmentRequest::authorize() — the SAME permission-matrix
+     * pattern M3's storeFromRoomBoard() already established for this
+     * controller, so no separate per-resource authorize() calls are needed
+     * here (RoomAssignmentPolicy::release() checks the identical room.unassign
+     * permission with no per-resource logic of its own).
+     */
+    public function bulkRelease(BulkReleaseAssignmentRequest $request, Booking $booking): RedirectResponse
+    {
+        $data = $request->validated();
+
+        $result = $this->assignments->bulkReleaseAssignments(
+            $booking,
+            $data['assignment_ids'],
+            $data['reason'],
+            $data['note'] ?? null,
+            (bool) ($data['reduce_demand'] ?? false),
+        );
+
+        $count = count($result['assignments']);
+
+        return redirect()
+            ->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'room_map'])
+            ->with('success', "Đã gỡ {$count} phòng.");
     }
 }

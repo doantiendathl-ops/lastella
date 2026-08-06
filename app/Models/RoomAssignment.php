@@ -26,6 +26,7 @@ class RoomAssignment extends Model
         'released_by',
         'released_at',
         'release_reason',
+        'release_batch_id',
     ];
 
     protected function casts(): array
@@ -71,6 +72,16 @@ class RoomAssignment extends Model
     public function releasedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'released_by');
+    }
+
+    /**
+     * Room Demand/Room Board Unification M4: the bulk-release batch this
+     * assignment was released in. Nullable — legacy releases and single-room
+     * releases (which never create a batch) leave this NULL.
+     */
+    public function releaseBatch(): BelongsTo
+    {
+        return $this->belongsTo(ReleaseBatch::class);
     }
 
     public function stay(): HasOne
