@@ -340,21 +340,41 @@ class BookingController extends Controller
 
     private function bookingPayload(Booking $booking): array
     {
+        // Room Demand/Room Board Unification M3 (Implementation Plan Mục XVII):
+        // active_assignment_count/remaining/is_folio_locked per requirement line,
+        // needed by the Room-Board-first confirmation panel. Both relations are
+        // already eager-loaded by show() (roomAssignments, folio.folioEntries),
+        // so this is computed from in-memory collections — zero extra queries.
+        $activeAssignmentCountByRequirement = $booking->roomAssignments
+            ->whereNotNull('booking_requirement_id')
+            ->whereIn('status', [AssignmentStatus::Assigned, AssignmentStatus::CheckedIn, AssignmentStatus::CheckedOut])
+            ->countBy('booking_requirement_id');
+
+        $isFolioLocked = $booking->folio?->folioEntries
+            ->contains(fn ($entry) => $entry->charge_type === ChargeType::Room && $entry->voided_at === null) ?? false;
+
         return [
             ...$this->formPayload($booking),
             'room_assignment_mismatch' => $this->roomAssignmentMismatch($booking),
-            'requirements' => $booking->bookingRequirements->map(fn ($requirement): array => [
-                'id' => $requirement->id,
-                'room_type_id' => $requirement->room_type_id,
-                'room_type' => $requirement->roomType?->code,
-                'quantity' => $requirement->quantity,
-                'adults' => $requirement->adults,
-                'children_under_6' => $requirement->children_under_6,
-                'children_over_6' => $requirement->children_over_6,
-                'room_price' => $requirement->room_price,
-                'price_source' => $requirement->price_source?->value,
-                'note' => $requirement->note,
-            ])->values(),
+            'requirements' => $booking->bookingRequirements->map(function ($requirement) use ($activeAssignmentCountByRequirement, $isFolioLocked): array {
+                $activeCount = (int) ($activeAssignmentCountByRequirement[$requirement->id] ?? 0);
+
+                return [
+                    'id' => $requirement->id,
+                    'room_type_id' => $requirement->room_type_id,
+                    'room_type' => $requirement->roomType?->code,
+                    'quantity' => $requirement->quantity,
+                    'adults' => $requirement->adults,
+                    'children_under_6' => $requirement->children_under_6,
+                    'children_over_6' => $requirement->children_over_6,
+                    'room_price' => $requirement->room_price,
+                    'price_source' => $requirement->price_source?->value,
+                    'note' => $requirement->note,
+                    'active_assignment_count' => $activeCount,
+                    'remaining' => max($requirement->quantity - $activeCount, 0),
+                    'is_folio_locked' => $isFolioLocked,
+                ];
+            })->values(),
             'payment_summary'  => $this->bookings->paymentSummary($booking),
             'payment_projection' => $this->paymentProjection->project($booking),
             'folio'            => $this->folioPayload($booking),

@@ -121,6 +121,11 @@ Route::middleware('auth')->group(function (): void {
         Route::post('bookings/{booking}/assignments', [RoomAssignmentController::class, 'store'])->name('bookings.assignments.store');
         Route::post('bookings/{booking}/assignments/{assignment}/release', [RoomAssignmentController::class, 'release'])->name('bookings.assignments.release');
         Route::post('bookings/{booking}/room-board/conflict/{assignment}/release', [RoomAssignmentController::class, 'releaseConflict'])->name('bookings.room-board.conflict.release');
+        // Room Demand/Room Board Unification M3: Room-Board-first reverse sync —
+        // separate route/action from bookings.assignments.store (Implementation
+        // Plan Mục XI), same room-board.* naming convention as the conflict-release
+        // route above.
+        Route::post('bookings/{booking}/room-board/assignments', [RoomAssignmentController::class, 'storeFromRoomBoard'])->name('bookings.room-board.assignments.store');
         Route::post('bookings/{booking}/stays/{stay}/check-in', [StayController::class, 'checkIn'])->name('bookings.stays.check-in');
         Route::post('bookings/{booking}/stays/{stay}/check-out', [StayController::class, 'checkOut'])->name('bookings.stays.check-out');
         Route::post('bookings/{booking}/stays/{stay}/inspection-skip', [StayController::class, 'skipInspection'])->name('bookings.stays.inspection-skip');

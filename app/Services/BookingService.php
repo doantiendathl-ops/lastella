@@ -149,16 +149,8 @@ class BookingService
                 ]);
             }
 
-            $folioId = $lockedBooking->folio?->id;
-
-            if ($folioId !== null) {
-                if (FolioEntry::where('folio_id', $folioId)
-                    ->where('charge_type', ChargeType::Room->value)
-                    ->whereNull('voided_at')
-                    ->lockForUpdate()
-                    ->exists()) {
-                    throw new RequirementLockedAfterRoomChargeException();
-                }
+            if ($this->hasActiveRoomCharge($lockedBooking)) {
+                throw new RequirementLockedAfterRoomChargeException();
             }
 
             $lockedRequirement->update($data);
@@ -166,6 +158,35 @@ class BookingService
 
             return $lockedRequirement->refresh()->load('roomType');
         });
+    }
+
+    /**
+     * Room Demand/Room Board Unification M3: whether this booking's folio has
+     * any unvoided ROOM charge entry — the exact condition
+     * RequirementLockedAfterRoomChargeException guards against. Extracted out
+     * of updateRequirement() (behaviour unchanged, same query, same lock) so
+     * the Room-Board-first excess-allocation logic in RoomAssignmentService
+     * can consult the SAME guard condition up front, instead of duplicating
+     * the query or discovering the lock only via a thrown exception. This is
+     * booking-wide, not per-requirement-line: FolioEntry has no
+     * booking_requirement_id column, so once any Room charge exists anywhere
+     * on the booking's folio, every requirement line is equally locked.
+     * MUST be called from within an existing DB::transaction() — the
+     * lockForUpdate() here does not open one of its own.
+     */
+    public function hasActiveRoomCharge(Booking $booking): bool
+    {
+        $folioId = $booking->folio?->id;
+
+        if ($folioId === null) {
+            return false;
+        }
+
+        return FolioEntry::where('folio_id', $folioId)
+            ->where('charge_type', ChargeType::Room->value)
+            ->whereNull('voided_at')
+            ->lockForUpdate()
+            ->exists();
     }
 
     /**

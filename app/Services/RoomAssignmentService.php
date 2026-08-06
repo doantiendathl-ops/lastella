@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\AssignmentStatus;
+use App\Enums\BookingStatus;
 use App\Enums\StayStatus;
 use App\Models\Booking;
 use App\Models\BookingRequirement;
@@ -20,6 +21,8 @@ class RoomAssignmentService
     public function __construct(
         private readonly BookingService $bookings,
         private readonly RoomAvailabilityRuleService $rules,
+        private readonly RoomRequirementAllocationService $allocation,
+        private readonly StayService $stays,
     ) {
     }
 
@@ -205,6 +208,328 @@ class RoomAssignmentService
 
             return $created;
         });
+    }
+
+    /**
+     * Room Demand/Room Board Unification M3 — Room-Board-first reverse
+     * synchronization. Selecting rooms directly on the Room Board creates or
+     * increases the matching BookingRequirement line(s) AND the
+     * RoomAssignment rows AND the Stay rows, all inside ONE transaction — no
+     * second transaction, no partial success (Architecture Review REVISION 3
+     * Mục 14b/18/19-21; Implementation Plan Mục XII).
+     *
+     * Reuses, never duplicates:
+     *  - lockRoomRecheckAndCreateAssignment() for every RoomAssignment (same
+     *    helper as assignRooms()/assignRoomsWithRequirementLink()).
+     *  - RoomRequirementAllocationService::reconcileRoomType() for the
+     *    excess_to_add formula (never `quantity += selected_count`).
+     *  - RoomRequirementAllocationService::planLineAllocation() for the
+     *    "which line" decision (single/ambiguous/none/folio-locked) — the
+     *    SAME decision table already used and tested since Milestone 1.
+     *  - BookingService::addRequirement()/updateRequirement() for every
+     *    BookingRequirement write, so Room-Board-first and demand-first go
+     *    through the identical guarded application core (Product Owner
+     *    Decision #3) — never a raw $requirement->update()/::create() here.
+     *  - StayService::createStayFromAssignment() — called INSIDE this
+     *    transaction (unlike the demand-first flow, which intentionally
+     *    keeps it outside — Mục XIII). Verified DB-only, no dispatched
+     *    event/job, safe to include.
+     *
+     * Lock order (Implementation Plan Mục XII): Booking → Room (all, id asc)
+     * → BookingRequirement (all eligible, id asc) → create/increase
+     * BookingRequirement → create RoomAssignment → create Stay.
+     *
+     * @param  array<int, array{room_type_id:int, room_ids:int[], target_requirement_id:?int, room_price:?float, price_source:?string, note:?string, adults:?int, children_under_6:?int, children_over_6:?int}>  $groups
+     * @return array{assignments: RoomAssignment[], stays: Stay[]}
+     */
+    public function assignRoomsFromRoomBoard(
+        Booking $booking,
+        array $groups,
+        CarbonInterface|string $startAt,
+        CarbonInterface|string $endAt,
+    ): array {
+        return DB::transaction(function () use ($booking, $groups, $startAt, $endAt): array {
+            $lockedBooking = Booking::whereKey($booking->id)->lockForUpdate()->firstOrFail();
+
+            $this->assertBookingAcceptsRoomBoardAssignment($lockedBooking);
+
+            $allRoomIds = collect($groups)->flatMap(fn (array $group): array => $group['room_ids'])
+                ->unique()->sort()->values()->all();
+
+            $lockedRoomsById = Room::whereIn('id', $allRoomIds)
+                ->with('roomType:id,code')
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+
+            foreach ($allRoomIds as $roomId) {
+                $room = $lockedRoomsById->get($roomId);
+
+                if ($room === null) {
+                    throw ValidationException::withMessages([
+                        'room_ids' => 'Một phòng đã chọn không còn tồn tại.',
+                    ]);
+                }
+
+                if ($this->rules->isRoomUnavailable($room)) {
+                    throw ValidationException::withMessages([
+                        'room_ids' => "Phòng {$room->room_number} không khả dụng (bảo trì/ngừng phục vụ).",
+                    ]);
+                }
+            }
+
+            // Room-type in every group is re-derived from the LOCKED Room rows,
+            // never trusted from the frontend payload (Implementation Plan Mục XI).
+            foreach ($groups as $group) {
+                foreach ($group['room_ids'] as $roomId) {
+                    $actualRoomTypeId = $lockedRoomsById->get($roomId)?->room_type_id;
+
+                    if ($actualRoomTypeId !== $group['room_type_id']) {
+                        throw ValidationException::withMessages([
+                            'groups' => "Phòng đã chọn không thuộc đúng loại phòng của nhóm (room_type_id={$group['room_type_id']}).",
+                        ]);
+                    }
+                }
+            }
+
+            $bookingWideFolioLocked = $this->bookings->hasActiveRoomCharge($lockedBooking);
+
+            $roomTypeIds = collect($groups)->pluck('room_type_id')->unique()->sort()->values();
+
+            // Lock every eligible (quantity > 0) line for every room_type in this
+            // request, sorted ascending — resolved BEFORE any requirement or
+            // assignment write happens (same "lock everything, then decide, then
+            // write" shape as assignRoomsWithRequirementLink()).
+            $eligibleLinesByRoomType = BookingRequirement::where('booking_id', $lockedBooking->id)
+                ->whereIn('room_type_id', $roomTypeIds)
+                ->where('quantity', '>', 0)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get()
+                ->groupBy('room_type_id');
+
+            $createdAssignments = [];
+            $createdStays = [];
+
+            foreach ($groups as $group) {
+                [$groupAssignments, $groupStays] = $this->resolveAndApplyRoomBoardGroup(
+                    $lockedBooking,
+                    $group,
+                    $eligibleLinesByRoomType->get($group['room_type_id'], collect()),
+                    $bookingWideFolioLocked,
+                    $lockedRoomsById,
+                    $startAt,
+                    $endAt,
+                );
+
+                array_push($createdAssignments, ...$groupAssignments);
+                array_push($createdStays, ...$groupStays);
+            }
+
+            $this->bookings->updateBookingAssignmentStatus($lockedBooking);
+
+            return ['assignments' => $createdAssignments, 'stays' => $createdStays];
+        });
+    }
+
+    /**
+     * Room Demand/Room Board Unification M3: resolves the target requirement
+     * line(s) for ONE room_type group, creates/increases BookingRequirement
+     * as needed, then creates the RoomAssignment + Stay rows for every room
+     * in the group. Never called outside the transaction opened by
+     * assignRoomsFromRoomBoard().
+     *
+     * @return array{0: RoomAssignment[], 1: Stay[]}
+     */
+    private function resolveAndApplyRoomBoardGroup(
+        Booking $lockedBooking,
+        array $group,
+        \Illuminate\Support\Collection $eligibleLines,
+        bool $bookingWideFolioLocked,
+        \Illuminate\Support\Collection $lockedRoomsById,
+        CarbonInterface|string $startAt,
+        CarbonInterface|string $endAt,
+    ): array {
+        $roomTypeId = $group['room_type_id'];
+        $roomTypeCode = $lockedRoomsById->firstWhere('room_type_id', $roomTypeId)?->roomType?->code ?? (string) $roomTypeId;
+        $selectedRoomIds = collect($group['room_ids'])->sort()->values();
+        $selectedCount = $selectedRoomIds->count();
+
+        $activeLinesInput = $eligibleLines->map(fn (BookingRequirement $line): array => [
+            'id' => $line->id,
+            'is_folio_locked' => $bookingWideFolioLocked,
+        ])->all();
+
+        $plan = $this->allocation->planLineAllocation($activeLinesInput, $group['target_requirement_id']);
+
+        if ($plan['status'] === RoomRequirementAllocationService::STATUS_NEEDS_TARGET_SELECTION) {
+            throw ValidationException::withMessages([
+                "groups.{$roomTypeId}.target_requirement_id" => "Loại phòng {$roomTypeCode} có nhiều dòng nhu cầu. Vui lòng chọn dòng nhu cầu phù hợp.",
+            ]);
+        }
+
+        if ($plan['status'] === RoomRequirementAllocationService::STATUS_INVALID_TARGET) {
+            throw ValidationException::withMessages([
+                "groups.{$roomTypeId}.target_requirement_id" => "Dòng nhu cầu được chọn không hợp lệ cho loại phòng {$roomTypeCode}.",
+            ]);
+        }
+
+        // Resolve the line new assignments link to for the "within remaining
+        // capacity" portion (never null when the plan found or targeted a line).
+        $linkLineId = match ($plan['status']) {
+            RoomRequirementAllocationService::STATUS_USE_EXISTING_LINE => $plan['requirement_id'],
+            RoomRequirementAllocationService::STATUS_CREATE_NEW_LINE_FOLIO_LOCKED => $plan['reference_requirement_id'],
+            default => null, // STATUS_CREATE_NEW_LINE — no existing line at all.
+        };
+
+        $targetLine = $linkLineId !== null ? $eligibleLines->firstWhere('id', $linkLineId) : null;
+
+        // "Active/consumed" here MUST match getAssignmentSummary()'s existing
+        // convention (Assigned + CheckedIn + CheckedOut), not the narrower
+        // AssignmentStatus::activeValues() (Assigned + CheckedIn only) — a
+        // checked-out room still consumed a unit of demand and must not be
+        // double-counted as remaining capacity, matching Section VIII's
+        // reconciliation formula and the room-type totals already shown in
+        // props.assignmentSummary on the frontend.
+        $lineRequired = $targetLine?->quantity ?? 0;
+        $lineAssignedActive = $targetLine !== null
+            ? RoomAssignment::where('booking_requirement_id', $targetLine->id)
+                ->whereIn('status', [
+                    AssignmentStatus::Assigned,
+                    AssignmentStatus::CheckedIn,
+                    AssignmentStatus::CheckedOut,
+                ])
+                ->count()
+            : 0;
+
+        $reconciliation = $this->allocation->reconcileRoomType($lineRequired, $lineAssignedActive, $selectedCount);
+        $remaining = $reconciliation['remaining'];
+        $excessToAdd = $reconciliation['excess_to_add'];
+
+        $excessLineId = null;
+
+        if ($excessToAdd > 0) {
+            $canIncreaseTarget = $targetLine !== null
+                && $plan['status'] === RoomRequirementAllocationService::STATUS_USE_EXISTING_LINE
+                && $group['room_price'] !== null
+                && $group['price_source'] !== null
+                && $this->matchesRequirementMergeKey($targetLine, $group['room_price'], $group['price_source']);
+
+            if ($canIncreaseTarget) {
+                // Reuses BookingService::updateRequirement() — the SAME guarded
+                // path demand-first uses, so RequirementLockedAfterRoomChargeException
+                // can never be bypassed here (Product Owner Decision #13).
+                $increased = $this->bookings->updateRequirement($targetLine, [
+                    'quantity' => $targetLine->quantity + $excessToAdd,
+                ]);
+                $excessLineId = $increased->id;
+            } else {
+                $this->assertNewRequirementPayloadPresent($group, $roomTypeCode, $excessToAdd);
+
+                // Reuses BookingService::addRequirement() — the SAME application
+                // core demand-first uses to create a line (Product Owner Decision #3).
+                $newLine = $this->bookings->addRequirement($lockedBooking, [
+                    'room_type_id' => $roomTypeId,
+                    'quantity' => $excessToAdd,
+                    'adults' => $group['adults'],
+                    'children_under_6' => $group['children_under_6'],
+                    'children_over_6' => $group['children_over_6'],
+                    'room_price' => $group['room_price'],
+                    'price_source' => $group['price_source'],
+                    'note' => $group['note'],
+                ]);
+                $excessLineId = $newLine->id;
+            }
+        }
+
+        $withinCapacityCount = min($remaining, $selectedCount);
+        $withinCapacityRoomIds = $selectedRoomIds->take($withinCapacityCount);
+        $excessRoomIds = $selectedRoomIds->slice($withinCapacityCount);
+
+        $groupAssignments = [];
+        $groupStays = [];
+
+        foreach ($withinCapacityRoomIds as $roomId) {
+            $assignment = $this->lockRoomRecheckAndCreateAssignment(
+                $lockedBooking,
+                ['room_id' => $roomId, 'room_type_id' => $roomTypeId, 'start_at' => $startAt, 'end_at' => $endAt],
+                $targetLine?->id,
+            );
+            $groupAssignments[] = $assignment;
+            $groupStays[] = $this->stays->createStayFromAssignment($assignment);
+        }
+
+        foreach ($excessRoomIds as $roomId) {
+            $assignment = $this->lockRoomRecheckAndCreateAssignment(
+                $lockedBooking,
+                ['room_id' => $roomId, 'room_type_id' => $roomTypeId, 'start_at' => $startAt, 'end_at' => $endAt],
+                $excessLineId,
+            );
+            $groupAssignments[] = $assignment;
+            $groupStays[] = $this->stays->createStayFromAssignment($assignment);
+        }
+
+        return [$groupAssignments, $groupStays];
+    }
+
+    /**
+     * Merge-key check for reusing an existing line's quantity (Architecture
+     * Review Mục 14c / Implementation Plan Mục X.A): room_type_id is already
+     * fixed by construction (the line came from this room_type's eligible
+     * set); room_price and price_source must match EXACTLY. `note` is
+     * deliberately excluded from the merge key (free-text field, must not
+     * fragment demand lines) and is never rewritten onto the existing line.
+     */
+    private function matchesRequirementMergeKey(BookingRequirement $line, float $roomPrice, string $priceSource): bool
+    {
+        return bccomp((string) $line->room_price, number_format($roomPrice, 2, '.', ''), 2) === 0
+            && $line->price_source?->value === $priceSource;
+    }
+
+    /**
+     * Room Demand/Room Board Unification M3: when excess demand must become a
+     * NEW requirement line, the price/source/guest fields are mandatory —
+     * this covers the race-condition edge case where the frontend optimistically
+     * predicted no excess (so it did not ask the user for pricing) but the
+     * freshly-locked data under transaction says otherwise. Fails clearly
+     * instead of writing a requirement with a 0/blank price.
+     */
+    private function assertNewRequirementPayloadPresent(array $group, string $roomTypeCode, int $excessToAdd): void
+    {
+        $roomTypeId = $group['room_type_id'];
+        $missing = $group['room_price'] === null || $group['price_source'] === null
+            || $group['adults'] === null || $group['children_under_6'] === null || $group['children_over_6'] === null;
+
+        if ($missing) {
+            throw ValidationException::withMessages([
+                "groups.{$roomTypeId}.room_price" => "Loại phòng {$roomTypeCode} cần thêm {$excessToAdd} phòng vào nhu cầu — vui lòng nhập giá/nguồn giá/số khách trước khi xác nhận.",
+            ]);
+        }
+    }
+
+    /**
+     * Room Demand/Room Board Unification M3 — State Matrix (Implementation
+     * Plan Mục XIV): blocks Room-Board-first the same way the legacy
+     * assignRooms()/assignRoomsWithRequirementLink() never had to, because
+     * this is the first flow that can also mutate demand. isTerminal()
+     * (Cancelled/NoShow/CheckedOut) is the existing BookingStatus helper;
+     * PartiallyCheckedOut is added explicitly since it is not terminal but
+     * must still block new assignments (booking is already mid-checkout).
+     */
+    private function assertBookingAcceptsRoomBoardAssignment(Booking $booking): void
+    {
+        if ($booking->status->isTerminal() || $booking->status === BookingStatus::PartiallyCheckedOut) {
+            throw ValidationException::withMessages([
+                'booking' => match ($booking->status) {
+                    BookingStatus::Cancelled => 'Booking đã hủy. Không thể phân phòng.',
+                    BookingStatus::NoShow => 'Booking không đến (No-Show). Không thể phân phòng.',
+                    BookingStatus::CheckedOut => 'Booking đã trả phòng. Không thể phân thêm phòng.',
+                    BookingStatus::PartiallyCheckedOut => 'Booking đang trong quá trình trả phòng. Không thể phân thêm phòng từ Sơ đồ phòng.',
+                    default => 'Booking hiện không cho phép phân phòng.',
+                },
+            ]);
+        }
     }
 
     public function releaseAssignment(RoomAssignment $assignment, ?string $reason = null): RoomAssignment

@@ -7,7 +7,7 @@ import SpecialRequestPanel from './Partials/SpecialRequestPanel.vue';
 import { labelFor } from '@/Support/vietnameseLabels';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import { BedDouble, CheckCircle, Eye, Pencil, Plus, RotateCcw, Trash2, X, XCircle } from 'lucide-vue-next';
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 const props = defineProps({
     booking: { type: Object, required: true },
@@ -246,6 +246,130 @@ const canSubmitAssignment = computed(() =>
     selectedRoomIds.value.length > 0
     && groupsWithNoRequirement.value.length === 0
     && !hasUnresolvedRequirementChoice.value);
+
+// Room Demand/Room Board Unification M3 — Room-Board-first reverse sync. A
+// SEPARATE panel/form from the demand-first one above (canSubmitAssignment/
+// submitAssignment untouched): here demand can be CREATED or INCREASED from
+// what's selected, not just mapped onto pre-existing lines. Mirrors the
+// backend's reconciliation formula (RoomRequirementAllocationService) for
+// display purposes only — the server re-derives everything under lock and is
+// the actual source of truth; this is a best-effort preview so the user isn't
+// surprised by the confirmation the backend returns.
+const roomBoardInputs = ref({});
+
+const defaultRoomBoardInput = (roomTypeId) => {
+    const suggested = defaultRoomPrice(roomTypeId);
+    return {
+        target_requirement_id: null,
+        room_price: suggested || null,
+        price_source: suggested ? 'RATE_TABLE' : null,
+        note: '',
+        adults: selectedCountForRoomType(roomTypeId),
+        children_under_6: 0,
+        children_over_6: 0,
+    };
+};
+
+// Lazily creates one input entry per room_type the moment it enters the
+// current selection (immediate + watcher, not inside a computed — computed
+// getters must stay pure/side-effect-free). Left in place if the user
+// deselects and reselects before submitting, same quiet convenience
+// targetRequirementByRoomType already gives the M2 panel.
+watch(selectedRoomTypeIds, (ids) => {
+    ids.forEach((roomTypeId) => {
+        if (!roomBoardInputs.value[roomTypeId]) {
+            roomBoardInputs.value[roomTypeId] = defaultRoomBoardInput(roomTypeId);
+        }
+    });
+}, { immediate: true });
+
+const roomBoardGroups = computed(() => selectedRoomTypeIds.value.map((roomTypeId) => {
+    const lines = (props.booking.requirements ?? [])
+        .filter((requirement) => Number(requirement.room_type_id) === roomTypeId && Number(requirement.quantity) > 0);
+    const roomIds = selectedRooms.value.filter((room) => Number(room.room_type_id) === roomTypeId).map((room) => Number(room.id));
+    const selectedCount = roomIds.length;
+    const room = selectedRooms.value.find((r) => Number(r.room_type_id) === roomTypeId);
+    const roomTypeCode = room?.room_type ?? String(roomTypeId);
+    const input = roomBoardInputs.value[roomTypeId] ?? defaultRoomBoardInput(roomTypeId);
+
+    const needsChoice = lines.length > 1;
+    // Single eligible line auto-resolves; with multiple lines the user must
+    // explicitly choose — never guessed (Product Owner Decision #10/#15).
+    const targetLine = lines.length === 1
+        ? lines[0]
+        : (needsChoice && input.target_requirement_id ? lines.find((line) => Number(line.id) === Number(input.target_requirement_id)) ?? null : null);
+
+    const required = targetLine ? Number(targetLine.quantity) : 0;
+    const assignedActive = targetLine ? Number(targetLine.active_assignment_count) : 0;
+    // required/assigned_active/remaining/excess_to_add — exact formula from
+    // Implementation Plan Mục VIII, mirrored here for display only.
+    const remaining = Math.max(required - assignedActive, 0);
+    const excessToAdd = Math.max(selectedCount - remaining, 0);
+    const needsPricing = excessToAdd > 0;
+    const hasPricing = input.room_price !== null && input.room_price !== '' && Number(input.room_price) >= 0 && !!input.price_source;
+
+    return {
+        room_type_id: roomTypeId,
+        room_type_code: roomTypeCode,
+        room_ids: roomIds,
+        selected_count: selectedCount,
+        lines,
+        needs_choice: needsChoice,
+        has_no_requirement: lines.length === 0,
+        target_line: targetLine,
+        remaining,
+        excess_to_add: excessToAdd,
+        is_target_folio_locked: Boolean(targetLine?.is_folio_locked),
+        needs_pricing: needsPricing,
+        is_valid: (!needsChoice || Boolean(targetLine)) && (!needsPricing || hasPricing),
+    };
+}));
+
+const roomBoardAllGroupsValid = computed(() =>
+    roomBoardGroups.value.length > 0 && roomBoardGroups.value.every((group) => group.is_valid));
+
+const roomBoardForm = useForm({
+    room_ids: [],
+    start_at: props.booking.checkin_at,
+    end_at: props.booking.checkout_at,
+    groups: [],
+});
+
+const submitRoomBoardAssignment = () => {
+    if (!roomBoardAllGroupsValid.value) {
+        return;
+    }
+
+    roomBoardForm.room_ids = selectedRoomIds.value;
+    roomBoardForm.groups = roomBoardGroups.value.map((group) => {
+        const input = roomBoardInputs.value[group.room_type_id] ?? defaultRoomBoardInput(group.room_type_id);
+
+        // Price/source/note/guest fields only ever apply to the excess/new-line
+        // portion (Product Owner Decision #11) — never sent when there's
+        // nothing to create, so the backend never mistakes them for an intent
+        // to modify the existing (possibly folio-locked) line.
+        return {
+            room_type_id: group.room_type_id,
+            room_ids: group.room_ids,
+            target_requirement_id: group.target_line?.id ?? null,
+            room_price: group.needs_pricing ? normalizePrice(input.room_price) : null,
+            price_source: group.needs_pricing ? input.price_source : null,
+            note: group.needs_pricing ? (input.note || null) : null,
+            adults: group.needs_pricing ? Number(input.adults) : null,
+            children_under_6: group.needs_pricing ? Number(input.children_under_6) : null,
+            children_over_6: group.needs_pricing ? Number(input.children_over_6) : null,
+        };
+    });
+
+    roomBoardForm.post(`/admin/bookings/${props.booking.id}/room-board/assignments`, {
+        preserveScroll: true,
+        onSuccess: () => {
+            selectedRoomIds.value = [];
+            roomBoardInputs.value = {};
+            roomBoardForm.reset('room_ids', 'groups');
+        },
+    });
+};
 
 const buildRoomTypeSummaryWithSelection = (summaryList) => summaryList.map((summary) => {
     const pendingCount = selectedRooms.value.filter((r) => Number(r.room_type_id) === Number(summary.room_type_id)).length;
@@ -1190,7 +1314,115 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                                 </div>
                         </section>
                     </div>
+                    </div>
                 </form>
+
+                <!-- Room Demand/Room Board Unification M3 — Room-Board-first reverse sync.
+                     A SEPARATE panel from the demand-first <form> above: "Lưu phân phòng" and
+                     canSubmitAssignment/submitAssignment remain 100% untouched for staff who
+                     already pre-entered demand. This panel is for choosing rooms FIRST — the
+                     system reconciles against existing demand and creates/extends it as needed.
+                     Card-based per room_type (not a wide table) so it works unmodified from
+                     mobile up; each field stacks vertically until sm:. -->
+                <div v-if="can.assignRoom && selectedRoomIds.length > 0" class="space-y-4 border border-pine/30 bg-pine/5 p-4">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <div class="text-sm font-semibold">Xác nhận & đồng bộ nhu cầu (Sơ đồ phòng)</div>
+                            <div class="mt-1 text-xs text-steel">Đã chọn {{ selectedRoomIds.length }} phòng. Hệ thống sẽ đối chiếu với nhu cầu hiện có và tự tạo/bổ sung nếu cần.</div>
+                        </div>
+                        <button
+                            type="button"
+                            class="inline-flex items-center justify-center gap-2 bg-pine px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300"
+                            :disabled="!roomBoardAllGroupsValid || roomBoardForm.processing"
+                            @click="submitRoomBoardAssignment"
+                        >
+                            <BedDouble class="h-4 w-4" />
+                            Xác nhận phân phòng
+                        </button>
+                    </div>
+
+                    <p v-if="Object.keys(roomBoardForm.errors).length" class="text-sm text-coral">{{ Object.values(roomBoardForm.errors)[0] }}</p>
+
+                    <div v-for="group in roomBoardGroups" :key="`rb-${group.room_type_id}`" class="space-y-3 border border-gray-200 bg-white p-3">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <div class="text-sm font-semibold text-ink">{{ group.room_type_code }}</div>
+                            <div class="text-xs text-steel">
+                                Đang chọn {{ group.selected_count }}
+                                <template v-if="group.target_line"> · Nhu cầu {{ group.target_line.quantity }} · Đã gán {{ group.target_line.active_assignment_count }} · Còn {{ group.remaining }}</template>
+                            </div>
+                        </div>
+
+                        <!-- Nhiều dòng nhu cầu — bắt buộc chọn, không tự đoán (Product Owner Decision #10). -->
+                        <div v-if="group.needs_choice" class="space-y-1.5">
+                            <label class="block text-xs font-medium text-steel">Chọn dòng nhu cầu áp dụng cho phần trong hạn mức</label>
+                            <select v-model="roomBoardInputs[group.room_type_id].target_requirement_id" class="w-full border border-gray-300 px-2 py-2 text-sm sm:max-w-md">
+                                <option :value="null">-- Chọn dòng nhu cầu --</option>
+                                <option v-for="line in group.lines" :key="line.id" :value="line.id">
+                                    SL {{ line.quantity }} · Còn {{ line.remaining }} · {{ formatCurrency(line.room_price) }} · {{ line.price_source }}{{ line.is_folio_locked ? ' · Đã khóa (folio)' : '' }}
+                                </option>
+                            </select>
+                        </div>
+
+                        <div v-else-if="group.target_line" class="text-xs text-steel">
+                            Tự động dùng dòng nhu cầu hiện có ({{ formatCurrency(group.target_line.room_price) }} · {{ group.target_line.price_source }}).
+                        </div>
+
+                        <div v-else class="text-xs text-amber-700">
+                            Loại phòng này chưa có nhu cầu — hệ thống sẽ tạo dòng nhu cầu mới cho toàn bộ {{ group.selected_count }} phòng đã chọn.
+                        </div>
+
+                        <div v-if="group.is_target_folio_locked" class="border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800">
+                            Dòng nhu cầu này đã bị khóa vì booking đã có charge tiền phòng — hệ thống sẽ không sửa dòng cũ; phần vượt hạn mức sẽ tạo dòng nhu cầu mới.
+                        </div>
+
+                        <div v-if="group.needs_pricing" class="space-y-2 border-t border-gray-100 pt-2">
+                            <div class="text-xs font-semibold text-ink">
+                                Cần bổ sung thêm {{ group.excess_to_add }} phòng vào nhu cầu — nhập thông tin dòng nhu cầu mới:
+                            </div>
+                            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                <div>
+                                    <label class="block text-xs font-medium text-steel">Giá phòng</label>
+                                    <div class="flex gap-1">
+                                        <input v-model="roomBoardInputs[group.room_type_id].room_price" type="number" min="0" class="w-full border border-gray-300 px-2 py-1.5 text-sm" />
+                                        <button
+                                            v-if="suggestedPriceForRoomType(group.room_type_id)"
+                                            type="button"
+                                            class="shrink-0 border border-gray-300 px-2 py-1.5 text-xs text-steel hover:text-ink"
+                                            @click="roomBoardInputs[group.room_type_id].room_price = defaultRoomPrice(group.room_type_id); roomBoardInputs[group.room_type_id].price_source = 'RATE_TABLE';"
+                                        >
+                                            Dùng giá đề xuất
+                                        </button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-steel">Nguồn giá</label>
+                                    <select v-model="roomBoardInputs[group.room_type_id].price_source" class="w-full border border-gray-300 px-2 py-1.5 text-sm">
+                                        <option :value="null">-- Chọn nguồn giá --</option>
+                                        <option v-for="source in options.priceSources" :key="source.value" :value="source.value">{{ source.label }}</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-steel">Người lớn</label>
+                                    <input v-model.number="roomBoardInputs[group.room_type_id].adults" type="number" min="0" class="w-full border border-gray-300 px-2 py-1.5 text-sm" />
+                                </div>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="block text-xs font-medium text-steel">Trẻ &lt;6</label>
+                                        <input v-model.number="roomBoardInputs[group.room_type_id].children_under_6" type="number" min="0" class="w-full border border-gray-300 px-2 py-1.5 text-sm" />
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium text-steel">Trẻ ≥6</label>
+                                        <input v-model.number="roomBoardInputs[group.room_type_id].children_over_6" type="number" min="0" class="w-full border border-gray-300 px-2 py-1.5 text-sm" />
+                                    </div>
+                                </div>
+                                <div class="sm:col-span-2">
+                                    <label class="block text-xs font-medium text-steel">Ghi chú</label>
+                                    <input v-model="roomBoardInputs[group.room_type_id].note" type="text" class="w-full border border-gray-300 px-2 py-1.5 text-sm" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
                 <div class="mt-2 flex items-center justify-between border-b-2 border-pine/30 pb-2 pt-4">
                     <div class="flex items-center gap-2">
