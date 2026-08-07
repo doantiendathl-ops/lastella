@@ -1344,6 +1344,7 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                         </div>
                     </div>
 
+                    <div class="overflow-x-auto pb-72 sm:overflow-visible sm:pb-0">
                     <div class="space-y-1.5">
                         <section v-for="floor in roomBoard.floors" :key="floor.id" class="flex flex-nowrap items-center gap-2">
                             <div class="shrink-0 w-16 border-r border-gray-100 pr-2">
