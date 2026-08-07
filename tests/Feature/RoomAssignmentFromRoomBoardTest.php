@@ -601,4 +601,66 @@ class RoomAssignmentFromRoomBoardTest extends TestCase
                 ->where('booking.requirements.0.is_folio_locked', false)
             );
     }
+
+    // ── Milestone 5 hardening — payload cap (Mục VI) ───────────────────────
+
+    public function test_exactly_one_hundred_rooms_is_accepted(): void
+    {
+        [$booking, $roomType] = $this->makeBookingAndRoomType();
+        $requirement = BookingRequirement::factory()->create([
+            'booking_id' => $booking->id, 'room_type_id' => $roomType->id, 'quantity' => 100,
+            'room_price' => 500000, 'price_source' => \App\Enums\PriceSource::RateTable,
+        ]);
+        // Shares a single Floor across all 100 rooms (realistic — hotels have
+        // many rooms per floor) so this doesn't exhaust FloorFactory's
+        // bounded fake()->unique() 'F##' code space (100 possible values)
+        // within one PHPUnit process, which would otherwise spuriously fail
+        // an UNRELATED later test needing its own unique floor codes.
+        $floor = \App\Models\Floor::factory()->create();
+        $rooms = Room::factory()->for($roomType)->for($floor)->count(100)->create();
+
+        $response = $this->post("/admin/bookings/{$booking->id}/room-board/assignments", [
+            'room_ids' => $rooms->pluck('id')->all(),
+            'start_at' => $booking->checkin_at->format('Y-m-d H:i:s'),
+            'end_at' => $booking->checkout_at->format('Y-m-d H:i:s'),
+            'groups' => [[
+                'room_type_id' => $roomType->id,
+                'room_ids' => $rooms->pluck('id')->all(),
+                'target_requirement_id' => $requirement->id,
+                'room_price' => 500000, 'price_source' => 'RATE_TABLE',
+                'adults' => 2, 'children_under_6' => 0, 'children_over_6' => 0,
+            ]],
+        ]);
+
+        $response->assertSessionDoesntHaveErrors(['room_ids', 'groups']);
+        $this->assertSame(100, RoomAssignment::where('booking_id', $booking->id)->count(), 'exactly the max-allowed batch size must be accepted and fully written, never rejected by the new cap');
+    }
+
+    public function test_one_hundred_and_one_rooms_is_rejected_with_no_write(): void
+    {
+        [$booking, $roomType] = $this->makeBookingAndRoomType();
+        $floor = \App\Models\Floor::factory()->create();
+        $rooms = Room::factory()->for($roomType)->for($floor)->count(101)->create();
+
+        $response = $this->post("/admin/bookings/{$booking->id}/room-board/assignments", [
+            'room_ids' => $rooms->pluck('id')->all(),
+            'start_at' => $booking->checkin_at->format('Y-m-d H:i:s'),
+            'end_at' => $booking->checkout_at->format('Y-m-d H:i:s'),
+            'groups' => [[
+                'room_type_id' => $roomType->id,
+                'room_ids' => $rooms->pluck('id')->all(),
+                'room_price' => 500000, 'price_source' => 'RATE_TABLE',
+                'adults' => 2, 'children_under_6' => 0, 'children_over_6' => 0,
+            ]],
+        ]);
+
+        // The top-level room_ids field (which must equal the union of every
+        // group's room_ids, enforced by the cross-group validator) is what
+        // bounds total payload size regardless of how rooms are distributed
+        // across groups — a single group of 101 rooms correctly fails here,
+        // while `groups` itself (the count of room_type groupings, still
+        // just 1 in this payload) has nothing to reject.
+        $response->assertSessionHasErrors(['room_ids']);
+        $this->assertSame(0, RoomAssignment::where('booking_id', $booking->id)->count(), 'over-limit payload must reject the whole request with no partial write');
+    }
 }

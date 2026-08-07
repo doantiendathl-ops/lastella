@@ -413,4 +413,180 @@ class RoomAssignmentAtomicMappingTest extends TestCase
             'booking_requirement_id' => $chosen->id,
         ]);
     }
+
+    // ── Architecture Gap Closure (M5, Blocker A) — demand-first capacity ──
+
+    private function makeActiveAssignment(Booking $booking, RoomType $roomType, BookingRequirement $requirement): RoomAssignment
+    {
+        $room = Room::factory()->for($roomType)->create();
+
+        return RoomAssignment::factory()->create([
+            'booking_id' => $booking->id,
+            'room_id' => $room->id,
+            'room_type_id' => $roomType->id,
+            'booking_requirement_id' => $requirement->id,
+            'status' => AssignmentStatus::Assigned,
+            'start_at' => $booking->checkin_at,
+            'end_at' => $booking->checkout_at,
+        ]);
+    }
+
+    public function test_capacity_quantity_5_active_3_request_2_is_accepted(): void
+    {
+        [$booking, $roomType] = $this->makeBookingAndRoomType();
+        $requirement = BookingRequirement::factory()->create(['booking_id' => $booking->id, 'room_type_id' => $roomType->id, 'quantity' => 5]);
+        $this->makeActiveAssignment($booking, $roomType, $requirement);
+        $this->makeActiveAssignment($booking, $roomType, $requirement);
+        $this->makeActiveAssignment($booking, $roomType, $requirement);
+        $newRooms = Room::factory()->for($roomType)->count(2)->create();
+
+        $created = $this->assignments->assignRoomsWithRequirementLink($booking, $newRooms->map(fn ($room) => [
+            'room_id' => $room->id, 'room_type_id' => $roomType->id, 'start_at' => $booking->checkin_at, 'end_at' => $booking->checkout_at,
+        ])->all());
+
+        $this->assertCount(2, $created);
+        $this->assertSame(5, $requirement->fresh()->quantity, 'quantity must never be mutated by demand-first');
+    }
+
+    public function test_capacity_quantity_5_active_4_request_2_rejects_whole_batch(): void
+    {
+        [$booking, $roomType] = $this->makeBookingAndRoomType();
+        $requirement = BookingRequirement::factory()->create(['booking_id' => $booking->id, 'room_type_id' => $roomType->id, 'quantity' => 5]);
+        for ($i = 0; $i < 4; $i++) {
+            $this->makeActiveAssignment($booking, $roomType, $requirement);
+        }
+        $newRooms = Room::factory()->for($roomType)->count(2)->create();
+
+        try {
+            $this->assignments->assignRoomsWithRequirementLink($booking, $newRooms->map(fn ($room) => [
+                'room_id' => $room->id, 'room_type_id' => $roomType->id, 'start_at' => $booking->checkin_at, 'end_at' => $booking->checkout_at,
+            ])->all());
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(4, RoomAssignment::where('booking_requirement_id', $requirement->id)->where('status', AssignmentStatus::Assigned)->count(), 'active count must stay exactly 4 — no partial write');
+        }
+    }
+
+    public function test_capacity_quantity_5_active_5_new_request_is_rejected(): void
+    {
+        [$booking, $roomType] = $this->makeBookingAndRoomType();
+        $requirement = BookingRequirement::factory()->create(['booking_id' => $booking->id, 'room_type_id' => $roomType->id, 'quantity' => 5]);
+        for ($i = 0; $i < 5; $i++) {
+            $this->makeActiveAssignment($booking, $roomType, $requirement);
+        }
+        $newRoom = Room::factory()->for($roomType)->create();
+
+        try {
+            $this->assignments->assignRoomsWithRequirementLink($booking, [
+                ['room_id' => $newRoom->id, 'room_type_id' => $roomType->id, 'start_at' => $booking->checkin_at, 'end_at' => $booking->checkout_at],
+            ]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(5, RoomAssignment::where('booking_requirement_id', $requirement->id)->where('status', AssignmentStatus::Assigned)->count());
+        }
+    }
+
+    public function test_batch_of_3_rooms_but_remaining_only_2_rolls_back_entirely_no_partial_2_of_3(): void
+    {
+        [$booking, $roomType] = $this->makeBookingAndRoomType();
+        $requirement = BookingRequirement::factory()->create(['booking_id' => $booking->id, 'room_type_id' => $roomType->id, 'quantity' => 5]);
+        for ($i = 0; $i < 3; $i++) {
+            $this->makeActiveAssignment($booking, $roomType, $requirement);
+        }
+        // remaining = 5 - 3 = 2, but the batch requests 3 rooms.
+        $newRooms = Room::factory()->for($roomType)->count(3)->create();
+
+        try {
+            $this->assignments->assignRoomsWithRequirementLink($booking, $newRooms->map(fn ($room) => [
+                'room_id' => $room->id, 'room_type_id' => $roomType->id, 'start_at' => $booking->checkin_at, 'end_at' => $booking->checkout_at,
+            ])->all());
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(3, RoomAssignment::where('booking_requirement_id', $requirement->id)->where('status', AssignmentStatus::Assigned)->count(), 'never silently assign 2 of 3 — the whole request must fail');
+            foreach ($newRooms as $room) {
+                $this->assertDatabaseMissing('room_assignments', ['room_id' => $room->id]);
+            }
+        }
+    }
+
+    public function test_capacity_check_covers_multiple_requirements_independently_in_one_batch(): void
+    {
+        $booking = Booking::factory()->create();
+        $roomTypeA = RoomType::factory()->create();
+        $roomTypeB = RoomType::factory()->create();
+        $requirementA = BookingRequirement::factory()->create(['booking_id' => $booking->id, 'room_type_id' => $roomTypeA->id, 'quantity' => 1]);
+        $requirementB = BookingRequirement::factory()->create(['booking_id' => $booking->id, 'room_type_id' => $roomTypeB->id, 'quantity' => 2]);
+        $roomA = Room::factory()->for($roomTypeA)->create();
+        $roomsB = Room::factory()->for($roomTypeB)->count(2)->create();
+
+        $created = $this->assignments->assignRoomsWithRequirementLink($booking, array_merge(
+            [['room_id' => $roomA->id, 'room_type_id' => $roomTypeA->id, 'start_at' => $booking->checkin_at, 'end_at' => $booking->checkout_at]],
+            $roomsB->map(fn ($room) => ['room_id' => $room->id, 'room_type_id' => $roomTypeB->id, 'start_at' => $booking->checkin_at, 'end_at' => $booking->checkout_at])->all(),
+        ));
+
+        $this->assertCount(3, $created);
+        $this->assertSame($requirementA->id, collect($created)->firstWhere('room_id', $roomA->id)->booking_requirement_id);
+        foreach ($roomsB as $room) {
+            $this->assertSame($requirementB->id, collect($created)->firstWhere('room_id', $room->id)->booking_requirement_id);
+        }
+    }
+
+    public function test_capacity_check_rejects_one_of_two_requirements_rolls_back_whole_batch(): void
+    {
+        $booking = Booking::factory()->create();
+        $roomTypeA = RoomType::factory()->create();
+        $roomTypeB = RoomType::factory()->create();
+        $requirementA = BookingRequirement::factory()->create(['booking_id' => $booking->id, 'room_type_id' => $roomTypeA->id, 'quantity' => 1]);
+        $requirementB = BookingRequirement::factory()->create(['booking_id' => $booking->id, 'room_type_id' => $roomTypeB->id, 'quantity' => 1]);
+        $this->makeActiveAssignment($booking, $roomTypeA, $requirementA); // A already full
+        $roomA = Room::factory()->for($roomTypeA)->create();
+        $roomB = Room::factory()->for($roomTypeB)->create();
+
+        try {
+            $this->assignments->assignRoomsWithRequirementLink($booking, [
+                ['room_id' => $roomA->id, 'room_type_id' => $roomTypeA->id, 'start_at' => $booking->checkin_at, 'end_at' => $booking->checkout_at],
+                ['room_id' => $roomB->id, 'room_type_id' => $roomTypeB->id, 'start_at' => $booking->checkin_at, 'end_at' => $booking->checkout_at],
+            ]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            // Requirement A is over capacity -> the WHOLE batch rolls back,
+            // including room B's otherwise-valid assignment against requirement B.
+            $this->assertDatabaseMissing('room_assignments', ['room_id' => $roomB->id]);
+            $this->assertSame(0, RoomAssignment::where('booking_requirement_id', $requirementB->id)->count());
+        }
+    }
+
+    public function test_demand_first_rejects_cancelled_booking(): void
+    {
+        [$booking, $roomType] = $this->makeBookingAndRoomType();
+        $booking->update(['status' => \App\Enums\BookingStatus::Cancelled]);
+        $room = Room::factory()->for($roomType)->create();
+        BookingRequirement::factory()->create(['booking_id' => $booking->id, 'room_type_id' => $roomType->id]);
+
+        try {
+            $this->assignments->assignRoomsWithRequirementLink($booking, [
+                ['room_id' => $room->id, 'room_type_id' => $roomType->id, 'start_at' => $booking->checkin_at, 'end_at' => $booking->checkout_at],
+            ]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(0, RoomAssignment::count());
+        }
+    }
+
+    public function test_demand_first_rejects_no_show_booking(): void
+    {
+        [$booking, $roomType] = $this->makeBookingAndRoomType();
+        $booking->update(['status' => \App\Enums\BookingStatus::NoShow]);
+        $room = Room::factory()->for($roomType)->create();
+        BookingRequirement::factory()->create(['booking_id' => $booking->id, 'room_type_id' => $roomType->id]);
+
+        try {
+            $this->assignments->assignRoomsWithRequirementLink($booking, [
+                ['room_id' => $room->id, 'room_type_id' => $roomType->id, 'start_at' => $booking->checkin_at, 'end_at' => $booking->checkout_at],
+            ]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(0, RoomAssignment::count());
+        }
+    }
 }

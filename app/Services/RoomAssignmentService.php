@@ -129,6 +129,15 @@ class RoomAssignmentService
         return DB::transaction(function () use ($booking, $assignments, $targetRequirementIdByRoomType): array {
             $lockedBooking = Booking::whereKey($booking->id)->lockForUpdate()->firstOrFail();
 
+            // Final Gap Closure (M5, Blocker B Mục II): demand-first had no
+            // booking-state guard at all — every other assignment/release
+            // path (Room-Board-first, bulk release) already rejects a
+            // terminal/PartiallyCheckedOut booking right after acquiring the
+            // Booking lock; this brings demand-first in line with the same
+            // rule, re-checked from the just-locked instance, never from a
+            // pre-transaction read.
+            $this->assertBookingAcceptsDemandFirstAssignment($lockedBooking);
+
             $roomIds = collect($assignments)->pluck('room_id')->unique()->sort()->values()->all();
             $lockedRoomsById = Room::whereIn('id', $roomIds)
                 ->with('roomType:id,code')
@@ -192,6 +201,45 @@ class RoomAssignmentService
                 }
 
                 $resolvedRequirementIdByRoomType[$roomTypeId] = $matched->id;
+            }
+
+            // Final Gap Closure (M5, Blocker A Mục I): capacity check —
+            // strictly AFTER the BookingRequirement lock above (never a
+            // count read before locking) and BEFORE any RoomAssignment is
+            // created. Demand-first must reject the WHOLE batch rather than
+            // ever exceed a resolved line's own quantity — it never
+            // increases quantity (that remains exclusively Room-Board-
+            // first's responsibility via reconcileRoomType()/excess_to_add,
+            // untouched by this change) and never creates a new line, only
+            // rejects. Costed per DISTINCT resolved requirement id, never
+            // per room — a batch of N rooms against one line is exactly one
+            // COUNT query, not N.
+            $activeStatuses = [AssignmentStatus::Assigned, AssignmentStatus::CheckedIn, AssignmentStatus::CheckedOut];
+            $requirementsById = $eligibleLinesByRoomType->flatten()->keyBy('id');
+
+            $newCountByRequirementId = collect($assignments)
+                ->map(function (array $assignment) use ($resolvedRequirementIdByRoomType, $lockedRoomsById): ?int {
+                    $roomTypeId = (int) ($assignment['room_type_id'] ?? $lockedRoomsById->get($assignment['room_id'])?->room_type_id);
+
+                    return $resolvedRequirementIdByRoomType[$roomTypeId] ?? null;
+                })
+                ->filter()
+                ->countBy();
+
+            foreach ($newCountByRequirementId as $requirementId => $newCount) {
+                $requirement = $requirementsById->get($requirementId);
+                $activeNow = RoomAssignment::where('booking_requirement_id', $requirementId)
+                    ->whereIn('status', $activeStatuses)
+                    ->count();
+                $remaining = $requirement->quantity - $activeNow;
+
+                if ($newCount > $remaining) {
+                    $roomTypeCode = $lockedRoomsById->firstWhere('room_type_id', $requirement->room_type_id)?->roomType?->code ?? (string) $requirement->room_type_id;
+
+                    throw ValidationException::withMessages([
+                        'assignments' => "Loại phòng {$roomTypeCode} chỉ còn {$remaining} chỗ trống trong dòng nhu cầu này — không thể phân {$newCount} phòng trong yêu cầu này.",
+                    ]);
+                }
             }
 
             $created = [];
@@ -528,6 +576,37 @@ class RoomAssignmentService
                     BookingStatus::NoShow => 'Booking không đến (No-Show). Không thể phân phòng.',
                     BookingStatus::CheckedOut => 'Booking đã trả phòng. Không thể phân thêm phòng.',
                     BookingStatus::PartiallyCheckedOut => 'Booking đang trong quá trình trả phòng. Không thể phân thêm phòng từ Sơ đồ phòng.',
+                    default => 'Booking hiện không cho phép phân phòng.',
+                },
+            ]);
+        }
+    }
+
+    /**
+     * Final Gap Closure (M5, Blocker B Mục II) — Architecture Gap Closure:
+     * demand-first (assignRoomsWithRequirementLink()) never had a booking-
+     * state guard at all, unlike Room-Board-first and bulk release, which
+     * left it exposed to the same "terminal transition races assignment"
+     * class of defect Blocker B closed for cancelBooking(). Same blocked
+     * set as every other assignment-guard in this codebase
+     * (isTerminal() = Cancelled/NoShow/CheckedOut, plus
+     * PartiallyCheckedOut) — a SEPARATE method from
+     * assertBookingAcceptsRoomBoardAssignment() on purpose, matching the
+     * established convention (assertBookingAcceptsBulkRelease follows the
+     * same pattern) since each is a distinct business operation with its
+     * own message text, even though the blocked-status set is identical.
+     * Always called against the just-locked Booking instance — never a
+     * pre-transaction read.
+     */
+    private function assertBookingAcceptsDemandFirstAssignment(Booking $booking): void
+    {
+        if ($booking->status->isTerminal() || $booking->status === BookingStatus::PartiallyCheckedOut) {
+            throw ValidationException::withMessages([
+                'booking' => match ($booking->status) {
+                    BookingStatus::Cancelled => 'Booking đã hủy. Không thể phân phòng.',
+                    BookingStatus::NoShow => 'Booking không đến (No-Show). Không thể phân phòng.',
+                    BookingStatus::CheckedOut => 'Booking đã trả phòng. Không thể phân thêm phòng.',
+                    BookingStatus::PartiallyCheckedOut => 'Booking đang trong quá trình trả phòng. Không thể phân thêm phòng.',
                     default => 'Booking hiện không cho phép phân phòng.',
                 },
             ]);

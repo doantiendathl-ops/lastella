@@ -30,6 +30,13 @@ use Illuminate\Validation\Validator;
  * re-derived from freshly LOCKED rows inside
  * RoomAssignmentService::assignRoomsFromRoomBoard() — never trusted from this
  * payload alone (Architecture Review Mục VII.D).
+ *
+ * Milestone 5 hardening: `room_ids`/`groups` gained a `max:100` cap,
+ * matching the exact precedent already set by `BulkReleaseAssignmentRequest`
+ * (M4) and the hotel's stated operating scale (10–100 rooms, Milestone 5
+ * Phase A Mục XIII) — never smaller than a legitimate full-hotel batch,
+ * only closing the previously-uncapped payload-size gap this endpoint alone
+ * had relative to every other bulk endpoint in this feature.
  */
 class StoreRoomBoardAssignmentRequest extends FormRequest
 {
@@ -47,12 +54,12 @@ class StoreRoomBoardAssignmentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'room_ids' => ['required', 'array', 'min:1'],
+            'room_ids' => ['required', 'array', 'min:1', 'max:100'],
             'room_ids.*' => ['integer', 'distinct', 'exists:rooms,id'],
             'start_at' => ['required', 'date'],
             'end_at' => ['required', 'date', 'after:start_at'],
 
-            'groups' => ['required', 'array', 'min:1'],
+            'groups' => ['required', 'array', 'min:1', 'max:100'],
             'groups.*.room_type_id' => ['required', 'integer', 'exists:room_types,id'],
             'groups.*.room_ids' => ['required', 'array', 'min:1'],
             'groups.*.room_ids.*' => ['integer', 'distinct', 'exists:rooms,id'],

@@ -654,8 +654,23 @@ const releaseAssignment = (assignment) => {
 };
 
 const handleGlobalEsc = (event) => {
-    if (event.key === 'Escape' && releaseDialogAssignment.value) {
+    if (event.key !== 'Escape') {
+        return;
+    }
+
+    if (releaseDialogAssignment.value) {
         closeReleaseDialog();
+        event.stopPropagation();
+
+        return;
+    }
+
+    // Room Demand/Room Board Unification M5 — the bulk-release panel (M4)
+    // was never wired into this pre-existing ESC handler when it was added;
+    // every other modal on this page closes on ESC, so this closes the gap
+    // with the same behavior, reusing the existing close function unchanged.
+    if (showBulkReleasePanel.value) {
+        closeBulkReleasePanel();
         event.stopPropagation();
     }
 };

@@ -221,11 +221,47 @@ class BookingService
         });
     }
 
+    /**
+     * Final Gap Closure (M5, Mục IV scope extension — approved) —
+     * Architecture Gap: `UpdateBookingRequest` structurally allows
+     * `status` to be set to any `BookingStatus`, including terminal states,
+     * through this fully generic method — confirmed reachable (no live UI
+     * form ever sends it, but the route/controller/FormRequest chain
+     * accepts it from any caller holding `booking.update`, and it was
+     * empirically verified to write `NO_SHOW` with zero locking and zero
+     * business validation before this fix). This carries the exact same
+     * unlocked-terminal-write defect `cancelBooking()` had.
+     *
+     * Fix is intentionally narrow — only a request that actually transitions
+     * status INTO an assignment-blocking state (isTerminal() or
+     * PartiallyCheckedOut, the same set every assignment guard in this
+     * codebase already uses) locks Booking, and it does so BEFORE
+     * validateTimeChange() (which itself locks Room/Stay/RoomAssignment,
+     * never Booking) — preserving the canonical Booking-first order used
+     * everywhere else, rather than reversing it. A request that never
+     * touches `status`, or that changes it to a non-blocking value, takes
+     * no new lock at all — this is deliberately NOT a blanket lock on the
+     * whole generic update. No business rule changes: no assignment is
+     * released, no folio is voided here — this only closes the race window
+     * for whichever concurrent assignment path could interleave with the
+     * status write.
+     */
     public function updateBooking(Booking $booking, array $data): Booking
     {
         return DB::transaction(function () use ($booking, $data): Booking {
             $requirements = Arr::pull($data, 'requirements', null);
             $data['updated_by'] = $data['updated_by'] ?? Auth::id();
+
+            if (isset($data['status'])) {
+                $newStatus = $data['status'] instanceof BookingStatus
+                    ? $data['status']
+                    : BookingStatus::from($data['status']);
+
+                if ($newStatus !== $booking->status
+                    && ($newStatus->isTerminal() || $newStatus === BookingStatus::PartiallyCheckedOut)) {
+                    $booking = Booking::whereKey($booking->id)->lockForUpdate()->firstOrFail();
+                }
+            }
 
             $this->validateTimeChange($booking, $data);
 
@@ -428,16 +464,32 @@ class BookingService
         };
     }
 
+    /**
+     * Final Gap Closure (M5, Blocker B Mục III) — Architecture Gap Closure:
+     * every other Booking-mutating method in this codebase
+     * (assignRoomsFromRoomBoard, bulkReleaseAssignments, checkIn, checkOut,
+     * addRequirement, updateRequirement) locks Booking first; this one
+     * never did, so it could race unlocked against a concurrent assignment
+     * transaction and leave `status=Cancelled` coexisting with an active
+     * RoomAssignment created after cancellation had already "won" — exactly
+     * what Race Case 16 reproduced. The fix is ONLY a locking-timing change:
+     * every check/read/write below now operates on `$lockedBooking`
+     * (freshly re-fetched under the lock, never the possibly-stale instance
+     * passed in) instead of `$booking` — no business rule, check, or write
+     * order is altered.
+     */
     public function cancelBooking(Booking $booking, string $reason): Booking
     {
         return DB::transaction(function () use ($booking, $reason): Booking {
-            if (! $this->canCancelNormally($booking)) {
+            $lockedBooking = Booking::whereKey($booking->id)->lockForUpdate()->firstOrFail();
+
+            if (! $this->canCancelNormally($lockedBooking)) {
                 throw ValidationException::withMessages([
                     'booking' => 'Booking đã có phòng nhận khách, không thể hủy thông thường. Vui lòng xử lý trả phòng hoặc liên hệ quản trị viên.',
                 ]);
             }
 
-            $booking->roomAssignments()
+            $lockedBooking->roomAssignments()
                 ->whereIn('status', AssignmentStatus::activeValues())
                 ->get()
                 ->each(fn ($assignment) => $assignment->update([
@@ -447,14 +499,14 @@ class BookingService
                     'release_reason' => $reason,
                 ]));
 
-            $booking->stays()
+            $lockedBooking->stays()
                 ->where('status', StayStatus::Reserved->value)
                 ->get()
                 ->each(fn ($stay) => $stay->update([
                     'status' => StayStatus::Cancelled,
                 ]));
 
-            $booking->update([
+            $lockedBooking->update([
                 'status' => BookingStatus::Cancelled,
                 'cancelled_at' => now(),
                 'cancelled_by' => Auth::id(),
@@ -464,17 +516,17 @@ class BookingService
 
             // Phase 4.1: auto-cancel all pending/acknowledged special requests.
             // autoCancelForBooking is a single UPDATE — no extra locks, no financial tables.
-            $this->specialRequests->autoCancelForBooking($booking, Auth::id());
+            $this->specialRequests->autoCancelForBooking($lockedBooking, Auth::id());
 
             // ADR-36: void the folio when booking is cancelled.
             // If the folio has active entries, FolioHasActiveEntriesException is thrown
             // and the entire transaction rolls back — the booking stays active.
-            $folio = $booking->folio;
+            $folio = $lockedBooking->folio;
             if ($folio !== null) {
                 $this->folios->voidFolioOnCancellation($folio);
             }
 
-            return $booking->refresh();
+            return $lockedBooking->refresh();
         });
     }
 

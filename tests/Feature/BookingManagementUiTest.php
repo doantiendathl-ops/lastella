@@ -519,6 +519,50 @@ class BookingManagementUiTest extends TestCase
         $this->assertSame($paymentCount, $booking->bookingPayments()->count());
     }
 
+    // ── Architecture Gap Closure (M5, Blocker B) — cancelBooking() locking ──
+
+    public function test_repeated_cancellation_remains_safe_after_locking_fix(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking();
+
+        $this->post("/admin/bookings/{$booking->id}/cancel", $this->cancelPayload($booking, 'First cancellation'))
+            ->assertRedirect(route('admin.bookings.show', $booking));
+        $booking->refresh();
+        $this->assertSame(BookingStatus::Cancelled, $booking->status);
+        $firstCancelledAt = $booking->cancelled_at;
+
+        // Same behavior as before the locking fix: cancelling an
+        // already-cancelled booking again does not throw and does not
+        // corrupt state — the lock does not change this pre-existing
+        // idempotency, it only changes when the write happens relative to
+        // a concurrent transaction.
+        app(BookingService::class)->cancelBooking($booking->fresh(), 'Second cancellation');
+        $booking->refresh();
+
+        $this->assertSame(BookingStatus::Cancelled, $booking->status);
+        $this->assertSame('Second cancellation', $booking->cancellation_reason);
+        $this->assertNotNull($booking->cancelled_at);
+    }
+
+    public function test_cancellation_still_releases_a_pre_existing_active_assignment_under_the_new_lock(): void
+    {
+        $this->actingAs($this->admin);
+        [$booking, $assignment] = $this->createAssignment();
+        $stay = Stay::where('room_assignment_id', $assignment->id)->firstOrFail();
+
+        // Timeline 1 shape (assignment already committed before cancellation
+        // acquires its lock) — cancellation must still find and release it
+        // exactly as before, now via the locked instance.
+        app(BookingService::class)->cancelBooking($booking->fresh(), 'Assignment existed first');
+
+        $assignment->refresh();
+        $stay->refresh();
+        $this->assertSame(AssignmentStatus::Released, $assignment->status);
+        $this->assertSame(StayStatus::Cancelled, $stay->status);
+        $this->assertSame(BookingStatus::Cancelled, $booking->fresh()->status);
+    }
+
     public function test_cannot_cancel_booking_with_checked_in_stay(): void
     {
         $this->actingAs($this->admin);
