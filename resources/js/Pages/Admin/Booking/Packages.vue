@@ -13,8 +13,14 @@ interface EnrollmentStatus {
 
 interface AvailablePackage {
     key: string
+    code: string
     label: string
+    description: string | null
     charge_label: string
+    unit_label: string
+    quantity_mode: 'NONE' | 'MANUAL_INPUT'
+    is_active: boolean
+    is_bookable: boolean
     current_rate: number | null
 }
 
@@ -85,15 +91,17 @@ const quantities = ref<Record<string, number>>(
 )
 
 const flashSuccess = computed(() => (page.props.flash as Record<string, string> | null)?.success ?? null)
-const packageError  = computed(() => (page.props.errors as Record<string, string> | null)?.package ?? null)
+const packageError  = computed(() => {
+    const errors = page.props.errors as Record<string, string> | null
+    return errors?.package ?? errors?.package_key ?? null
+})
 
 const auditLogFor = (packageKey: string): AuditLog | undefined => {
     const jobClass = JOB_CLASS_FOR_PACKAGE[packageKey]
     return props.last_audit_logs.find((log) => log.job_class === jobClass)
 }
 
-const quantityEditable = (packageKey: string): boolean =>
-    packageKey === 'EXTRA_PERSON_PER_NIGHT' || packageKey === 'EXTRA_BED_PER_NIGHT'
+const quantityEditable = (pkg: AvailablePackage): boolean => pkg.quantity_mode === 'MANUAL_INPUT'
 
 const enroll = (packageKey: string): void => {
     router.post(
@@ -178,6 +186,7 @@ const unenroll = (packageKey: string): void => {
                             <div class="min-w-0">
                                 <div class="font-semibold text-gray-900">{{ pkg.label }}</div>
                                 <div class="mt-0.5 text-xs text-steel">{{ pkg.charge_label }}</div>
+                                <div v-if="pkg.description" class="mt-0.5 text-xs text-steel">{{ pkg.description }}</div>
                             </div>
                         </div>
                         <div class="shrink-0 text-right">
@@ -202,7 +211,7 @@ const unenroll = (packageKey: string): void => {
                                 </span>
                                 <span class="text-sm text-gray-700">
                                     {{ enrollments[pkg.key].quantity }}
-                                    {{ pkg.key === 'EXTRA_PERSON_PER_NIGHT' ? 'người' : pkg.key === 'EXTRA_BED_PER_NIGHT' ? 'giường' : '' }}
+                                    {{ quantityEditable(pkg) ? pkg.unit_label : '' }}
                                 </span>
                                 <span v-if="enrollments[pkg.key].enrolled_at" class="text-xs text-steel">
                                     Đăng ký: {{ enrollments[pkg.key].enrolled_at }}
@@ -246,7 +255,7 @@ const unenroll = (packageKey: string): void => {
 
                             <!-- Enroll form -->
                             <div v-if="can.manage_packages" class="mt-4 flex items-center gap-3">
-                                <template v-if="quantityEditable(pkg.key)">
+                                <template v-if="quantityEditable(pkg)">
                                     <label class="flex items-center gap-2 text-xs text-steel">
                                         <span class="font-semibold uppercase tracking-wide">Số lượng</span>
                                         <input

@@ -8,19 +8,21 @@ use App\Enums\BookingStatus;
 use App\Enums\ChargeType;
 use App\Exceptions\BreakfastAlreadyPostedException;
 use App\Exceptions\PackageAlreadyPostedException;
+use App\Exceptions\PackageNotEnrollableException;
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
 use App\Models\NightAuditBookingLog;
+use App\Models\ServicePackage;
 use App\Services\BusinessDateService;
 use App\Services\HotelSettingsService;
 use App\Services\PackageEnrollmentService;
 use App\Services\Posting\BreakfastPostingJob;
 use App\Services\Posting\ExtraBedPostingJob;
 use App\Services\Posting\ExtraPersonPostingJob;
-use App\Services\ServiceRateService;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -29,7 +31,6 @@ class PackageEnrollmentController extends Controller
 {
     public function __construct(
         private readonly PackageEnrollmentService $enrollmentService,
-        private readonly ServiceRateService $rateService,
         private readonly BusinessDateService $businessDateService,
         private readonly HotelSettingsService $settingsService,
     ) {}
@@ -58,6 +59,8 @@ class PackageEnrollmentController extends Controller
             ])
             ->values();
 
+        $catalog = $this->enrollmentService->catalogForBooking($booking);
+
         return Inertia::render('Admin/Booking/Packages', [
             'booking' => [
                 'id'            => $booking->id,
@@ -65,8 +68,8 @@ class PackageEnrollmentController extends Controller
                 'customer_name' => $booking->customer_name,
                 'status'        => $booking->status,
             ],
-            'enrollments'        => $this->enrollmentService->getEnrollmentSummary($booking),
-            'available_packages' => $this->buildAvailablePackages($businessDate),
+            'enrollments'        => $this->enrollmentService->getEnrollmentSummary($booking, $catalog),
+            'available_packages' => $this->buildAvailablePackages($catalog, $businessDate),
             'last_audit_logs'    => $lastAuditLogs,
             'city_tax_enabled'   => $this->settingsService->getBool('city_tax_enabled', false),
             'can'                => [
@@ -85,16 +88,20 @@ class PackageEnrollmentController extends Controller
         );
 
         $data = $request->validate([
-            'package_key' => ['required', 'string', Rule::in(PackageEnrollmentService::ALLOWED_PACKAGES)],
+            'package_key' => ['required', 'string', Rule::exists('service_packages', 'code')],
             'quantity'    => ['sometimes', 'integer', 'min:1', 'max:4'],
         ]);
 
-        $this->enrollmentService->enroll(
-            $booking,
-            $data['package_key'],
-            $request->user(),
-            $data['quantity'] ?? 1
-        );
+        try {
+            $this->enrollmentService->enroll(
+                $booking,
+                $data['package_key'],
+                $request->user(),
+                $data['quantity'] ?? 1
+            );
+        } catch (PackageNotEnrollableException $e) {
+            return back()->withErrors(['package_key' => $e->getMessage()]);
+        }
 
         return back()->with('success', 'Đã đăng ký gói dịch vụ.');
     }
@@ -103,8 +110,12 @@ class PackageEnrollmentController extends Controller
     {
         abort_unless($request->user()->can('booking.package.manage'), 403);
 
+        // Deliberately does not require active/bookable here: a booking must
+        // always be able to unenroll a package it already holds, even after
+        // that package is deactivated in the catalog. Only real package
+        // codes are accepted, so it cannot be used to probe arbitrary keys.
         validator(['package_key' => $packageKey], [
-            'package_key' => ['required', 'string', Rule::in(PackageEnrollmentService::ALLOWED_PACKAGES)],
+            'package_key' => ['required', 'string', Rule::exists('service_packages', 'code')],
         ])->validate();
 
         try {
@@ -116,37 +127,29 @@ class PackageEnrollmentController extends Controller
         return back()->with('success', 'Đã hủy đăng ký gói dịch vụ.');
     }
 
-    private function buildAvailablePackages(Carbon $businessDate): array
+    /**
+     * @param Collection<int, ServicePackage> $catalog
+     */
+    private function buildAvailablePackages(Collection $catalog, Carbon $businessDate): array
     {
-        $packageMap = [
-            PackageEnrollmentService::BREAKFAST_PER_NIGHT    => [
-                'charge_type'  => ChargeType::FoodBeverage,
-                'label'        => 'Ăn sáng mỗi đêm',
-                'charge_label' => 'Ăn & uống',
-            ],
-            PackageEnrollmentService::EXTRA_PERSON_PER_NIGHT => [
-                'charge_type'  => ChargeType::ExtraPerson,
-                'label'        => 'Người thêm / đêm',
-                'charge_label' => 'Dịch vụ bổ sung',
-            ],
-            PackageEnrollmentService::EXTRA_BED_PER_NIGHT    => [
-                'charge_type'  => ChargeType::ExtraBed,
-                'label'        => 'Giường phụ / đêm',
-                'charge_label' => 'Dịch vụ bổ sung',
-            ],
-        ];
+        return $catalog
+            ->map(function (ServicePackage $package) use ($businessDate): array {
+                $rate = $package->currentRate($businessDate->toDateString());
 
-        $result = [];
-        foreach ($packageMap as $key => $meta) {
-            $rate     = $this->rateService->resolveFor($meta['charge_type'], $businessDate);
-            $result[] = [
-                'key'          => $key,
-                'label'        => $meta['label'],
-                'charge_label' => $meta['charge_label'],
-                'current_rate' => $rate !== null ? (float) $rate->unit_price : null,
-            ];
-        }
-
-        return $result;
+                return [
+                    'key'           => $package->code,
+                    'code'          => $package->code,
+                    'label'         => $package->name,
+                    'description'   => $package->description,
+                    'charge_label'  => ChargeType::tryFrom($package->charge_type)?->label() ?? $package->charge_type,
+                    'unit_label'    => $package->unit_label,
+                    'quantity_mode' => $package->quantity_mode,
+                    'is_active'     => $package->is_active,
+                    'is_bookable'   => $package->is_bookable,
+                    'current_rate'  => $rate !== null ? (float) $rate->unit_price : null,
+                ];
+            })
+            ->values()
+            ->all();
     }
 }

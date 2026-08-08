@@ -11,12 +11,14 @@ use App\Models\Booking;
 use App\Models\BookingPackageFlag;
 use App\Models\Folio;
 use App\Models\FolioEntry;
+use App\Models\ServicePackage;
 use App\Models\Stay;
 use App\Models\User;
 use App\Services\BusinessDateService;
 use App\Services\PackageEnrollmentService;
 use Carbon\Carbon;
 use Database\Seeders\RolePermissionSeeder;
+use Database\Seeders\ServicePackageSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -34,6 +36,7 @@ class BookingPackageEnrollmentTest extends TestCase
     {
         parent::setUp();
         $this->seed(RolePermissionSeeder::class);
+        $this->seed(ServicePackageSeeder::class);
 
         $this->admin = User::factory()->create();
         $this->admin->assignRole('ADMIN');
@@ -48,6 +51,15 @@ class BookingPackageEnrollmentTest extends TestCase
         $this->instance(BusinessDateService::class, $this->mockBusinessDate($this->businessDate));
 
         $this->booking = Booking::factory()->create();
+
+        // See PackageEnrollmentServiceTest::setUp() — the backfill seeder
+        // creates no price rows; enroll() now requires an effective rate.
+        foreach (PackageEnrollmentService::ALLOWED_PACKAGES as $code) {
+            ServicePackage::where('code', $code)->first()->rates()->create([
+                'unit_price'     => 100000,
+                'effective_from' => '2026-01-01',
+            ]);
+        }
     }
 
     private function mockBusinessDate(Carbon $date): BusinessDateService

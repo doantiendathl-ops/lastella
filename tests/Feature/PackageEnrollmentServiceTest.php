@@ -10,10 +10,12 @@ use App\Models\Booking;
 use App\Models\BookingPackageFlag;
 use App\Models\Folio;
 use App\Models\FolioEntry;
+use App\Models\ServicePackage;
 use App\Services\BusinessDateService;
 use App\Services\PackageEnrollmentService;
 use Carbon\Carbon;
 use Database\Seeders\RolePermissionSeeder;
+use Database\Seeders\ServicePackageSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -28,11 +30,23 @@ class PackageEnrollmentServiceTest extends TestCase
     {
         parent::setUp();
         $this->seed(RolePermissionSeeder::class);
+        $this->seed(ServicePackageSeeder::class);
 
         $this->businessDate = Carbon::parse('2026-07-04');
         $this->instance(BusinessDateService::class, $this->mockBusinessDate($this->businessDate));
 
         $this->service = app(PackageEnrollmentService::class);
+
+        // The backfill seeder deliberately creates no price rows (Milestone 1
+        // decision — no historical price to migrate). enroll() now requires
+        // an effective rate, so these tests give the 3 legacy packages a
+        // rate effective on/before $this->businessDate.
+        foreach (PackageEnrollmentService::ALLOWED_PACKAGES as $code) {
+            ServicePackage::where('code', $code)->first()->rates()->create([
+                'unit_price'     => 100000,
+                'effective_from' => '2026-01-01',
+            ]);
+        }
     }
 
     private function mockBusinessDate(Carbon $date): BusinessDateService

@@ -10,12 +10,13 @@ use App\Models\Booking;
 use App\Models\BookingPackageFlag;
 use App\Models\Folio;
 use App\Models\FolioEntry;
-use App\Models\ServiceRate;
+use App\Models\ServicePackage;
 use App\Models\User;
 use App\Services\BusinessDateService;
 use App\Services\PackageEnrollmentService;
 use Carbon\Carbon;
 use Database\Seeders\RolePermissionSeeder;
+use Database\Seeders\ServicePackageSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia;
 use Tests\TestCase;
@@ -34,6 +35,7 @@ class PackageEnrollmentControllerTest extends TestCase
     {
         parent::setUp();
         $this->seed(RolePermissionSeeder::class);
+        $this->seed(ServicePackageSeeder::class);
 
         $this->admin = User::factory()->create();
         $this->admin->assignRole('ADMIN');
@@ -48,6 +50,15 @@ class PackageEnrollmentControllerTest extends TestCase
         $this->instance(BusinessDateService::class, $this->mockBusinessDate($this->businessDate));
 
         $this->booking = Booking::factory()->create();
+
+        // See PackageEnrollmentServiceTest::setUp() — the backfill seeder
+        // creates no price rows; enroll() now requires an effective rate.
+        foreach (PackageEnrollmentService::ALLOWED_PACKAGES as $code) {
+            ServicePackage::where('code', $code)->first()->rates()->create([
+                'unit_price'     => 100000,
+                'effective_from' => '2026-01-01',
+            ]);
+        }
     }
 
     private function mockBusinessDate(Carbon $date): BusinessDateService
@@ -237,22 +248,23 @@ class PackageEnrollmentControllerTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
-    // available_packages includes current rates
+    // available_packages includes current rates resolved from
+    // service_package_rates (source of truth — see ServicePackageCatalogTest
+    // and the Package Enrollment Dynamic Catalog architecture review).
     // -------------------------------------------------------------------------
 
     public function test_show_page_includes_current_rate_when_rate_exists(): void
     {
-        ServiceRate::create([
-            'name'           => 'Người thêm / đêm',
-            'charge_type'    => ChargeType::ExtraPerson->value,
-            'unit_price'     => '200000.00',
-            'effective_from' => '2026-01-01',
-            'unit_label'     => 'người',
-            'tax_rate'       => '0.0000',
-            'is_active'      => true,
-            'display_order'  => 91,
-            'created_by'     => null,
-        ]);
+        // setUp() already seeded a 100000 rate effective 2026-01-01 for all 3
+        // legacy packages. Add a later, higher rate for EXTRA_PERSON — the
+        // most-recently-effective row must win over the older one.
+        ServicePackage::where('code', PackageEnrollmentService::EXTRA_PERSON_PER_NIGHT)
+            ->first()
+            ->rates()
+            ->create([
+                'unit_price'     => 200000,
+                'effective_from' => '2026-02-01',
+            ]);
 
         $this->actingAs($this->admin)
             ->get(route('admin.bookings.packages', $this->booking))
