@@ -1,10 +1,12 @@
 <script setup>
 import Pagination from '@/Components/Pagination.vue';
+import { useMediaQuery } from '@/Composables/useMediaQuery';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { labelFor } from '@/Support/vietnameseLabels';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
-import { Banknote, BedDouble, Eye, Pencil, Plus, RotateCcw, Search, X, XCircle } from 'lucide-vue-next';
-import { computed, reactive, ref } from 'vue';
+import { Banknote, BedDouble, Eye, Maximize2, Pencil, Plus, RotateCcw, Search, X, XCircle } from 'lucide-vue-next';
+import { computed, onMounted, reactive, ref } from 'vue';
+import BookingActionsMenu from './Partials/BookingActionsMenu.vue';
 
 const props = defineProps({
     bookings: { type: Object, required: true },
@@ -12,6 +14,32 @@ const props = defineProps({
     options: { type: Object, required: true },
     can: { type: Object, required: true },
 });
+
+// ---- Collapsible "Thao tác" column ------------------------------------------
+// Mobile always renders the collapsed "⋯" menu (no room for 6 icons); desktop
+// remembers the user's expand/collapse choice in localStorage. See
+// docs/implementation-reports/booking-table-collapsible-actions-report.md.
+const ACTIONS_COLLAPSE_STORAGE_KEY = 'booking_table_actions_collapsed';
+const isMobile = useMediaQuery('(max-width: 639px)');
+
+const desktopCollapsedPreference = ref(false);
+onMounted(() => {
+    const stored = localStorage.getItem(ACTIONS_COLLAPSE_STORAGE_KEY);
+    desktopCollapsedPreference.value = stored !== null ? stored === 'true' : isMobile.value;
+});
+
+const actionsCollapsed = computed(() => isMobile.value || desktopCollapsedPreference.value);
+
+const toggleActionsCollapsed = () => {
+    desktopCollapsedPreference.value = !desktopCollapsedPreference.value;
+    localStorage.setItem(ACTIONS_COLLAPSE_STORAGE_KEY, String(desktopCollapsedPreference.value));
+};
+
+// Only one row's menu open at a time — also guarantees switching rows always
+// reflects the newly-clicked booking, never a stale one.
+const openMenuBookingId = ref(null);
+const openActionsMenu = (bookingId) => { openMenuBookingId.value = bookingId; };
+const closeActionsMenu = () => { openMenuBookingId.value = null; };
 
 const query = reactive({
     booking_code: props.filters.booking_code ?? '',
@@ -73,6 +101,85 @@ const submitCancel = () => {
 const restoreBooking = (booking) => {
     router.post(`/admin/bookings/${booking.id}/restore`, {}, { preserveScroll: true });
 };
+
+/**
+ * Single source of truth for row actions — both the desktop icon row and the
+ * collapsed "⋯" menu render from this same list, so the two presentations can
+ * never drift apart. Labels match the current source exactly (title attributes
+ * below), not the icon-only UI that existed before this change.
+ *
+ * visible  = permission-gated (booking.can_* / props.can.*) — an invisible
+ *            action must never appear in either presentation, since the
+ *            backend would reject it outright.
+ * disabled = business-rule-gated (booking already closed/checked-in, etc.) —
+ *            still shown, grayed out, with the existing reason as a tooltip,
+ *            exactly like the pre-existing desktop behavior.
+ */
+function bookingActions(booking) {
+    return [
+        {
+            key: 'view',
+            label: 'Xem',
+            icon: Eye,
+            visible: true,
+            disabled: false,
+            href: `/admin/bookings/${booking.id}`,
+        },
+        {
+            key: 'edit',
+            label: 'Sửa',
+            icon: Pencil,
+            visible: props.can.updateBooking,
+            disabled: !booking.can_edit,
+            disabledReason: booking.edit_disabled_reason,
+            href: `/admin/bookings/${booking.id}/edit`,
+        },
+        {
+            key: 'add-requirement',
+            label: 'Thêm nhu cầu phòng',
+            icon: Plus,
+            visible: props.can.updateBooking,
+            disabled: false,
+            href: `/admin/bookings/${booking.id}?tab=info`,
+        },
+        {
+            key: 'add-payment',
+            label: 'Thêm đặt cọc',
+            icon: Banknote,
+            visible: props.can.addPayment,
+            disabled: false,
+            href: `/admin/bookings/${booking.id}?tab=payments`,
+        },
+        {
+            key: 'assign-room',
+            label: 'Phân phòng',
+            icon: BedDouble,
+            visible: props.can.assignRoom,
+            disabled: false,
+            href: `/admin/bookings/${booking.id}?tab=room_map`,
+        },
+        {
+            key: 'cancel',
+            label: 'Hủy booking',
+            icon: XCircle,
+            visible: props.can.cancelBooking && (booking.can_cancel || !!booking.cancel_disabled_reason),
+            disabled: !booking.can_cancel,
+            disabledReason: booking.cancel_disabled_reason,
+            danger: true,
+            handler: () => openCancelModal(booking),
+        },
+        {
+            key: 'restore',
+            label: 'Khôi phục booking',
+            icon: RotateCcw,
+            visible: booking.can_restore,
+            disabled: false,
+            handler: () => restoreBooking(booking),
+        },
+    ];
+}
+
+const visibleActions = (booking) => bookingActions(booking).filter((action) => action.visible);
 
 const clean = (value) => Object.fromEntries(Object.entries(value).filter(([, item]) => item !== '' && item !== null && item !== undefined));
 </script>
@@ -136,7 +243,40 @@ const clean = (value) => Object.fromEntries(Object.entries(value).filter(([, ite
                 <table class="min-w-full divide-y divide-gray-200 text-left text-sm">
                     <thead class="bg-gray-50 text-xs uppercase tracking-wide text-steel">
                         <tr>
-                            <th class="sticky left-0 z-10 bg-gray-50 px-4 py-3 border-r border-gray-200">Thao tác</th>
+                            <th
+                                class="sticky left-0 z-10 border-r border-gray-200 bg-gray-50 py-3"
+                                :class="actionsCollapsed ? 'w-14 min-w-14 max-w-14 px-2' : 'px-4'"
+                            >
+                                <!-- Collapsed: "Thao tác" + full-text toggle never fits in 56px — an
+                                     icon-only toggle is the only thing that fits without overflowing
+                                     the cell (table has no table-fixed, so overflowing header content
+                                     forces the column wider than its declared cap, defeating the
+                                     collapse). Mobile has no toggle at all (always collapsed), so the
+                                     header stays visually empty there aside from an sr-only label. -->
+                                <div v-if="actionsCollapsed" class="flex items-center justify-center">
+                                    <button
+                                        v-if="!isMobile"
+                                        type="button"
+                                        class="inline-flex h-7 w-7 items-center justify-center text-pine hover:text-ink"
+                                        title="Mở rộng cột thao tác"
+                                        aria-label="Mở rộng cột thao tác"
+                                        @click="toggleActionsCollapsed"
+                                    >
+                                        <Maximize2 class="h-4 w-4" />
+                                    </button>
+                                    <span v-else class="sr-only">Thao tác</span>
+                                </div>
+                                <div v-else class="flex items-center gap-2 whitespace-nowrap">
+                                    <span>Thao tác</span>
+                                    <button
+                                        type="button"
+                                        class="normal-case text-[10px] font-semibold text-pine underline hover:text-ink"
+                                        @click="toggleActionsCollapsed"
+                                    >
+                                        Thu gọn
+                                    </button>
+                                </div>
+                            </th>
                             <th class="px-4 py-3">Màu</th>
                             <th class="px-4 py-3">Mã</th>
                             <th class="px-4 py-3">Khách hàng</th>
@@ -153,52 +293,52 @@ const clean = (value) => Object.fromEntries(Object.entries(value).filter(([, ite
                     </thead>
                     <tbody class="divide-y divide-gray-100">
                         <tr v-for="booking in bookings.data" :key="booking.id" class="group hover:bg-gray-50">
-                            <td class="sticky left-0 z-10 whitespace-nowrap border-r border-gray-200 bg-white px-4 py-3 group-hover:bg-gray-50">
-                                <Link :href="`/admin/bookings/${booking.id}`" class="mr-1 inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-pine hover:text-pine" title="Xem">
-                                    <Eye class="h-4 w-4" />
-                                </Link>
-                                <Link v-if="can.updateBooking && booking.can_edit" :href="`/admin/bookings/${booking.id}/edit`" class="mr-1 inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-pine hover:text-pine" title="Sửa">
-                                    <Pencil class="h-4 w-4" />
-                                </Link>
-                                <span
-                                    v-else-if="can.updateBooking"
-                                    class="mr-1 inline-flex"
-                                    :title="booking.edit_disabled_reason"
-                                    :aria-label="booking.edit_disabled_reason"
-                                >
-                                    <button
-                                        type="button"
-                                        class="inline-flex h-8 w-8 cursor-not-allowed items-center justify-center border border-gray-200 text-gray-300"
-                                        disabled
-                                    >
-                                        <Pencil class="h-4 w-4" />
-                                    </button>
-                                </span>
-                                <Link v-if="can.updateBooking" :href="`/admin/bookings/${booking.id}?tab=info`" class="mr-1 inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-pine hover:text-pine" title="Thêm nhu cầu phòng">
-                                    <Plus class="h-4 w-4" />
-                                </Link>
-                                <Link v-if="can.addPayment" :href="`/admin/bookings/${booking.id}?tab=payments`" class="mr-1 inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-pine hover:text-pine" title="Thêm đặt cọc">
-                                    <Banknote class="h-4 w-4" />
-                                </Link>
-                                <Link v-if="can.assignRoom" :href="`/admin/bookings/${booking.id}?tab=room_map`" class="mr-1 inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-pine hover:text-pine" title="Phân phòng">
-                                    <BedDouble class="h-4 w-4" />
-                                </Link>
-                                <button v-if="can.cancelBooking && booking.can_cancel" type="button" class="inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-coral hover:text-coral" title="Hủy booking" @click="openCancelModal(booking)">
-                                    <XCircle class="h-4 w-4" />
-                                </button>
-                                <span
-                                    v-else-if="can.cancelBooking && booking.cancel_disabled_reason"
-                                    class="inline-flex"
-                                    :title="booking.cancel_disabled_reason"
-                                    :aria-label="booking.cancel_disabled_reason"
-                                >
-                                    <button type="button" class="inline-flex h-8 w-8 cursor-not-allowed items-center justify-center border border-gray-200 text-gray-300" disabled>
-                                        <XCircle class="h-4 w-4" />
-                                    </button>
-                                </span>
-                                <button v-if="booking.can_restore" type="button" class="ml-1 inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-pine hover:text-pine" title="Khôi phục booking" @click="restoreBooking(booking)">
-                                    <RotateCcw class="h-4 w-4" />
-                                </button>
+                            <td
+                                class="sticky left-0 z-10 whitespace-nowrap border-r border-gray-200 bg-white py-3 group-hover:bg-gray-50"
+                                :class="actionsCollapsed ? 'w-14 min-w-14 max-w-14 px-2' : 'px-4'"
+                            >
+                                <BookingActionsMenu
+                                    v-if="actionsCollapsed"
+                                    :actions="visibleActions(booking)"
+                                    :booking-code="booking.booking_code"
+                                    :is-mobile="isMobile"
+                                    :open="openMenuBookingId === booking.id"
+                                    @open="openActionsMenu(booking.id)"
+                                    @close="closeActionsMenu"
+                                />
+                                <template v-else>
+                                    <template v-for="action in visibleActions(booking)" :key="action.key">
+                                        <Link
+                                            v-if="!action.disabled && action.href"
+                                            :href="action.href"
+                                            class="mr-1 inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-pine hover:text-pine"
+                                            :class="action.danger && 'hover:border-coral hover:text-coral'"
+                                            :title="action.label"
+                                        >
+                                            <component :is="action.icon" class="h-4 w-4" />
+                                        </Link>
+                                        <button
+                                            v-else-if="!action.disabled"
+                                            type="button"
+                                            class="mr-1 inline-flex h-8 w-8 items-center justify-center border border-gray-200 text-steel hover:border-pine hover:text-pine"
+                                            :class="action.danger && 'hover:border-coral hover:text-coral'"
+                                            :title="action.label"
+                                            @click="action.handler?.()"
+                                        >
+                                            <component :is="action.icon" class="h-4 w-4" />
+                                        </button>
+                                        <span
+                                            v-else
+                                            class="mr-1 inline-flex"
+                                            :title="action.disabledReason"
+                                            :aria-label="action.disabledReason"
+                                        >
+                                            <button type="button" class="inline-flex h-8 w-8 cursor-not-allowed items-center justify-center border border-gray-200 text-gray-300" disabled>
+                                                <component :is="action.icon" class="h-4 w-4" />
+                                            </button>
+                                        </span>
+                                    </template>
+                                </template>
                             </td>
                             <td class="whitespace-nowrap px-4 py-3">
                                 <span class="inline-flex h-5 w-8 border border-gray-200" :style="{ backgroundColor: booking.booking_color }" />
