@@ -826,7 +826,13 @@ class BookingManagementUiTest extends TestCase
         $this->assertNotNull($stay->actual_checkout_at);
     }
 
-    public function test_check_in_before_planned_time_is_rejected(): void
+    /**
+     * Early Check-in + Admin Actual Time Override (Active Pilot): checking in
+     * before planned_checkin_at is now intentionally ALLOWED — the "chưa đến
+     * thời gian nhận phòng dự kiến" gate was removed. See
+     * docs/reports/early-checkin-admin-actual-time-override-implementation-report.md.
+     */
+    public function test_check_in_before_planned_time_is_allowed(): void
     {
         $this->actingAs($this->admin);
         $booking = $this->createBooking([
@@ -849,9 +855,12 @@ class BookingManagementUiTest extends TestCase
 
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-in")
             ->assertRedirect()
-            ->assertSessionHasErrors(['stay']);
+            ->assertSessionHas('success');
 
-        $this->assertSame(StayStatus::Reserved, $stay->refresh()->status);
+        $stay->refresh();
+        $this->assertSame(StayStatus::CheckedIn, $stay->status);
+        $this->assertSame('2026-07-05 10:00:00', $stay->actual_checkin_at->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-07-05 14:00:00', $stay->planned_checkin_at->format('Y-m-d H:i:s'));
     }
 
     public function test_check_in_at_planned_time_is_allowed(): void
@@ -884,7 +893,15 @@ class BookingManagementUiTest extends TestCase
         $this->assertSame(StayStatus::CheckedIn, $stay->refresh()->status);
     }
 
-    public function test_stay_payload_reflects_checkin_too_early_flag(): void
+    /**
+     * Early Check-in + Admin Actual Time Override (Active Pilot): the
+     * "chưa đến thời gian nhận phòng dự kiến" gate was intentionally removed
+     * — a Reserved/Assigned stay can check in before its planned time.
+     * checkin_too_early is kept in the payload (always false) only so any
+     * consumer still reading the key does not need a separate change. See
+     * docs/reports/early-checkin-admin-actual-time-override-implementation-report.md.
+     */
+    public function test_stay_payload_allows_check_in_before_planned_time(): void
     {
         $this->actingAs($this->admin);
         $booking = $this->createBooking([
@@ -908,8 +925,8 @@ class BookingManagementUiTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->where('booking.stays', fn ($stays): bool =>
                     collect($stays)->contains(fn (array $s): bool =>
-                        $s['can_check_in'] === false
-                        && $s['checkin_too_early'] === true
+                        $s['can_check_in'] === true
+                        && $s['checkin_too_early'] === false
                     )
                 )
             );

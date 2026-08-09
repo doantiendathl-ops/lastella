@@ -79,10 +79,21 @@ class StayService
                 ]);
             }
 
-            if ($lockedStay->planned_checkin_at !== null && now()->lt($lockedStay->planned_checkin_at)) {
+            // Early check-in is allowed (Active Pilot decision) — the guest may
+            // arrive and be checked in before planned_checkin_at as long as the
+            // room/stay/assignment guards above and below all still pass. Only
+            // the "not yet time" gate was ever removed; every other guard
+            // (assignment status, already-checked-in, room conflict via the
+            // Assigned-status invariant, etc.) is unchanged.
+            //
+            // A resulting early-checkin fee (if the actual time is early enough
+            // to cross the configured grace window) is still handled exactly as
+            // before by EarlyCheckinFeePostingJob below — that job already keys
+            // off actual_checkin_at vs planned_checkin_at, so removing this gate
+            // does not change its logic, only how often it now actually fires.
+            if ($actualCheckinAt !== null && Carbon::parse($actualCheckinAt)->gt(now())) {
                 throw ValidationException::withMessages([
-                    'stay' => 'Chưa đến thời gian nhận phòng dự kiến. Thời gian nhận phòng dự kiến: '
-                        . $lockedStay->planned_checkin_at->format('d/m/Y H:i') . '.',
+                    'actual_checkin_at' => 'Thời gian nhận phòng thực tế không được ở tương lai.',
                 ]);
             }
 
@@ -145,6 +156,22 @@ class StayService
                 throw ValidationException::withMessages([
                     'stay' => 'Phòng đã được trả phòng rồi.',
                 ]);
+            }
+
+            if ($actualCheckoutAt !== null) {
+                $parsedCheckoutAt = Carbon::parse($actualCheckoutAt);
+
+                if ($parsedCheckoutAt->gt(now())) {
+                    throw ValidationException::withMessages([
+                        'actual_checkout_at' => 'Thời gian trả phòng thực tế không được ở tương lai.',
+                    ]);
+                }
+
+                if ($parsedCheckoutAt->lt($lockedStay->actual_checkin_at)) {
+                    throw ValidationException::withMessages([
+                        'actual_checkout_at' => 'Thời gian trả phòng thực tế không được trước thời gian nhận phòng thực tế.',
+                    ]);
+                }
             }
 
             // ADR-55: Final checkout gate — determined pre-DML under the booking lock.
@@ -407,6 +434,110 @@ class StayService
                 'new_room_type_id' => $lockedNewRoom->room_type_id,
                 'new_room_type_name' => $lockedNewRoom->roomType?->name,
                 'reason' => $reason,
+            ]);
+
+            return $lockedStay->refresh();
+        });
+    }
+
+    /**
+     * ADMIN-only correction of an already-recorded actual_checkin_at — e.g. the
+     * guest was let into the room before reception pressed the button, or the
+     * original timestamp was mistyped. Authorization is enforced by the caller
+     * (StayPolicy::updateActualCheckIn() / UpdateActualCheckInRequest), and
+     * re-checked here as defense-in-depth.
+     *
+     * Deliberately narrow: only the actual_checkin_at column changes. Status,
+     * room assignment, folio postings (room charge / early check-in fee),
+     * housekeeping state, and StayEvent(CheckIn) are all left exactly as they
+     * were — this is a timestamp correction, not a re-run of check-in. Any
+     * FolioEntry already posted at the original check-in stays untouched;
+     * this task does not retroactively rewrite financial history.
+     */
+    public function updateActualCheckIn(Stay $stay, CarbonInterface $newActualCheckinAt, User $actor): Stay
+    {
+        if (! $actor->hasRole('ADMIN')) {
+            throw new AuthorizationException('Chỉ Quản trị viên được phép sửa thời gian nhận phòng thực tế.');
+        }
+
+        return DB::transaction(function () use ($stay, $newActualCheckinAt, $actor): Stay {
+            $lockedStay = Stay::whereKey($stay->id)->lockForUpdate()->firstOrFail();
+
+            if ($lockedStay->actual_checkin_at === null) {
+                throw ValidationException::withMessages([
+                    'stay' => 'Chưa nhận phòng nên không thể sửa thời gian nhận phòng thực tế.',
+                ]);
+            }
+
+            if ($newActualCheckinAt->gt(now())) {
+                throw ValidationException::withMessages([
+                    'actual_checkin_at' => 'Thời gian nhận phòng thực tế không được ở tương lai.',
+                ]);
+            }
+
+            if ($lockedStay->actual_checkout_at !== null && $newActualCheckinAt->gt($lockedStay->actual_checkout_at)) {
+                throw ValidationException::withMessages([
+                    'actual_checkin_at' => 'Thời gian nhận phòng thực tế không được sau thời gian trả phòng thực tế.',
+                ]);
+            }
+
+            $oldActualCheckinAt = $lockedStay->actual_checkin_at;
+
+            $lockedStay->update(['actual_checkin_at' => $newActualCheckinAt]);
+
+            $this->stayEvents->record($lockedStay, StayEventType::CheckInTimeAdjusted, $actor, [
+                'version' => 1,
+                'old_actual_checkin_at' => $oldActualCheckinAt->toIso8601String(),
+                'new_actual_checkin_at' => $newActualCheckinAt->toIso8601String(),
+            ]);
+
+            return $lockedStay->refresh();
+        });
+    }
+
+    /**
+     * ADMIN-only correction of an already-recorded actual_checkout_at. Same
+     * narrow scope as updateActualCheckIn(): only the timestamp column
+     * changes — no re-checkout, no duplicate state transition, no duplicate
+     * folio posting, no retroactive rewrite of already-posted FolioEntry rows
+     * (e.g. the late-checkout fee, if one was posted at the original
+     * checkout, is left exactly as posted).
+     */
+    public function updateActualCheckOut(Stay $stay, CarbonInterface $newActualCheckoutAt, User $actor): Stay
+    {
+        if (! $actor->hasRole('ADMIN')) {
+            throw new AuthorizationException('Chỉ Quản trị viên được phép sửa thời gian trả phòng thực tế.');
+        }
+
+        return DB::transaction(function () use ($stay, $newActualCheckoutAt, $actor): Stay {
+            $lockedStay = Stay::whereKey($stay->id)->lockForUpdate()->firstOrFail();
+
+            if ($lockedStay->actual_checkout_at === null) {
+                throw ValidationException::withMessages([
+                    'stay' => 'Chưa trả phòng nên không thể sửa thời gian trả phòng thực tế.',
+                ]);
+            }
+
+            if ($newActualCheckoutAt->gt(now())) {
+                throw ValidationException::withMessages([
+                    'actual_checkout_at' => 'Thời gian trả phòng thực tế không được ở tương lai.',
+                ]);
+            }
+
+            if ($lockedStay->actual_checkin_at !== null && $newActualCheckoutAt->lt($lockedStay->actual_checkin_at)) {
+                throw ValidationException::withMessages([
+                    'actual_checkout_at' => 'Thời gian trả phòng thực tế không được trước thời gian nhận phòng thực tế.',
+                ]);
+            }
+
+            $oldActualCheckoutAt = $lockedStay->actual_checkout_at;
+
+            $lockedStay->update(['actual_checkout_at' => $newActualCheckoutAt]);
+
+            $this->stayEvents->record($lockedStay, StayEventType::CheckOutTimeAdjusted, $actor, [
+                'version' => 1,
+                'old_actual_checkout_at' => $oldActualCheckoutAt->toIso8601String(),
+                'new_actual_checkout_at' => $newActualCheckoutAt->toIso8601String(),
             ]);
 
             return $lockedStay->refresh();

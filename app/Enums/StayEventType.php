@@ -11,6 +11,8 @@ enum StayEventType: string
     case RoomMove = 'ROOM_MOVE';
     case InspectionCompleted = 'INSPECTION_COMPLETED';
     case InspectionSkipped = 'INSPECTION_SKIPPED';
+    case CheckInTimeAdjusted = 'CHECK_IN_TIME_ADJUSTED';
+    case CheckOutTimeAdjusted = 'CHECK_OUT_TIME_ADJUSTED';
 
     public function label(): string
     {
@@ -22,6 +24,8 @@ enum StayEventType: string
             self::RoomMove => 'Đổi phòng',
             self::InspectionCompleted => 'Hoàn tất kiểm đồ',
             self::InspectionSkipped => 'Bỏ qua kiểm đồ',
+            self::CheckInTimeAdjusted => 'Điều chỉnh thời gian nhận phòng thực tế',
+            self::CheckOutTimeAdjusted => 'Điều chỉnh thời gian trả phòng thực tế',
         };
     }
 }

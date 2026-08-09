@@ -414,10 +414,12 @@ class BookingController extends Controller
                 // check-in-fact/booking-status guards are re-validated server-side
                 // regardless of this flag, same as before M4.
                 'can_release' => $assignment->status === AssignmentStatus::Assigned,
-                'can_check_in' => $assignment->status === AssignmentStatus::Assigned
-                    && ($assignment->stay?->planned_checkin_at === null || now()->gte($assignment->stay->planned_checkin_at)),
-                'checkin_too_early' => $assignment->status === AssignmentStatus::Assigned
-                    && $assignment->stay?->planned_checkin_at !== null && now()->lt($assignment->stay->planned_checkin_at),
+                // Early check-in is allowed (Active Pilot decision) — the
+                // planned_checkin_at gate was removed here; checkin_too_early
+                // is kept (always false) only so any template still reading it
+                // does not need a separate change.
+                'can_check_in' => $assignment->status === AssignmentStatus::Assigned,
+                'checkin_too_early' => false,
                 'planned_checkin_label' => $assignment->stay?->planned_checkin_at?->format('d/m/Y H:i'),
                 'can_check_out' => $assignment->status === AssignmentStatus::CheckedIn,
                 'action_disabled_reason' => match(true) {
@@ -438,12 +440,11 @@ class BookingController extends Controller
                 'actual_checkout_at' => $stay->actual_checkout_at?->format('Y-m-d H:i'),
                 'status' => $stay->status?->value,
                 'is_released' => $stay->roomAssignment?->status === AssignmentStatus::Released,
+                // Early check-in is allowed (Active Pilot decision) — see the
+                // matching comment on the assignments[] mapping above.
                 'can_check_in' => $stay->status === StayStatus::Reserved
-                    && $stay->roomAssignment?->status === AssignmentStatus::Assigned
-                    && ($stay->planned_checkin_at === null || now()->gte($stay->planned_checkin_at)),
-                'checkin_too_early' => $stay->status === StayStatus::Reserved
-                    && $stay->roomAssignment?->status === AssignmentStatus::Assigned
-                    && $stay->planned_checkin_at !== null && now()->lt($stay->planned_checkin_at),
+                    && $stay->roomAssignment?->status === AssignmentStatus::Assigned,
+                'checkin_too_early' => false,
                 'planned_checkin_label' => $stay->planned_checkin_at?->format('d/m/Y H:i'),
                 'can_check_out' => $stay->status === StayStatus::CheckedIn
                     && $stay->roomAssignment?->status === AssignmentStatus::CheckedIn,
@@ -721,6 +722,10 @@ class BookingController extends Controller
             'reduceDemand'            => $user?->can('booking.update') ?? false,
             'checkIn'                 => $user?->can('stay.checkin') ?? false,
             'checkOut'                => $user?->can('stay.checkout') ?? false,
+            // ADMIN-only: shows the actual check-in/check-out time override
+            // field and the post-event "edit time" action. Distinct from the
+            // ordinary checkIn/checkOut permission RECEPTION also holds.
+            'adjustActualTime'        => $user?->hasRole('ADMIN') ?? false,
             'extend'                  => $user?->can('stay.extend') ?? false,
             'moveRoom'                => $user?->can('stay.room_move') ?? false,
             'managePackage'           => $user?->can('booking.package.manage') ?? false,

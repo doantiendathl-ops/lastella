@@ -244,6 +244,11 @@ class BookingEngineFoundationTest extends TestCase
         $assignment = $this->createSingleAssignment();
         $stay = app(StayService::class)->createStayFromAssignment($assignment);
 
+        // Early Check-in + Admin Actual Time Override: actual_checkin_at may
+        // never be in the future relative to now() — advance the frozen test
+        // clock to match the narrative check-in moment (setUp() froze it to
+        // 14:00; the guest arrives at 15:00).
+        $this->travelTo('2026-07-01 15:00:00');
         $checkedIn = app(StayService::class)->checkIn($stay, '2026-07-01 15:00:00');
 
         $this->assertSame(StayStatus::CheckedIn, $checkedIn->status);
@@ -265,7 +270,9 @@ class BookingEngineFoundationTest extends TestCase
         ]);
 
         $stayService = app(StayService::class);
+        $this->travelTo('2026-07-01 15:00:00');
         $checkedIn = $stayService->checkIn($stay, '2026-07-01 15:00:00');
+        $this->travelTo('2026-07-02 11:00:00');
         $checkedOut = $stayService->checkOut($checkedIn, '2026-07-02 11:00:00', true);
 
         $this->assertSame(StayStatus::CheckedOut, $checkedOut->status);
@@ -280,7 +287,9 @@ class BookingEngineFoundationTest extends TestCase
         $stay = app(StayService::class)->createStayFromAssignment($assignment);
 
         $stayService = app(StayService::class);
+        $this->travelTo('2026-07-01 15:00:00');
         $checkedIn = $stayService->checkIn($stay, '2026-07-01 15:00:00');
+        $this->travelTo('2026-07-02 11:00:00');
 
         // ADR-40: outstanding balance blocks checkout — transaction rolls back entirely.
         $this->expectException(OutstandingBalanceException::class);
@@ -575,6 +584,7 @@ class BookingEngineFoundationTest extends TestCase
 
         // CheckIn then immediately extend checkout: both operations succeed
         // and share the same Stay → RA lock direction.
+        $this->travelTo('2026-07-01 15:00:00');
         app(StayService::class)->checkIn($stay, '2026-07-01 15:00:00');
 
         $updated = $this->bookingService()->updateBooking($assignment->booking, [

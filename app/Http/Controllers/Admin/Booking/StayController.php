@@ -10,6 +10,8 @@ use App\Http\Requests\Booking\CheckOutStayRequest;
 use App\Http\Requests\Booking\ExtendStayRequest;
 use App\Http\Requests\Booking\MoveRoomRequest;
 use App\Http\Requests\Booking\SkipCheckoutInspectionRequest;
+use App\Http\Requests\Booking\UpdateActualCheckInRequest;
+use App\Http\Requests\Booking\UpdateActualCheckOutRequest;
 use App\Models\Booking;
 use App\Models\Room;
 use App\Models\Stay;
@@ -96,5 +98,27 @@ class StayController extends Controller
         $this->stays->moveRoom($stay, $newRoom, $request->user(), $request->validated('reason'));
 
         return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'room_map'])->with('success', 'Đã đổi phòng.');
+    }
+
+    /** ADMIN-only: correct an already-recorded actual check-in time. */
+    public function updateActualCheckIn(UpdateActualCheckInRequest $request, Booking $booking, Stay $stay): RedirectResponse
+    {
+        $this->authorize('updateActualCheckIn', $stay);
+        abort_unless($stay->booking_id === $booking->id, 404);
+
+        $this->stays->updateActualCheckIn($stay, $request->date('actual_checkin_at'), $request->user());
+
+        return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'room_map'])->with('success', 'Đã cập nhật thời gian nhận phòng thực tế.');
+    }
+
+    /** ADMIN-only: correct an already-recorded actual check-out time. */
+    public function updateActualCheckOut(UpdateActualCheckOutRequest $request, Booking $booking, Stay $stay): RedirectResponse
+    {
+        $this->authorize('updateActualCheckOut', $stay);
+        abort_unless($stay->booking_id === $booking->id, 404);
+
+        $this->stays->updateActualCheckOut($stay, $request->date('actual_checkout_at'), $request->user());
+
+        return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'room_map'])->with('success', 'Đã cập nhật thời gian trả phòng thực tế.');
     }
 }

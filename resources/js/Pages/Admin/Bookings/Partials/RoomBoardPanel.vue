@@ -1,7 +1,7 @@
 <script setup>
 import { labelFor } from '@/Support/vietnameseLabels';
 import { router, useForm, usePage } from '@inertiajs/vue3';
-import { ArrowLeftRight, CalendarClock, CheckCircle, LogIn, LogOut } from 'lucide-vue-next';
+import { ArrowLeftRight, CalendarClock, CheckCircle, LogIn, LogOut, Pencil } from 'lucide-vue-next';
 import { computed, ref, watch } from 'vue';
 
 const props = defineProps({
@@ -32,14 +32,122 @@ const checkOutAllConfirming = ref(false)
 const inspectionWarningStay = ref(null)
 const inspectionSkipReason = ref('')
 
-const checkIn = (stay) =>
+// ---- Early check-in + ADMIN actual time override ---------------------------
+// Reception's flow is completely unchanged: click "Nhận phòng" → immediate
+// POST with no time field → server uses now(). Only when can.adjustActualTime
+// (ADMIN — see BookingController::permissions()) does clicking first open a
+// small "actual check-in time" dialog, defaulting to now, editable, submitted
+// via useForm() so validation errors (e.g. future time) show inline. See
+// docs/reports/early-checkin-admin-actual-time-override-implementation-report.md.
+const nowForDatetimeLocal = () => {
+    const d = new Date()
+    const pad = (n) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+const checkInTimeTarget = ref(null)
+const checkInTimeForm = useForm({ actual_checkin_at: '' })
+
+const checkIn = (stay) => {
+    if (props.can.adjustActualTime) {
+        checkInTimeForm.clearErrors()
+        checkInTimeForm.actual_checkin_at = nowForDatetimeLocal()
+        checkInTimeTarget.value = stay
+        return
+    }
     router.post(`/admin/bookings/${props.booking.id}/stays/${stay.id}/check-in`, {}, { preserveScroll: true })
+}
+
+const closeCheckInTime = () => {
+    checkInTimeTarget.value = null
+    checkInTimeForm.clearErrors()
+}
+
+const submitCheckInTime = () => {
+    if (!checkInTimeTarget.value) return
+    checkInTimeForm.post(
+        `/admin/bookings/${props.booking.id}/stays/${checkInTimeTarget.value.id}/check-in`,
+        { preserveScroll: true, onSuccess: () => { checkInTimeTarget.value = null } },
+    )
+}
+
+// ADMIN edit-after-check-in: correct an already-recorded actual_checkin_at.
+// Separate PATCH endpoint (StayService::updateActualCheckIn) — never re-runs
+// check-in, never re-posts folio charges.
+const editCheckInTarget = ref(null)
+const editCheckInForm = useForm({ actual_checkin_at: '' })
+
+const openEditCheckIn = (stay) => {
+    editCheckInForm.clearErrors()
+    editCheckInForm.actual_checkin_at = toDatetimeLocal(stay.actual_checkin_at)
+    editCheckInTarget.value = stay
+}
+
+const closeEditCheckIn = () => {
+    editCheckInTarget.value = null
+    editCheckInForm.clearErrors()
+}
+
+const submitEditCheckIn = () => {
+    if (!editCheckInTarget.value) return
+    editCheckInForm.patch(
+        `/admin/bookings/${props.booking.id}/stays/${editCheckInTarget.value.id}/actual-check-in`,
+        { preserveScroll: true, onSuccess: () => { editCheckInTarget.value = null } },
+    )
+}
+
+// ---- Checkout — same principle as check-in above ---------------------------
+// Reception's flow (inspection warning → balance warning → final-checkout
+// confirm → POST) is entirely unchanged in shape; ADMIN just gets one extra
+// first step (pick the actual checkout time) before that same flow runs, and
+// every POST in that flow carries the chosen time via checkoutOverridePayload().
+const adminCheckoutTimeTarget = ref(null)
+const adminCheckoutTimeValue = ref('')
+const checkoutTimeError = ref('')
+
+const checkoutOverridePayload = () => (
+    props.can.adjustActualTime && adminCheckoutTimeValue.value
+        ? { actual_checkout_at: adminCheckoutTimeValue.value }
+        : {}
+)
+
+// If the server rejects the chosen actual_checkout_at (future / before
+// check-in), re-open the time dialog with the message instead of letting the
+// error disappear into the shared Inertia error bag unseen.
+const handleCheckoutTimeError = (stay) => (errors) => {
+    if (errors.actual_checkout_at) {
+        checkoutTimeError.value = errors.actual_checkout_at
+        adminCheckoutTimeTarget.value = stay
+    }
+}
+
+const closeAdminCheckoutTime = () => {
+    adminCheckoutTimeTarget.value = null
+    checkoutTimeError.value = ''
+}
+
+const confirmAdminCheckoutTime = () => {
+    if (!adminCheckoutTimeTarget.value) return
+    const stay = adminCheckoutTimeTarget.value
+    adminCheckoutTimeTarget.value = null
+    checkoutTimeError.value = ''
+    startCheckoutFlow(stay)
+}
 
 // Checkout-inspection warning: purely advisory, never an absolute lock — any user with
 // checkout permission can dismiss and proceed. Only the formal "skip with reason" record
 // (below) is permission-gated. Checked client-side from data already on the page, so this
 // cannot regress the (unmodified) server-side checkout flow in any way.
 const checkOut = (stay) => {
+    if (props.can.adjustActualTime) {
+        adminCheckoutTimeValue.value = nowForDatetimeLocal()
+        adminCheckoutTimeTarget.value = stay
+        return
+    }
+    startCheckoutFlow(stay)
+}
+
+const startCheckoutFlow = (stay) => {
     if (stay.inspection_status === 'none') {
         inspectionWarningStay.value = stay
         inspectionSkipReason.value = ''
@@ -60,7 +168,34 @@ const proceedCheckout = (stay) => {
 
     // ADR-55: for final checkouts, backend is authoritative. Send without confirmed; if backend
     // fires FinalCheckoutConfirmationRequiredException the flash watcher shows the dialog.
-    router.post(`/admin/bookings/${props.booking.id}/stays/${stay.id}/check-out`, {}, { preserveScroll: true })
+    router.post(
+        `/admin/bookings/${props.booking.id}/stays/${stay.id}/check-out`,
+        { ...checkoutOverridePayload() },
+        { preserveScroll: true, onError: handleCheckoutTimeError(stay) },
+    )
+}
+
+// ADMIN edit-after-checkout: correct an already-recorded actual_checkout_at.
+const editCheckOutTarget = ref(null)
+const editCheckOutForm = useForm({ actual_checkout_at: '' })
+
+const openEditCheckOut = (stay) => {
+    editCheckOutForm.clearErrors()
+    editCheckOutForm.actual_checkout_at = toDatetimeLocal(stay.actual_checkout_at)
+    editCheckOutTarget.value = stay
+}
+
+const closeEditCheckOut = () => {
+    editCheckOutTarget.value = null
+    editCheckOutForm.clearErrors()
+}
+
+const submitEditCheckOut = () => {
+    if (!editCheckOutTarget.value) return
+    editCheckOutForm.patch(
+        `/admin/bookings/${props.booking.id}/stays/${editCheckOutTarget.value.id}/actual-check-out`,
+        { preserveScroll: true, onSuccess: () => { editCheckOutTarget.value = null } },
+    )
 }
 
 // "Vẫn trả phòng" — dismiss the advisory warning and proceed with the normal, unmodified
@@ -88,12 +223,12 @@ const skipInspectionAndCheckOut = () => {
 // ADR-55: resend with confirmed=true after user approves the charge-review dialog
 const confirmLastStayCheckout = () => {
     if (!lastStayConfirmTarget.value) return
-    const stayId = lastStayConfirmTarget.value.id
+    const stay = lastStayConfirmTarget.value
     lastStayConfirmTarget.value = null
     router.post(
-        `/admin/bookings/${props.booking.id}/stays/${stayId}/check-out`,
-        { confirmed: true },
-        { preserveScroll: true },
+        `/admin/bookings/${props.booking.id}/stays/${stay.id}/check-out`,
+        { confirmed: true, ...checkoutOverridePayload() },
+        { preserveScroll: true, onError: handleCheckoutTimeError(stay) },
     )
 }
 
@@ -113,9 +248,13 @@ watch(
 
 const confirmCheckoutWithWarning = () => {
     if (!checkoutWarningStay.value) return
-    const stayId = checkoutWarningStay.value.id
+    const stay = checkoutWarningStay.value
     checkoutWarningStay.value = null
-    router.post(`/admin/bookings/${props.booking.id}/stays/${stayId}/check-out`, {}, { preserveScroll: true })
+    router.post(
+        `/admin/bookings/${props.booking.id}/stays/${stay.id}/check-out`,
+        { ...checkoutOverridePayload() },
+        { preserveScroll: true, onError: handleCheckoutTimeError(stay) },
+    )
 }
 
 const checkInAll = () => {
@@ -316,8 +455,34 @@ function requestStatusClass(status) {
                         </td>
                         <td class="px-4 py-3">{{ stay.planned_checkin_at }}</td>
                         <td class="px-4 py-3">{{ stay.planned_checkout_at }}</td>
-                        <td class="px-4 py-3">{{ stay.actual_checkin_at }}</td>
-                        <td class="px-4 py-3">{{ stay.actual_checkout_at }}</td>
+                        <td class="px-4 py-3">
+                            <div class="flex items-center gap-1.5">
+                                <span>{{ stay.actual_checkin_at }}</span>
+                                <button
+                                    v-if="can.adjustActualTime && stay.actual_checkin_at"
+                                    type="button"
+                                    class="text-steel hover:text-pine"
+                                    title="Sửa thời gian nhận phòng thực tế"
+                                    @click="openEditCheckIn(stay)"
+                                >
+                                    <Pencil class="h-3 w-3" />
+                                </button>
+                            </div>
+                        </td>
+                        <td class="px-4 py-3">
+                            <div class="flex items-center gap-1.5">
+                                <span>{{ stay.actual_checkout_at }}</span>
+                                <button
+                                    v-if="can.adjustActualTime && stay.actual_checkout_at"
+                                    type="button"
+                                    class="text-steel hover:text-pine"
+                                    title="Sửa thời gian trả phòng thực tế"
+                                    @click="openEditCheckOut(stay)"
+                                >
+                                    <Pencil class="h-3 w-3" />
+                                </button>
+                            </div>
+                        </td>
                         <td class="px-4 py-3">{{ labelFor('stayStatus', stay.status) }}</td>
                         <td class="whitespace-nowrap px-4 py-3 text-right">
                             <button
@@ -328,13 +493,6 @@ function requestStatusClass(status) {
                             >
                                 <LogIn class="h-3.5 w-3.5" /> Nhận phòng
                             </button>
-                            <span
-                                v-else-if="can.checkIn && stay.checkin_too_early"
-                                class="mr-2 text-[10px] text-amber-600"
-                                :title="`Thời gian nhận phòng dự kiến: ${stay.planned_checkin_label}`"
-                            >
-                                Chưa đến giờ nhận phòng
-                            </span>
                             <!-- ADR-52: disabled for last checked-in stay with outstanding balance -->
                             <span
                                 v-if="can.checkOut && stay.can_check_out && checkoutDisabled(stay)"
@@ -581,6 +739,106 @@ function requestStatusClass(status) {
                 <button type="button" class="border border-gray-300 px-4 py-2 text-sm font-semibold text-steel hover:text-ink" @click="checkoutWarningStay = null">Hủy</button>
                 <button type="button" class="border border-coral bg-coral px-4 py-2 text-sm font-semibold text-white hover:bg-coral/90" @click="confirmCheckoutWithWarning">Vẫn trả phòng</button>
             </div>
+        </div>
+    </div>
+
+    <!-- ADMIN: actual check-in time, shown before the normal check-in POST fires -->
+    <div v-if="checkInTimeTarget" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+        <div class="w-full max-w-sm border border-gray-200 bg-white p-5 shadow-xl">
+            <h2 class="text-base font-semibold">Nhận phòng - Phòng {{ checkInTimeTarget.room_number }}</h2>
+            <form class="mt-3" @submit.prevent="submitCheckInTime">
+                <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Thời gian nhận phòng thực tế</label>
+                <input
+                    v-model="checkInTimeForm.actual_checkin_at"
+                    type="datetime-local"
+                    class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm"
+                >
+                <p v-if="checkInTimeForm.errors.actual_checkin_at" class="mt-2 text-sm text-coral">{{ checkInTimeForm.errors.actual_checkin_at }}</p>
+                <div class="mt-4 flex justify-end gap-2">
+                    <button type="button" class="border border-gray-300 px-4 py-2 text-sm font-semibold text-steel hover:text-ink" @click="closeCheckInTime">Hủy</button>
+                    <button
+                        type="submit"
+                        class="border border-pine bg-pine px-4 py-2 text-sm font-semibold text-white hover:bg-pine/90 disabled:opacity-50"
+                        :disabled="checkInTimeForm.processing"
+                    >
+                        Xác nhận nhận phòng
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ADMIN: edit an already-recorded actual check-in time -->
+    <div v-if="editCheckInTarget" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+        <div class="w-full max-w-sm border border-gray-200 bg-white p-5 shadow-xl">
+            <h2 class="text-base font-semibold">Sửa thời gian nhận phòng - Phòng {{ editCheckInTarget.room_number }}</h2>
+            <form class="mt-3" @submit.prevent="submitEditCheckIn">
+                <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Thời gian nhận phòng thực tế</label>
+                <input
+                    v-model="editCheckInForm.actual_checkin_at"
+                    type="datetime-local"
+                    class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm"
+                >
+                <p v-if="editCheckInForm.errors.actual_checkin_at" class="mt-2 text-sm text-coral">{{ editCheckInForm.errors.actual_checkin_at }}</p>
+                <div class="mt-4 flex justify-end gap-2">
+                    <button type="button" class="border border-gray-300 px-4 py-2 text-sm font-semibold text-steel hover:text-ink" @click="closeEditCheckIn">Hủy</button>
+                    <button
+                        type="submit"
+                        class="border border-pine bg-pine px-4 py-2 text-sm font-semibold text-white hover:bg-pine/90 disabled:opacity-50"
+                        :disabled="editCheckInForm.processing"
+                    >
+                        Lưu thay đổi
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ADMIN: actual checkout time, shown before the normal checkout flow (inspection/balance/final-confirm) runs -->
+    <div v-if="adminCheckoutTimeTarget" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+        <div class="w-full max-w-sm border border-gray-200 bg-white p-5 shadow-xl">
+            <h2 class="text-base font-semibold">Trả phòng - Phòng {{ adminCheckoutTimeTarget.room_number }}</h2>
+            <form class="mt-3" @submit.prevent="confirmAdminCheckoutTime">
+                <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Thời gian trả phòng thực tế</label>
+                <input
+                    v-model="adminCheckoutTimeValue"
+                    type="datetime-local"
+                    class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm"
+                >
+                <p v-if="checkoutTimeError" class="mt-2 text-sm text-coral">{{ checkoutTimeError }}</p>
+                <div class="mt-4 flex justify-end gap-2">
+                    <button type="button" class="border border-gray-300 px-4 py-2 text-sm font-semibold text-steel hover:text-ink" @click="closeAdminCheckoutTime">Hủy</button>
+                    <button type="submit" class="border border-pine bg-pine px-4 py-2 text-sm font-semibold text-white hover:bg-pine/90">
+                        Tiếp tục trả phòng
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ADMIN: edit an already-recorded actual checkout time -->
+    <div v-if="editCheckOutTarget" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+        <div class="w-full max-w-sm border border-gray-200 bg-white p-5 shadow-xl">
+            <h2 class="text-base font-semibold">Sửa thời gian trả phòng - Phòng {{ editCheckOutTarget.room_number }}</h2>
+            <form class="mt-3" @submit.prevent="submitEditCheckOut">
+                <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Thời gian trả phòng thực tế</label>
+                <input
+                    v-model="editCheckOutForm.actual_checkout_at"
+                    type="datetime-local"
+                    class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm"
+                >
+                <p v-if="editCheckOutForm.errors.actual_checkout_at" class="mt-2 text-sm text-coral">{{ editCheckOutForm.errors.actual_checkout_at }}</p>
+                <div class="mt-4 flex justify-end gap-2">
+                    <button type="button" class="border border-gray-300 px-4 py-2 text-sm font-semibold text-steel hover:text-ink" @click="closeEditCheckOut">Hủy</button>
+                    <button
+                        type="submit"
+                        class="border border-pine bg-pine px-4 py-2 text-sm font-semibold text-white hover:bg-pine/90 disabled:opacity-50"
+                        :disabled="editCheckOutForm.processing"
+                    >
+                        Lưu thay đổi
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 </template>

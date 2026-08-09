@@ -36,4 +36,20 @@ class StayPolicy
     {
         return $user->can('stay.room_move');
     }
+
+    /**
+     * Editing an already-recorded actual timestamp (backdate/correct) is an
+     * ADMIN-only capability, distinct from the ordinary stay.checkin/
+     * stay.checkout permission that RECEPTION also holds — see
+     * docs/reports/early-checkin-admin-actual-time-override-implementation-report.md.
+     */
+    public function updateActualCheckIn(User $user, Stay $stay): bool
+    {
+        return $user->hasRole('ADMIN');
+    }
+
+    public function updateActualCheckOut(User $user, Stay $stay): bool
+    {
+        return $user->hasRole('ADMIN');
+    }
 }
