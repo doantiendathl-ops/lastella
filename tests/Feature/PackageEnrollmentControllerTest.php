@@ -140,19 +140,26 @@ class PackageEnrollmentControllerTest extends TestCase
         ]);
     }
 
-    public function test_admin_can_enroll_extra_bed(): void
+    /**
+     * Room-Scoped Bed Operations Correction: Extra Bed is no longer
+     * enrollable through the generic booking-wide endpoint — it must go
+     * through admin.bookings.packages.extra-bed-rooms (per room). The
+     * generic endpoint now rejects it with a clear error instead of
+     * creating an ambiguous booking-level row.
+     */
+    public function test_admin_cannot_enroll_extra_bed_via_generic_endpoint(): void
     {
         $this->actingAs($this->admin)
             ->post(route('admin.bookings.packages.enroll', $this->booking), [
                 'package_key' => PackageEnrollmentService::EXTRA_BED_PER_NIGHT,
                 'quantity'    => 1,
             ])
-            ->assertRedirect();
+            ->assertRedirect()
+            ->assertSessionHasErrors('package_key');
 
-        $this->assertDatabaseHas('booking_package_flags', [
+        $this->assertDatabaseMissing('booking_package_flags', [
             'booking_id'  => $this->booking->id,
             'package_key' => PackageEnrollmentService::EXTRA_BED_PER_NIGHT,
-            'value'       => '1',
         ]);
     }
 

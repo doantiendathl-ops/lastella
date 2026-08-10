@@ -30,6 +30,12 @@ interface AuditLog {
     posted_at: string
 }
 
+interface ExtraBedRoom {
+    assignment_id: number
+    room_number: string
+    quantity: number
+}
+
 const props = defineProps<{
     booking: {
         id: number
@@ -39,10 +45,30 @@ const props = defineProps<{
     }
     enrollments: Record<string, EnrollmentStatus>
     available_packages: AvailablePackage[]
+    extra_bed_rooms: ExtraBedRoom[]
     last_audit_logs: AuditLog[]
     city_tax_enabled: boolean
     can: { manage_packages: boolean }
 }>()
+
+// Room-Scoped Bed Operations Correction: Extra Bed is edited per room, not as
+// a single booking-wide toggle+quantity — see the special-cased card below.
+const extraBedDraft = ref<Record<number, number>>(
+    Object.fromEntries(props.extra_bed_rooms.map((r) => [r.assignment_id, r.quantity])),
+)
+
+function saveExtraBedRooms(): void {
+    router.patch(
+        route('admin.bookings.packages.extra-bed-rooms', props.booking.id),
+        {
+            rooms: props.extra_bed_rooms.map((r) => ({
+                assignment_id: r.assignment_id,
+                quantity: extraBedDraft.value[r.assignment_id] ?? 0,
+            })),
+        },
+        { preserveScroll: true },
+    )
+}
 
 const page = usePage()
 
@@ -202,7 +228,59 @@ const unenroll = (packageKey: string): void => {
 
                     <!-- Card body -->
                     <div class="px-5 py-4">
-                        <template v-if="enrollments[pkg.key]?.enrolled">
+                        <!-- Room-Scoped Bed Operations Correction: Extra Bed is per-room, never a single
+                             booking-wide toggle — see Mục III/VII. -->
+                        <template v-if="pkg.key === 'EXTRA_BED_PER_NIGHT'">
+                            <div v-if="extra_bed_rooms.length === 0" class="flex items-center gap-2 text-sm text-amber-700">
+                                <Info class="h-4 w-4 shrink-0" aria-hidden="true" />
+                                Vui lòng gán phòng trước khi thêm Giường phụ.
+                            </div>
+                            <div v-else class="space-y-2">
+                                <div
+                                    v-for="room in extra_bed_rooms"
+                                    :key="room.assignment_id"
+                                    class="flex items-center justify-between gap-3 border-b border-gray-100 py-1.5 last:border-b-0"
+                                >
+                                    <span class="text-sm font-medium text-gray-800">Phòng {{ room.room_number }}</span>
+                                    <input
+                                        v-model.number="extraBedDraft[room.assignment_id]"
+                                        type="number"
+                                        min="0"
+                                        max="9"
+                                        :disabled="!can.manage_packages"
+                                        class="w-16 border border-gray-300 px-2 py-1 text-sm text-center focus:border-pine focus:outline-none focus:ring-1 focus:ring-pine disabled:bg-gray-50"
+                                    />
+                                </div>
+                                <div v-if="can.manage_packages" class="mt-3">
+                                    <button
+                                        type="button"
+                                        class="inline-flex items-center gap-1.5 bg-pine px-3 py-1.5 text-xs font-semibold text-white hover:bg-pine/90 disabled:cursor-not-allowed disabled:bg-gray-300"
+                                        :disabled="pkg.current_rate === null"
+                                        :title="pkg.current_rate === null ? 'Chưa có biểu giá cho gói này' : undefined"
+                                        @click="saveExtraBedRooms"
+                                    >
+                                        Lưu số lượng theo phòng
+                                    </button>
+                                    <span v-if="pkg.current_rate === null" class="ml-2 text-xs text-amber-600">
+                                        Chưa có biểu giá — không thể áp dụng
+                                    </span>
+                                </div>
+                            </div>
+
+                            <!-- Last audit log — still meaningful per booking (aggregate across rooms). -->
+                            <div v-if="auditLogFor(pkg.key)" class="mt-2.5 flex items-center gap-2 text-xs text-steel">
+                                <span>Lần ghi phí cuối:</span>
+                                <span class="font-mono text-gray-700">{{ auditLogFor(pkg.key)!.posted_at }}</span>
+                                <span
+                                    class="rounded-full px-2 py-0.5 text-xs font-semibold"
+                                    :class="RESULT_CLASSES[auditLogFor(pkg.key)!.result] ?? 'bg-gray-100 text-gray-600'"
+                                >
+                                    {{ RESULT_LABELS[auditLogFor(pkg.key)!.result] ?? auditLogFor(pkg.key)!.result }}
+                                </span>
+                            </div>
+                        </template>
+
+                        <template v-else-if="enrollments[pkg.key]?.enrolled">
                             <!-- Enrolled state -->
                             <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
                                 <span class="inline-flex items-center gap-1.5 text-sm font-semibold text-pine">

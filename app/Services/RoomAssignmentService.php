@@ -60,11 +60,22 @@ class RoomAssignmentService
     /**
      * Room Demand/Room Board Unification M2 — the ONLY place that locks a Room
      * row, rechecks availability/conflict, and creates a RoomAssignment. Shared
-     * by assignRooms() (legacy, booking_requirement_id always null) and
-     * assignRoomsWithRequirementLink() (below) so the two paths can never drift
+     * by assignRooms() (legacy, booking_requirement_id always null),
+     * assignRoomsWithRequirementLink(), and assignRoomsFromRoomBoard() (via
+     * resolveAndApplyRoomBoardGroup()) so all three paths can never drift
      * apart. Does not open its own transaction — the caller's DB::transaction()
      * governs it. booking_requirement_id is written in the SAME create() call,
      * never patched onto the row afterwards.
+     *
+     * Quick Note Lifecycle addendum (Mục B) — COPY-ON-ASSIGNMENT: a brand new
+     * assignment with no explicit quick_note of its own defaults to the
+     * booking's CURRENT quick_note at creation time. This is a one-time copy,
+     * not a live sync (Mục C) — nothing here or anywhere else re-reads
+     * booking.quick_note after this row is created, so editing the booking's
+     * quick_note later never overwrites an already-assigned room's note.
+     * Because this is the single shared creation path, every future
+     * assignment picks up whatever the booking's quick_note is AT THAT TIME
+     * (Mục D) with no separate handling needed per call site.
      */
     private function lockRoomRecheckAndCreateAssignment(
         Booking $booking,
@@ -91,6 +102,7 @@ class RoomAssignmentService
             'end_at' => $endAt,
             'status' => AssignmentStatus::Assigned,
             'assigned_by' => Auth::id(),
+            'quick_note' => $assignment['quick_note'] ?? $booking->quick_note,
         ]);
     }
 

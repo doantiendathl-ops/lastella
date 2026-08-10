@@ -39,6 +39,7 @@ class Booking extends Model
         'cancellation_reason',
         'note',
         'internal_note',
+        'quick_note',
     ];
 
     protected function casts(): array

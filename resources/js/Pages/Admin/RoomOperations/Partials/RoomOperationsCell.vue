@@ -1,0 +1,247 @@
+<script setup>
+import {
+    AlertTriangle,
+    BedDouble,
+    BedSingle,
+    Brush,
+    CheckCircle2,
+    ClipboardCheck,
+    ClipboardX,
+    DoorClosed,
+    DoorOpen,
+    LogOut,
+    MessageSquare,
+} from 'lucide-vue-next';
+import { computed, ref } from 'vue';
+
+const props = defineProps({
+    room: { type: Object, required: true },
+    selected: { type: Boolean, default: false },
+    canEditNote: { type: Boolean, default: false },
+});
+
+const emit = defineEmits(['toggle-select', 'view-booking', 'save-note']);
+
+const occupant = computed(() => props.room.occupant);
+
+const editingNote = computed(() => noteDraft.value !== null);
+const noteDraft = ref(null);
+const noteError = ref('');
+
+function startEditNote() {
+    if (!props.canEditNote) return;
+    noteDraft.value = occupant.value?.quick_note ?? '';
+    noteError.value = '';
+}
+
+function cancelEditNote() {
+    noteDraft.value = null;
+    noteError.value = '';
+}
+
+function saveNote() {
+    if (noteDraft.value !== null && noteDraft.value.length > 100) {
+        noteError.value = 'Tối đa 100 ký tự.';
+        return;
+    }
+    emit('save-note', { assignmentId: occupant.value.assignment_id, note: noteDraft.value || null });
+    noteDraft.value = null;
+}
+
+// Mục X-XII: full-card tint reusing the SAME 5-state occupancy classification
+// the board already computes (status_theme) — not a new palette, only a new
+// rendering (full background instead of a left border strip).
+// Stronger Full-Card Room Colors: one shade stronger than the previous
+// round (bg-*-50/border-*-300 → bg-*-200/border-*-500) — same 5-state
+// palette, same semantics, just more saturated so status reads at a glance.
+// Text stays dark (gray-900/700) throughout, which still contrasts cleanly
+// against every *-200 tint below.
+const CARD_THEME = {
+    unavailable: 'border-gray-500 bg-gray-300',
+    vacant_clean: 'border-green-500 bg-green-200',
+    vacant_dirty: 'border-amber-500 bg-amber-200',
+    assigned: 'border-purple-500 bg-purple-200',
+    checked_in: 'border-blue-500 bg-blue-200',
+};
+const cardThemeClass = computed(() => CARD_THEME[props.room.status_theme] ?? 'border-gray-200 bg-white');
+
+// Mục XV-XXVI: one compact icon-only status row, five groups, each with an
+// exact tooltip/aria-label — canonical sources unchanged (only the display
+// changed from text badges to icons):
+//   1. Housekeeping  → Room::isRoomClean() (physical room state)
+//   2. Occupancy     → Stay.actual_checkin_at/actual_checkout_at (3-state)
+//   3. Bed join      → BookingSpecialRequest (twin_to_double), room-scoped
+//   4. Extra bed     → room_assignments.extra_bed_quantity, room-scoped
+//   5. Inspection    → Stay::inspectionStatus()
+const housekeepingIcon = computed(() => (props.room.is_clean ? CheckCircle2 : Brush));
+const housekeepingTooltip = computed(() => (props.room.is_clean ? 'Đã dọn' : 'Chưa dọn'));
+const housekeepingClass = computed(() => (props.room.is_clean ? 'text-green-600' : 'text-amber-600'));
+
+const occupancyIcon = computed(() => {
+    if (!occupant.value) return null;
+    if (occupant.value.is_checked_out) return LogOut;
+    if (occupant.value.is_checked_in) return DoorOpen;
+    return DoorClosed;
+});
+const occupancyTooltip = computed(() => {
+    if (!occupant.value) return '';
+    if (occupant.value.is_checked_out) return 'Đã trả phòng';
+    if (occupant.value.is_checked_in) return 'Đã nhận phòng';
+    return 'Chưa nhận phòng';
+});
+const occupancyClass = computed(() => {
+    if (!occupant.value) return '';
+    if (occupant.value.is_checked_out) return 'text-gray-500';
+    if (occupant.value.is_checked_in) return 'text-blue-600';
+    return 'text-purple-600';
+});
+
+const bedJoinTooltip = computed(() => (occupant.value?.bed_join ? `Ghép giường — ${occupant.value.bed_join.status_label}` : ''));
+
+const inspectionIcon = computed(() => (occupant.value?.inspection_status === 'completed' ? ClipboardCheck : ClipboardX));
+const inspectionLabel = {
+    completed: 'Đã kiểm đồ',
+    draft: 'Đang kiểm đồ (nháp)',
+    skipped: 'Bỏ qua kiểm đồ',
+    none: 'Chưa kiểm đồ',
+};
+const inspectionTooltip = computed(() => inspectionLabel[occupant.value?.inspection_status] ?? '');
+const inspectionClass = computed(() => (occupant.value?.inspection_status === 'completed' ? 'text-emerald-600' : 'text-amber-600'));
+
+// Room-Conflict Detection follow-up: two (or more) live assignments hold the
+// same physical room with genuinely overlapping date ranges — a real
+// double-booking, not the benign same-day handoff case. Deliberately its own
+// highest-priority, unmissable marker (red ring + banner) separate from the
+// 5-state status tint and the icon row, since this represents a data
+// conflict on the room itself, not a fact about the currently-displayed
+// occupant.
+const conflictTooltip = computed(() => {
+    if (!props.room.has_room_conflict) return '';
+    const codes = (props.room.conflicting_bookings ?? []).map((b) => b.booking_code).filter(Boolean).join(', ');
+    return codes ? `Trùng phòng với: ${codes}` : 'Phòng đang bị trùng với booking khác.';
+});
+</script>
+
+<template>
+    <div
+        class="relative flex w-64 shrink-0 flex-col gap-1.5 rounded-lg border p-2.5 text-xs shadow-sm transition hover:shadow-md"
+        :class="[
+            cardThemeClass,
+            room.has_room_conflict ? 'ring-[3px] ring-red-600 ring-offset-2' : (selected ? 'ring-[3px] ring-indigo-600 ring-offset-2' : ''),
+        ]"
+    >
+        <div v-if="selected" class="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-white shadow">
+            <CheckCircle2 class="h-3.5 w-3.5" />
+        </div>
+
+        <div
+            v-if="room.has_room_conflict"
+            :title="conflictTooltip"
+            :aria-label="conflictTooltip"
+            class="flex items-center gap-1 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold text-white"
+        >
+            <AlertTriangle class="h-3 w-3 shrink-0" />
+            <span class="truncate">Trùng phòng — {{ (room.conflicting_bookings ?? []).map((b) => b.booking_code).filter(Boolean).join(', ') || 'booking khác' }}</span>
+        </div>
+
+        <div class="flex items-center justify-between">
+            <label class="flex cursor-pointer items-center gap-1.5">
+                <input
+                    type="checkbox"
+                    class="h-3.5 w-3.5 rounded border-gray-300"
+                    :checked="selected"
+                    @change="emit('toggle-select', room.id)"
+                />
+                <span class="font-semibold text-gray-900">{{ room.room_number }}</span>
+            </label>
+            <span class="rounded bg-white/90 px-1.5 py-0.5 text-[10px] font-medium text-gray-700">{{ room.room_type }}</span>
+        </div>
+
+        <div v-if="occupant" class="space-y-1">
+            <button
+                type="button"
+                class="block text-left font-medium leading-snug text-indigo-700 hover:underline"
+                style="overflow-wrap: anywhere;"
+                @click="emit('view-booking', occupant.booking_id)"
+            >
+                {{ occupant.customer_name }}
+            </button>
+            <div class="text-[10px] text-gray-600">
+                {{ occupant.start_at?.slice(5, 16) }} → {{ occupant.end_at?.slice(5, 16) }}
+            </div>
+        </div>
+        <div v-else class="text-[11px] italic text-gray-500">Phòng trống</div>
+
+        <!-- Mục XVI-XXVI: one compact icon-only row, five status groups, never wraps. -->
+        <div class="flex flex-nowrap items-center gap-2 border-t border-dashed border-black/10 pt-1">
+            <span :title="housekeepingTooltip" :aria-label="housekeepingTooltip" class="shrink-0">
+                <component :is="housekeepingIcon" class="h-4 w-4" :class="housekeepingClass" />
+            </span>
+
+            <span v-if="occupant" :title="occupancyTooltip" :aria-label="occupancyTooltip" class="shrink-0">
+                <component :is="occupancyIcon" class="h-4 w-4" :class="occupancyClass" />
+            </span>
+
+            <span v-if="occupant?.bed_join" :title="bedJoinTooltip" :aria-label="bedJoinTooltip" class="shrink-0">
+                <BedDouble class="h-4 w-4 text-orange-600" />
+            </span>
+
+            <span
+                v-if="occupant?.extra_bed_quantity > 0"
+                :title="`Giường phụ x${occupant.extra_bed_quantity}`"
+                :aria-label="`Giường phụ x${occupant.extra_bed_quantity}`"
+                class="shrink-0"
+            >
+                <BedSingle class="h-4 w-4 text-cyan-600" />
+            </span>
+
+            <span v-if="occupant" :title="inspectionTooltip" :aria-label="inspectionTooltip" class="shrink-0">
+                <component :is="inspectionIcon" class="h-4 w-4" :class="inspectionClass" />
+            </span>
+        </div>
+
+        <!-- Mục XVIII/XXVII: quick note is shown in FULL — no truncate/line-clamp/max-height,
+             wraps across as many lines as needed. -->
+        <div class="border-t border-dashed border-black/10 pt-1">
+            <div v-if="!editingNote" class="flex items-start gap-1">
+                <MessageSquare class="mt-0.5 h-3 w-3 shrink-0 text-gray-500" />
+                <button
+                    v-if="canEditNote && occupant"
+                    type="button"
+                    class="flex-1 text-left text-[10px] leading-snug text-gray-700 hover:text-indigo-600"
+                    style="white-space: normal; overflow-wrap: anywhere;"
+                    @click="startEditNote"
+                >
+                    {{ occupant.quick_note || 'Thêm ghi chú nhanh…' }}
+                </button>
+                <span
+                    v-else
+                    class="flex-1 text-[10px] leading-snug text-gray-600"
+                    style="white-space: normal; overflow-wrap: anywhere;"
+                >
+                    {{ occupant?.quick_note || '—' }}
+                </span>
+            </div>
+            <div v-else class="space-y-1">
+                <textarea
+                    v-model="noteDraft"
+                    rows="3"
+                    maxlength="100"
+                    class="w-full rounded border border-gray-300 bg-white p-1 text-[10px]"
+                    placeholder="Ghi chú nhanh (tối đa 100 ký tự)"
+                />
+                <div class="flex items-center justify-between text-[10px]">
+                    <span :class="noteError ? 'text-red-600' : 'text-gray-500'">{{ noteError || `${noteDraft?.length ?? 0}/100` }}</span>
+                    <div class="flex gap-1">
+                        <button type="button" class="text-gray-600 hover:underline" @click="cancelEditNote">Hủy</button>
+                        <button type="button" class="font-medium text-indigo-600 hover:underline" @click="saveNote">Lưu</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="room.pending_special_requests > 0" class="text-[10px] font-medium text-red-700">
+            {{ room.pending_special_requests }} yêu cầu đặc biệt chờ xử lý
+        </div>
+    </div>
+</template>

@@ -8,7 +8,6 @@ use App\Enums\ChargeType;
 use App\Enums\FolioStatus;
 use App\Enums\StayStatus;
 use App\Models\Booking;
-use App\Models\BookingPackageFlag;
 use App\Models\BookingRequirement;
 use App\Models\Folio;
 use App\Models\NightAuditRun;
@@ -17,7 +16,6 @@ use App\Models\Stay;
 use App\Models\User;
 use App\Services\BusinessDateService;
 use App\Services\NightAuditService;
-use App\Services\PackageEnrollmentService;
 use App\Services\Posting\ExtraBedPostingJob;
 use App\Services\Posting\PostingContext;
 use Carbon\Carbon;
@@ -25,6 +23,12 @@ use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
+/**
+ * Room-Scoped Bed Operations Correction — extra-bed quantity now lives on
+ * room_assignments.extra_bed_quantity (per room), not on the booking-level
+ * BookingPackageFlag. See ExtraBedPostingJob's class docblock for the exact
+ * over-posting bug this replaces.
+ */
 class ExtraBedPostingJobTest extends TestCase
 {
     use RefreshDatabase;
@@ -89,14 +93,10 @@ class ExtraBedPostingJobTest extends TestCase
         ]);
     }
 
-    private function enrollExtraBed(Booking $booking, int $quantity = 1): void
+    /** Room-scoped enrollment: sets the quantity directly on THIS stay's RoomAssignment. */
+    private function enrollExtraBedForRoom(Stay $stay, int $quantity = 1): void
     {
-        BookingPackageFlag::create([
-            'booking_id'  => $booking->id,
-            'package_key' => PackageEnrollmentService::EXTRA_BED_PER_NIGHT,
-            'value'       => (string) $quantity,
-            'created_by'  => null,
-        ]);
+        $stay->roomAssignment->update(['extra_bed_quantity' => $quantity]);
     }
 
     private function makeAuditRun(): NightAuditRun
@@ -112,7 +112,7 @@ class ExtraBedPostingJobTest extends TestCase
     // shouldProcess
     // -------------------------------------------------------------------------
 
-    public function test_should_process_returns_false_when_not_enrolled(): void
+    public function test_should_process_returns_false_when_quantity_is_zero(): void
     {
         $stay    = $this->makeCheckedInStayWithFolio();
         $booking = Booking::find($stay->booking_id);
@@ -136,7 +136,7 @@ class ExtraBedPostingJobTest extends TestCase
         $folio->update(['status' => FolioStatus::Closed]);
         $folio->refresh();
 
-        $this->enrollExtraBed($booking);
+        $this->enrollExtraBedForRoom($stay);
 
         $context = new PostingContext(
             booking:      $booking,
@@ -148,13 +148,13 @@ class ExtraBedPostingJobTest extends TestCase
         $this->assertFalse(app(ExtraBedPostingJob::class)->shouldProcess($context));
     }
 
-    public function test_should_process_returns_true_when_enrolled_and_folio_open(): void
+    public function test_should_process_returns_true_when_room_quantity_positive_and_folio_open(): void
     {
         $stay    = $this->makeCheckedInStayWithFolio();
         $booking = Booking::find($stay->booking_id);
         $folio   = $booking->folio;
 
-        $this->enrollExtraBed($booking);
+        $this->enrollExtraBedForRoom($stay);
 
         $context = new PostingContext(
             booking:      $booking,
@@ -175,7 +175,7 @@ class ExtraBedPostingJobTest extends TestCase
         $stay    = $this->makeCheckedInStayWithFolio();
         $booking = Booking::find($stay->booking_id);
         $folio   = $booking->folio;
-        $this->enrollExtraBed($booking);
+        $this->enrollExtraBedForRoom($stay);
 
         $context = new PostingContext(
             booking:      $booking,
@@ -197,7 +197,7 @@ class ExtraBedPostingJobTest extends TestCase
         $stay    = $this->makeCheckedInStayWithFolio();
         $booking = Booking::find($stay->booking_id);
         $folio   = $booking->folio;
-        $this->enrollExtraBed($booking, 1);
+        $this->enrollExtraBedForRoom($stay, 1);
         $this->makeExtraBedRate('150000.00');
 
         $context = new PostingContext(
@@ -226,12 +226,12 @@ class ExtraBedPostingJobTest extends TestCase
         ]);
     }
 
-    public function test_execute_amount_multiplied_by_quantity_from_flag(): void
+    public function test_execute_amount_multiplied_by_room_quantity(): void
     {
         $stay    = $this->makeCheckedInStayWithFolio();
         $booking = Booking::find($stay->booking_id);
         $folio   = $booking->folio;
-        $this->enrollExtraBed($booking, 2);
+        $this->enrollExtraBedForRoom($stay, 2);
         $this->makeExtraBedRate('150000.00');
 
         $context = new PostingContext(
@@ -256,7 +256,7 @@ class ExtraBedPostingJobTest extends TestCase
         $stay    = $this->makeCheckedInStayWithFolio();
         $booking = Booking::find($stay->booking_id);
         $folio   = $booking->folio;
-        $this->enrollExtraBed($booking);
+        $this->enrollExtraBedForRoom($stay);
         $this->makeExtraBedRate();
 
         $context = new PostingContext(
@@ -274,12 +274,12 @@ class ExtraBedPostingJobTest extends TestCase
         $this->assertDatabaseCount('folio_entries', 1);
     }
 
-    public function test_execute_skips_when_not_enrolled_at_execute_time(): void
+    public function test_execute_skips_when_room_quantity_zero_at_execute_time(): void
     {
         $stay    = $this->makeCheckedInStayWithFolio();
         $booking = Booking::find($stay->booking_id);
         $folio   = $booking->folio;
-        // No flag created
+        // extra_bed_quantity left at default 0
         $this->makeExtraBedRate();
 
         $context = new PostingContext(
@@ -300,7 +300,7 @@ class ExtraBedPostingJobTest extends TestCase
     {
         $stay    = $this->makeCheckedInStayWithFolio();
         $booking = Booking::find($stay->booking_id);
-        $this->enrollExtraBed($booking, 1);
+        $this->enrollExtraBedForRoom($stay, 1);
         $this->makeExtraBedRate();
 
         $run = app(NightAuditService::class)->runForDate($this->businessDate);
@@ -311,5 +311,131 @@ class ExtraBedPostingJobTest extends TestCase
             'job_class' => ExtraBedPostingJob::class,
             'result'    => 'POSTED',
         ]);
+    }
+
+    /**
+     * Root-cause regression proof (Mục IX/XII/XXXV): a booking with 3 rooms,
+     * only ONE of which has extra beds enrolled, must post EXACTLY ONE
+     * extra-bed FolioEntry — never one per room. This is exactly the bug the
+     * old booking-level BookingPackageFlag lookup caused (every stay of the
+     * booking independently matched the same flag).
+     */
+    public function test_multi_room_booking_posts_extra_bed_only_for_the_enrolled_room(): void
+    {
+        $stayA = $this->makeCheckedInStayWithFolio();
+        $booking = Booking::find($stayA->booking_id);
+        $folio = $booking->folio;
+
+        // Two more stays/rooms on the SAME booking, sharing the same folio.
+        $stayB = Stay::factory()->create(['status' => StayStatus::CheckedIn, 'booking_id' => $booking->id]);
+        $stayC = Stay::factory()->create(['status' => StayStatus::CheckedIn, 'booking_id' => $booking->id]);
+
+        $this->enrollExtraBedForRoom($stayB, 1); // only room B has an extra bed
+        $this->makeExtraBedRate('150000.00');
+
+        foreach ([$stayA, $stayB, $stayC] as $stay) {
+            $context = new PostingContext(
+                booking:      $booking,
+                folio:        $folio,
+                businessDate: $this->businessDate,
+                stay:         $stay,
+            );
+            app(ExtraBedPostingJob::class)->execute($context);
+        }
+
+        $this->assertDatabaseCount('folio_entries', 1);
+        $this->assertDatabaseHas('folio_entries', [
+            'folio_id' => $folio->id,
+            'stay_id'  => $stayB->id,
+            'charge_type' => ChargeType::ExtraBed->value,
+            'amount' => '150000.00',
+        ]);
+    }
+
+    /**
+     * Pre-Commit Critical Safety Closure Mục XVII quick audit: the exact
+     * A=0/B=1/C=2 scenario — A posts nothing, B posts rate×1, C posts rate×2,
+     * scoped correctly per room_assignments.extra_bed_quantity.
+     */
+    public function test_multi_room_a_zero_b_one_c_two_posts_exact_per_room_amounts(): void
+    {
+        $stayA = $this->makeCheckedInStayWithFolio();
+        $booking = Booking::find($stayA->booking_id);
+        $folio = $booking->folio;
+
+        $stayB = Stay::factory()->create(['status' => StayStatus::CheckedIn, 'booking_id' => $booking->id]);
+        $stayC = Stay::factory()->create(['status' => StayStatus::CheckedIn, 'booking_id' => $booking->id]);
+
+        $this->enrollExtraBedForRoom($stayA, 0);
+        $this->enrollExtraBedForRoom($stayB, 1);
+        $this->enrollExtraBedForRoom($stayC, 2);
+        $this->makeExtraBedRate('150000.00');
+
+        $results = [];
+        foreach (['A' => $stayA, 'B' => $stayB, 'C' => $stayC] as $label => $stay) {
+            $context = new PostingContext(
+                booking:      $booking,
+                folio:        $folio,
+                businessDate: $this->businessDate,
+                stay:         $stay,
+            );
+            $results[$label] = app(ExtraBedPostingJob::class)->execute($context);
+        }
+
+        $this->assertNull($results['A']->entry, 'A (qty 0) must post nothing.');
+        $this->assertNotNull($results['B']->entry);
+        $this->assertNotNull($results['C']->entry);
+
+        $this->assertDatabaseCount('folio_entries', 2);
+        $this->assertDatabaseHas('folio_entries', [
+            'stay_id' => $stayB->id,
+            'charge_type' => ChargeType::ExtraBed->value,
+            'quantity' => '1.00',
+            'amount' => '150000.00', // rate × 1
+        ]);
+        $this->assertDatabaseHas('folio_entries', [
+            'stay_id' => $stayC->id,
+            'charge_type' => ChargeType::ExtraBed->value,
+            'quantity' => '2.00',
+            'amount' => '300000.00', // rate × 2
+        ]);
+    }
+
+    /**
+     * Pre-Commit Critical Safety Closure Mục XVII: single posting owner —
+     * ServicePackagePostingJob must NOT also post an Extra Bed charge for a
+     * room enrolled via the per-room EXTRA_BED_PER_NIGHT package. Only
+     * ExtraBedPostingJob (via room_assignments.extra_bed_quantity, driven by
+     * the SAME enrollment) may ever create a ChargeType::ExtraBed entry.
+     */
+    public function test_service_package_posting_job_does_not_also_post_extra_bed(): void
+    {
+        $stay = $this->makeCheckedInStayWithFolio();
+        $booking = Booking::find($stay->booking_id);
+        $folio = $booking->folio;
+
+        $this->enrollExtraBedForRoom($stay, 1);
+        $this->makeExtraBedRate('150000.00');
+
+        // Also enroll the SAME booking's legacy EXTRA_BED_PER_NIGHT
+        // BookingPackageFlag row (the pre-fix booking-level source) to prove
+        // ServicePackagePostingJob's own exclusion list — not merely the
+        // absence of a package — is what prevents a double post.
+        \App\Models\BookingPackageFlag::create([
+            'booking_id' => $booking->id,
+            'package_key' => \App\Services\PackageEnrollmentService::EXTRA_BED_PER_NIGHT,
+            'created_by' => $this->admin->id,
+        ]);
+
+        $context = new PostingContext(booking: $booking, folio: $folio, businessDate: $this->businessDate, stay: $stay);
+
+        app(ExtraBedPostingJob::class)->execute($context);
+        app(\App\Services\Posting\ServicePackagePostingJob::class)->execute($context);
+
+        $this->assertSame(
+            1,
+            \App\Models\FolioEntry::where('folio_id', $folio->id)->where('charge_type', ChargeType::ExtraBed->value)->count(),
+            'Exactly one ExtraBed entry — ServicePackagePostingJob must not create a second one.',
+        );
     }
 }

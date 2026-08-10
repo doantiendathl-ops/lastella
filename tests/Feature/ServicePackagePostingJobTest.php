@@ -387,11 +387,21 @@ class ServicePackagePostingJobTest extends TestCase
         );
     }
 
+    /**
+     * Room-Scoped Bed Operations Correction: ExtraBedPostingJob no longer
+     * reads BookingPackageFlag at all (that was the root cause of a
+     * per-room over-posting bug for multi-room bookings) — it reads
+     * room_assignments.extra_bed_quantity via the stay's RoomAssignment.
+     */
     public function test_generic_job_skips_legacy_extra_bed_dedicated_job_still_posts_once(): void
     {
         $stay    = $this->makeCheckedInStayWithFolio();
         $booking = Booking::find($stay->booking_id);
+        // A legacy flag may still exist (historical data) — the generic job
+        // must still filter it out via isLegacyDedicatedPostingPackage(),
+        // defense in depth on top of ExtraBedPostingJob no longer reading it.
         $this->enrollFlag($booking, PackageEnrollmentService::EXTRA_BED_PER_NIGHT, '1');
+        $stay->roomAssignment->update(['extra_bed_quantity' => 1]);
 
         ServiceRate::create([
             'name' => 'Giường phụ', 'charge_type' => ChargeType::ExtraBed->value,

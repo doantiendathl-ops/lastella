@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\AssignmentStatus;
 use App\Enums\ChargeType;
 use App\Exceptions\BreakfastAlreadyPostedException;
 use App\Exceptions\PackageAlreadyPostedException;
@@ -9,9 +10,11 @@ use App\Exceptions\PackageNotEnrollableException;
 use App\Models\Booking;
 use App\Models\BookingPackageFlag;
 use App\Models\FolioEntry;
+use App\Models\RoomAssignment;
 use App\Models\ServicePackage;
 use App\Models\User;
 use Illuminate\Support\Collection;
+use Illuminate\Validation\ValidationException;
 
 class PackageEnrollmentService
 {
@@ -72,6 +75,16 @@ class PackageEnrollmentService
      */
     public function enroll(Booking $booking, string $packageKey, ?User $enrolledBy = null, int $quantity = 1): BookingPackageFlag
     {
+        // Room-Scoped Bed Operations Correction (Mục III/VII): Extra Bed is no
+        // longer enrollable as a single booking-wide flag — it must be set
+        // per room via updateExtraBedRoomQuantities() below. Blocked here
+        // (not just hidden in the UI) so a forged request can never recreate
+        // the ambiguous booking-level row this task removed the write path
+        // for.
+        if ($packageKey === self::EXTRA_BED_PER_NIGHT) {
+            throw new PackageNotEnrollableException('Giường phụ phải được đăng ký theo từng phòng — dùng màn hình phân bổ giường phụ theo phòng.');
+        }
+
         $package = ServicePackage::where('code', $packageKey)->first();
 
         if ($package === null) {
@@ -121,6 +134,124 @@ class PackageEnrollmentService
         return BookingPackageFlag::where('booking_id', $booking->id)
             ->where('package_key', $packageKey)
             ->exists();
+    }
+
+    /**
+     * Room-Scoped Bed Operations Correction (Mục III/V/VII): the applicable
+     * rooms for THIS booking's Extra Bed enrollment UI — every RoomAssignment
+     * still Assigned or CheckedIn (Released/CheckedOut rows are history, not
+     * editable). Empty when the booking has no room assigned yet (Mục VIII —
+     * the caller must show "Vui lòng gán phòng trước khi thêm Giường phụ."
+     * and never invent a room).
+     *
+     * @return array<int, array{assignment_id:int, room_number:string, quantity:int}>
+     */
+    public function extraBedRoomBreakdown(Booking $booking): array
+    {
+        return RoomAssignment::where('booking_id', $booking->id)
+            ->whereIn('status', [AssignmentStatus::Assigned, AssignmentStatus::CheckedIn])
+            ->with('room')
+            ->orderBy('id')
+            ->get()
+            ->map(fn (RoomAssignment $assignment): array => [
+                'assignment_id' => $assignment->id,
+                'room_number'   => $assignment->room?->room_number ?? '—',
+                'quantity'      => $assignment->extra_bed_quantity,
+            ])
+            ->all();
+    }
+
+    /**
+     * Room-Scoped Bed Operations Correction (Mục III/V/VII/X): writes
+     * extra_bed_quantity directly per RoomAssignment — the canonical
+     * room-level source ExtraBedPostingJob now reads. Never touches
+     * BookingPackageFlag; never re-prices (ServicePackage/ServiceRate remain
+     * the sole price source, this only ever writes a quantity).
+     *
+     * Guards per room, not per booking (Mục X): a room whose extra-bed
+     * charge has already posted for the CURRENT business date rejects a
+     * quantity change for that room specifically — the rest of the batch
+     * still applies. Historical posted FolioEntry rows are never touched.
+     *
+     * @param  array<int, array{assignment_id:int, quantity:int}>  $roomQuantities
+     * @return array<int, array{assignment_id:int, room_number:string, quantity:int}>
+     */
+    public function updateExtraBedRoomQuantities(Booking $booking, array $roomQuantities): array
+    {
+        $package = ServicePackage::where('code', self::EXTRA_BED_PER_NIGHT)->first();
+
+        if ($package === null) {
+            throw new PackageNotEnrollableException('Gói dịch vụ không tồn tại.');
+        }
+
+        $businessDate = $this->businessDateService->currentBusinessDate()->toDateString();
+
+        $hasAnyPositiveQuantity = collect($roomQuantities)->contains(fn (array $r): bool => (int) $r['quantity'] > 0);
+
+        if ($hasAnyPositiveQuantity && $package->currentRate($businessDate) === null) {
+            throw new PackageNotEnrollableException('Gói dịch vụ chưa có biểu giá — không thể đăng ký.');
+        }
+
+        $assignments = RoomAssignment::where('booking_id', $booking->id)
+            ->whereIn('status', [AssignmentStatus::Assigned, AssignmentStatus::CheckedIn])
+            ->whereIn('id', collect($roomQuantities)->pluck('assignment_id'))
+            ->get()
+            ->keyBy('id');
+
+        foreach ($roomQuantities as $row) {
+            $assignment = $assignments->get($row['assignment_id']);
+
+            if ($assignment === null) {
+                throw ValidationException::withMessages([
+                    'rooms' => 'Một phòng trong danh sách không thuộc booking này hoặc đã bị gỡ.',
+                ]);
+            }
+
+            $newQuantity = max(0, (int) $row['quantity']);
+
+            if ($newQuantity !== $assignment->extra_bed_quantity) {
+                $this->guardRoomExtraBedAlreadyPosted($booking, $assignment);
+            }
+
+            $assignment->update(['extra_bed_quantity' => $newQuantity]);
+        }
+
+        return $this->extraBedRoomBreakdown($booking);
+    }
+
+    /**
+     * Per-room mirror of guardAlreadyPostedByChargeType() (Mục X/XII):
+     * blocks changing a room's quantity once its extra-bed charge has
+     * already posted for the current business date, without blocking OTHER
+     * rooms in the same batch.
+     */
+    private function guardRoomExtraBedAlreadyPosted(Booking $booking, RoomAssignment $assignment): void
+    {
+        $folio = $booking->folio;
+        if ($folio === null) {
+            return;
+        }
+
+        $stay = $assignment->stay;
+        if ($stay === null) {
+            return;
+        }
+
+        $businessDate = $this->businessDateService->currentBusinessDate()->toDateString();
+
+        $hasPosted = FolioEntry::where('folio_id', $folio->id)
+            ->where('stay_id', $stay->id)
+            ->where('charge_type', ChargeType::ExtraBed->value)
+            ->where('posting_source', 'NIGHT_AUDIT')
+            ->whereDate('entry_date', $businessDate)
+            ->whereNull('voided_at')
+            ->exists();
+
+        if ($hasPosted) {
+            throw new PackageAlreadyPostedException(
+                "Không thể đổi số lượng giường phụ phòng {$assignment->room?->room_number} vì đã được ghi phí cho đêm hiện tại."
+            );
+        }
     }
 
     /**

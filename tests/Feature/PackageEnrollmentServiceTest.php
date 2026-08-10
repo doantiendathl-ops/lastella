@@ -75,17 +75,25 @@ class PackageEnrollmentServiceTest extends TestCase
         ]);
     }
 
+    /**
+     * Room-Scoped Bed Operations Correction: EXTRA_BED_PER_NIGHT is no
+     * longer generically enrollable (see
+     * test_generic_enroll_rejects_extra_bed_per_night in
+     * RoomOperationsBedOperationsTest) — this "re-enroll updates quantity"
+     * behavior is now verified against EXTRA_PERSON_PER_NIGHT instead, which
+     * remains a normal booking-level package.
+     */
     public function test_enroll_updates_quantity_when_re_enrolled(): void
     {
         $booking = Booking::factory()->create();
 
-        $this->service->enroll($booking, PackageEnrollmentService::EXTRA_BED_PER_NIGHT, quantity: 1);
-        $this->service->enroll($booking, PackageEnrollmentService::EXTRA_BED_PER_NIGHT, quantity: 2);
+        $this->service->enroll($booking, PackageEnrollmentService::EXTRA_PERSON_PER_NIGHT, quantity: 1);
+        $this->service->enroll($booking, PackageEnrollmentService::EXTRA_PERSON_PER_NIGHT, quantity: 2);
 
         $this->assertDatabaseCount('booking_package_flags', 1);
         $this->assertDatabaseHas('booking_package_flags', [
             'booking_id'  => $booking->id,
-            'package_key' => PackageEnrollmentService::EXTRA_BED_PER_NIGHT,
+            'package_key' => PackageEnrollmentService::EXTRA_PERSON_PER_NIGHT,
             'value'       => '2',
         ]);
     }

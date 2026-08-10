@@ -101,17 +101,81 @@ class CheckoutInspectionControllerTest extends TestCase
         $this->actingAs($this->reception)
             ->post(route('admin.checkout-inspections.complete', $inspectionId), [
                 'items' => [
-                    ['product_service_id' => $this->water->id, 'actual_quantity' => 4],
+                    ['product_service_id' => $this->water->id, 'chargeable_quantity' => 4],
                 ],
             ])
             ->assertOk()
             ->assertJsonPath('status', 'COMPLETED')
-            ->assertJsonPath('total_amount', 30000);
+            // Inspection Financial Correction: CHARGE = chargeable_quantity × unit_price,
+            // no subtraction of free_quantity_default — 4 × 15000 = 60000, not (4-2) × 15000.
+            ->assertJsonPath('total_amount', 60000);
+
+        // Pre-Commit Critical Safety Closure (Blocker #1): complete() is now a pure
+        // projection — nothing posts to the Folio until StayService::checkOut().
+        $this->assertDatabaseMissing('folio_entries', [
+            'posting_source' => 'CHECKOUT_INSPECTION',
+        ]);
+
+        app(\App\Services\BookingPaymentService::class)->addDeposit($stay->booking, ['amount' => 860000, 'payment_method' => 'CASH', 'payment_at' => now()->toDateTimeString()]);
+        app(StayService::class)->checkOut($stay->fresh(), null, true);
 
         $this->assertDatabaseHas('folio_entries', [
             'posting_source' => 'CHECKOUT_INSPECTION',
-            'amount' => '30000.00',
+            'amount' => '60000.00',
         ]);
+    }
+
+    /** Mục IV/VII: completed-but-pre-checkout inspection can be corrected via HTTP; final amount reflects only the new data, and nothing posts to Folio until checkout. */
+    public function test_reception_can_edit_completed_inspection_before_checkout_via_http(): void
+    {
+        $stay = $this->checkedInStay();
+        $inspectionId = $this->actingAs($this->reception)->post(route('admin.checkout-inspections.draft', $stay))->json('id');
+        $this->actingAs($this->reception)->post(route('admin.checkout-inspections.complete', $inspectionId), [
+            'items' => [['product_service_id' => $this->water->id, 'chargeable_quantity' => 2]],
+        ])->assertJsonPath('total_amount', 30000);
+
+        $this->actingAs($this->reception)
+            ->patch(route('admin.checkout-inspections.edit-completed', $inspectionId), [
+                'items' => [['product_service_id' => $this->water->id, 'chargeable_quantity' => 1]],
+            ])
+            ->assertOk()
+            ->assertJsonPath('status', 'COMPLETED')
+            ->assertJsonPath('total_amount', 15000);
+
+        $folio = $stay->booking->folio;
+        // Blocker #1: nothing was ever posted pre-checkout, so there is nothing to void — zero rows entirely.
+        $this->assertSame(0, $folio->folioEntries()->where('posting_source', 'CHECKOUT_INSPECTION')->count());
+
+        app(\App\Services\BookingPaymentService::class)->addDeposit($stay->booking, ['amount' => 815000, 'payment_method' => 'CASH', 'payment_at' => now()->toDateTimeString()]);
+        app(StayService::class)->checkOut($stay->fresh(), null, true);
+
+        // Checkout posts the LATEST (edited) amount only.
+        $this->assertSame(15000.0, (float) $folio->folioEntries()->whereNull('voided_at')->where('posting_source', 'CHECKOUT_INSPECTION')->sum('amount'));
+    }
+
+    /** Mục V/VI: locked after checkout — HTTP layer rejects too, no ADMIN role bypass. */
+    public function test_edit_completed_rejected_after_checkout_via_http(): void
+    {
+        $stay = $this->checkedInStay();
+        $inspectionId = $this->actingAs($this->reception)->post(route('admin.checkout-inspections.draft', $stay))->json('id');
+        $this->actingAs($this->reception)->post(route('admin.checkout-inspections.complete', $inspectionId), [
+            'items' => [['product_service_id' => $this->water->id, 'chargeable_quantity' => 2]],
+        ]);
+
+        $admin = User::factory()->create();
+        $admin->assignRole('ADMIN');
+        // Room charge (800,000) + posted inspection charge (30,000) must be fully settled before checkOut() succeeds.
+        app(\App\Services\BookingPaymentService::class)->addDeposit($stay->booking, ['amount' => 830000, 'payment_method' => 'CASH', 'payment_at' => now()->toDateTimeString()]);
+        app(StayService::class)->checkOut($stay, null, true);
+
+        $this->actingAs($admin)
+            ->patch(route('admin.checkout-inspections.edit-completed', $inspectionId), [
+                'items' => [['product_service_id' => $this->water->id, 'chargeable_quantity' => 1]],
+            ])
+            ->assertSessionHasErrors('stay');
+
+        $folio = $stay->booking->folio;
+        $this->assertSame(30000.0, (float) $folio->folioEntries()->whereNull('voided_at')->where('posting_source', 'CHECKOUT_INSPECTION')->sum('amount'));
     }
 
     private function checkedInStay(): Stay

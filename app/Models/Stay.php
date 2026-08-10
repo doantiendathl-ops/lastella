@@ -84,6 +84,30 @@ class Stay extends Model
         return $this->hasOne(CheckoutInspection::class);
     }
 
+    /**
+     * Canonical checkout-inspection status source — originally lived as
+     * BookingController::inspectionStatusFor(), moved here (Daily Room
+     * Operations Board Mục XXIV) so the Booking Detail screen and the Room
+     * Operations Board read the exact same logic instead of two independent
+     * copies. Returns 'completed' | 'draft' | 'skipped' | 'none'.
+     */
+    public function inspectionStatus(): string
+    {
+        if ($this->checkoutInspection?->status === \App\Enums\CheckoutInspectionStatus::Completed) {
+            return 'completed';
+        }
+
+        if ($this->checkoutInspection !== null) {
+            return 'draft';
+        }
+
+        if ($this->inspection_skipped_at !== null) {
+            return 'skipped';
+        }
+
+        return 'none';
+    }
+
     public function inspectionSkippedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'inspection_skipped_by');

@@ -261,19 +261,10 @@ class BookingController extends Controller
 
     private function inspectionStatusFor(Stay $stay): string
     {
-        if ($stay->checkoutInspection?->status === \App\Enums\CheckoutInspectionStatus::Completed) {
-            return 'completed';
-        }
-
-        if ($stay->checkoutInspection !== null) {
-            return 'draft';
-        }
-
-        if ($stay->inspection_skipped_at !== null) {
-            return 'skipped';
-        }
-
-        return 'none';
+        // Daily Room Operations Board Mục XXIV: delegates to the canonical
+        // Stay::inspectionStatus() so this screen and the new Room Operations
+        // Board can never drift into two different inspection-status readings.
+        return $stay->inspectionStatus();
     }
 
     private function canEdit(Booking $booking, ?User $user): bool
@@ -526,6 +517,7 @@ class BookingController extends Controller
             'sales_user' => $booking->salesUser?->name,
             'note' => $booking->note,
             'internal_note' => $booking->internal_note,
+            'quick_note' => $booking->quick_note,
             'created_at' => $booking->created_at?->format('Y-m-d H:i'),
             'cancel_confirmation' => $this->cancelConfirmationPayload($booking),
             'has_active_assignments' => $hasActiveAssignments,

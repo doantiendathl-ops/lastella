@@ -35,6 +35,7 @@ class StayService
         private readonly HousekeepingService $housekeeping,
         private readonly StayEventService $stayEvents,
         private readonly RoomAvailabilityRuleService $rules,
+        private readonly CheckoutInspectionService $checkoutInspections,
     ) {
     }
 
@@ -207,6 +208,14 @@ class StayService
                     postedBy:     Auth::user(),
                 );
                 $this->lateCheckoutJob->execute($checkoutContext);
+
+                // Pre-Commit Critical Safety Closure (Blocker #1): this is the
+                // "existing final posting point" a Completed checkout inspection's
+                // projected charge waits for — same event-triggered, checkout-time
+                // pattern as the late-checkout-fee job right above. Posts nothing
+                // if the inspection is still Draft, was never started, or was
+                // already posted (idempotent).
+                $this->checkoutInspections->postCompletedChargesAtCheckout($lockedStay, Auth::user());
             }
 
             // ADR-49: Active stay = Reserved OR CheckedIn (own DML visible within transaction).

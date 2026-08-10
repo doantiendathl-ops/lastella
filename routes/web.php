@@ -30,6 +30,7 @@ use App\Http\Controllers\Admin\ProductServiceController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\RoomBulkActionController;
 use App\Http\Controllers\Admin\RoomController;
+use App\Http\Controllers\Admin\RoomOperationsController;
 use App\Http\Controllers\Admin\RoomRateController;
 use App\Http\Controllers\Admin\RoomTypeController;
 use App\Http\Controllers\Admin\SettingController;
@@ -91,11 +92,26 @@ Route::middleware('auth')->group(function (): void {
 
         Route::get('room-availability', [RoomAvailabilityController::class, 'index'])->name('room-availability.index');
 
+        // Daily Room Operations Board ("Sơ đồ thao tác") — orchestration-only
+        // screen, does NOT replace room-availability (Kiểm tra phòng) or the
+        // per-booking Room Board panel. Reuses existing permissions only, no
+        // new permission strings introduced.
+        Route::prefix('room-operations')->name('room-operations.')->group(function (): void {
+            Route::get('/', [RoomOperationsController::class, 'index'])->name('index');
+            Route::post('swap/preview', [RoomOperationsController::class, 'swapPreview'])->name('swap.preview');
+            Route::post('swap/execute', [RoomOperationsController::class, 'swapExecute'])->name('swap.execute');
+            Route::patch('assignments/{assignment}/quick-note', [RoomOperationsController::class, 'updateQuickNote'])->name('assignments.quick-note');
+            Route::post('check-in', [RoomOperationsController::class, 'checkIn'])->name('check-in');
+            Route::post('check-out', [RoomOperationsController::class, 'checkOut'])->name('check-out');
+        });
+
         Route::prefix('checkout-inspections')->name('checkout-inspections.')->group(function (): void {
             Route::get('/', [CheckoutInspectionController::class, 'index'])->name('index');
             Route::post('stays/{stay}/draft', [CheckoutInspectionController::class, 'draft'])->name('draft');
             Route::patch('{checkoutInspection}/save', [CheckoutInspectionController::class, 'saveDraft'])->name('save');
             Route::post('{checkoutInspection}/complete', [CheckoutInspectionController::class, 'complete'])->name('complete');
+            // Inspection Financial Correction — pre-checkout edit of an already-Completed sheet.
+            Route::patch('{checkoutInspection}/edit-completed', [CheckoutInspectionController::class, 'editCompleted'])->name('edit-completed');
         });
 
         Route::get('reports/revenue', [RevenueReportController::class, 'index'])->name('reports.revenue.index');
@@ -141,6 +157,9 @@ Route::middleware('auth')->group(function (): void {
         Route::get('bookings/{booking}/packages', [PackageEnrollmentController::class, 'show'])->name('bookings.packages');
         Route::post('bookings/{booking}/packages', [PackageEnrollmentController::class, 'enroll'])->name('bookings.packages.enroll');
         Route::delete('bookings/{booking}/packages/{packageKey}', [PackageEnrollmentController::class, 'unenroll'])->name('bookings.packages.unenroll');
+        // Room-Scoped Bed Operations Correction — per-room Extra Bed quantities,
+        // separate from the generic booking-wide enroll/unenroll above.
+        Route::patch('bookings/{booking}/packages/extra-bed-rooms', [PackageEnrollmentController::class, 'updateExtraBedRooms'])->name('bookings.packages.extra-bed-rooms');
 
         // Phase 4.1 — Room Setup Requests
         Route::get('bookings/{booking}/special-requests', [BookingSpecialRequestController::class, 'index'])->name('bookings.special-requests.index');

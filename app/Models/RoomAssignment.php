@@ -27,6 +27,9 @@ class RoomAssignment extends Model
         'released_at',
         'release_reason',
         'release_batch_id',
+        'swap_batch_id',
+        'quick_note',
+        'extra_bed_quantity',
     ];
 
     protected function casts(): array
@@ -36,6 +39,7 @@ class RoomAssignment extends Model
             'end_at' => 'datetime',
             'status' => AssignmentStatus::class,
             'released_at' => 'datetime',
+            'extra_bed_quantity' => 'integer',
         ];
     }
 
@@ -82,6 +86,11 @@ class RoomAssignment extends Model
     public function releaseBatch(): BelongsTo
     {
         return $this->belongsTo(ReleaseBatch::class);
+    }
+
+    public function swapBatch(): BelongsTo
+    {
+        return $this->belongsTo(RoomSwapBatch::class, 'swap_batch_id');
     }
 
     public function stay(): HasOne

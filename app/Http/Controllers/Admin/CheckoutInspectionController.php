@@ -99,6 +99,22 @@ class CheckoutInspectionController extends Controller
         return response()->json($this->mapInspection($inspection));
     }
 
+    /**
+     * Inspection Financial Correction Mục IV/VII: corrects an already-
+     * Completed inspection while the stay is still not checked out. Service
+     * layer enforces the post-checkout lock (Mục V/VI) — this action never
+     * bypasses it, including for ADMIN.
+     */
+    public function editCompleted(SaveCheckoutInspectionRequest $request, CheckoutInspection $checkoutInspection): JsonResponse
+    {
+        $this->authorize('update', $checkoutInspection);
+
+        $data = $request->validated();
+        $inspection = $this->inspections->editCompleted($checkoutInspection, $data['items'] ?? [], $data['note'] ?? null, $request->user());
+
+        return response()->json($this->mapInspection($inspection));
+    }
+
     private function mapStay(Stay $stay): array
     {
         $inspection = $stay->checkoutInspection;
@@ -111,6 +127,11 @@ class CheckoutInspectionController extends Controller
             'room_number' => $stay->room?->room_number,
             'room_type' => $stay->room?->roomType?->code,
             'guest_name' => $stay->booking?->customer_name,
+            // Inspection Financial Correction Mục XII: canonical room-standard-occupancy
+            // source for the water complimentary display — RoomType.standard_adults,
+            // never a hardcoded constant, never Booking.adults.
+            'standard_occupancy' => $stay->room?->roomType?->standard_adults,
+            'is_stay_checked_out' => $stay->actual_checkout_at !== null,
             'planned_checkout_at' => $stay->planned_checkout_at?->toDateTimeString(),
             'is_checkout_today' => $stay->planned_checkout_at?->isToday() ?? false,
             'is_overdue' => $isOverdue,
@@ -130,14 +151,14 @@ class CheckoutInspectionController extends Controller
             'total_amount' => (float) $inspection->total_amount,
             'note' => $inspection->note,
             'completed_at' => $inspection->completed_at?->toDateTimeString(),
+            'can_edit_completed' => $this->inspections->canEditCompleted($inspection),
             'items' => $inspection->items->map(fn ($item): array => [
                 'id' => $item->id,
                 'product_service_id' => $item->product_service_id,
                 'product_name' => $item->product_name_snapshot,
                 'unit' => $item->unit_snapshot,
                 'unit_price' => (float) $item->unit_price_snapshot,
-                'free_quantity' => $item->free_quantity,
-                'actual_quantity' => $item->actual_quantity,
+                'complimentary_quantity' => $item->free_quantity,
                 'chargeable_quantity' => $item->chargeable_quantity,
                 'line_total' => (float) $item->line_total,
                 'note' => $item->note,

@@ -72,6 +72,7 @@ const form = useForm({
     sales_user_id: props.booking?.sales_user_id ?? '',
     note: props.booking?.note ?? '',
     internal_note: props.booking?.internal_note ?? '',
+    quick_note: props.booking?.quick_note ?? '',
 });
 
 const submit = () => {
@@ -208,6 +209,21 @@ watch(
                         <option value="">Chưa phân công</option>
                         <option v-for="user in options.salesUsers" :key="user.value" :value="user.value">{{ user.label }}</option>
                     </select>
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-medium">Ghi chú nhanh</label>
+                    <input
+                        v-model="form.quick_note"
+                        type="text"
+                        maxlength="100"
+                        placeholder="Thông tin cần hiển thị nhanh trên sơ đồ phòng"
+                        class="mt-2 w-full border border-gray-300 px-3 py-2 text-sm focus:border-pine focus:outline-none focus:ring-1 focus:ring-pine"
+                    >
+                    <div class="mt-1 flex items-center justify-between text-xs text-steel">
+                        <span v-if="form.errors.quick_note" class="text-red-600">{{ form.errors.quick_note }}</span>
+                        <span v-else />
+                        <span>{{ form.quick_note?.length ?? 0 }}/100</span>
+                    </div>
                 </div>
                 <div class="md:col-span-2">
                     <label class="block text-sm font-medium">Ghi chú</label>

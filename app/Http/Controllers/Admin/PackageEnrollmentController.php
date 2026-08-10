@@ -70,12 +70,42 @@ class PackageEnrollmentController extends Controller
             ],
             'enrollments'        => $this->enrollmentService->getEnrollmentSummary($booking, $catalog),
             'available_packages' => $this->buildAvailablePackages($catalog, $businessDate),
+            'extra_bed_rooms'    => $this->enrollmentService->extraBedRoomBreakdown($booking),
             'last_audit_logs'    => $lastAuditLogs,
             'city_tax_enabled'   => $this->settingsService->getBool('city_tax_enabled', false),
             'can'                => [
                 'manage_packages' => $request->user()->can('booking.package.manage'),
             ],
         ]);
+    }
+
+    /**
+     * Room-Scoped Bed Operations Correction: replaces the old single
+     * booking-wide "Đăng ký" for EXTRA_BED_PER_NIGHT — writes a quantity per
+     * RoomAssignment instead of a single BookingPackageFlag row.
+     */
+    public function updateExtraBedRooms(Request $request, Booking $booking): RedirectResponse
+    {
+        abort_unless($request->user()->can('booking.package.manage'), 403);
+        abort_if(
+            in_array($booking->status, [BookingStatus::CheckedOut, BookingStatus::Cancelled, BookingStatus::NoShow], true),
+            403,
+            'Đặt phòng đã kết thúc.'
+        );
+
+        $data = $request->validate([
+            'rooms'                 => ['required', 'array', 'min:1'],
+            'rooms.*.assignment_id' => ['required', 'integer', 'distinct', 'exists:room_assignments,id'],
+            'rooms.*.quantity'      => ['required', 'integer', 'min:0', 'max:9'],
+        ]);
+
+        try {
+            $this->enrollmentService->updateExtraBedRoomQuantities($booking, $data['rooms']);
+        } catch (PackageNotEnrollableException|PackageAlreadyPostedException $e) {
+            return back()->withErrors(['rooms' => $e->getMessage()]);
+        }
+
+        return back()->with('success', 'Đã cập nhật giường phụ theo phòng.');
     }
 
     public function enroll(Request $request, Booking $booking): RedirectResponse
