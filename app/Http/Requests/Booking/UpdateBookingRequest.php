@@ -34,6 +34,7 @@ class UpdateBookingRequest extends FormRequest
             'sales_user_id' => ['nullable', 'integer', 'exists:users,id'],
             'note' => ['nullable', 'string'],
             'internal_note' => ['nullable', 'string'],
+            'quick_note' => ['nullable', 'string', 'max:100'],
             'requirements' => ['sometimes', 'array', 'min:1'],
             'requirements.*.room_type_id' => ['required_with:requirements', 'integer', 'exists:room_types,id'],
             'requirements.*.quantity' => ['required_with:requirements', 'integer', 'min:1'],
