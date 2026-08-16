@@ -10,6 +10,10 @@ use App\Http\Controllers\Admin\NightAuditController;
 use App\Http\Controllers\Admin\ServicePackageController;
 use App\Http\Controllers\Admin\ServicePackageRateController;
 use App\Http\Controllers\Admin\ServiceRateController;
+use App\Http\Controllers\Admin\ServiceCategoryController;
+use App\Http\Controllers\Admin\ServiceCatalogController;
+use App\Http\Controllers\Admin\ServicePriceController;
+use App\Http\Controllers\Admin\BookingServiceController;
 use App\Http\Controllers\Admin\Booking\BookingController;
 use App\Http\Controllers\Admin\RoomAvailabilityController;
 use App\Http\Controllers\Admin\Booking\BookingPaymentController;
@@ -83,6 +87,17 @@ Route::middleware('auth')->group(function (): void {
         Route::get('service-packages/{servicePackage}/history', [ServicePackageController::class, 'history'])->name('service-packages.history');
         Route::post('service-packages/{servicePackage}/rates', [ServicePackageRateController::class, 'store'])->name('service-packages.rates.store');
         Route::patch('service-packages/{servicePackage}/rates/{rate}/toggle', [ServicePackageRateController::class, 'toggle'])->name('service-packages.rates.toggle');
+
+        // Unified Services & Requests (docs/yeucaumoi.txt) — Slice 1. New,
+        // additive admin catalog. Legacy service-packages/service-rates
+        // routes above stay reachable (Section 29 — no forced redirect yet).
+        Route::resource('service-categories', ServiceCategoryController::class)->except(['show'])->parameters(['service-categories' => 'serviceCategory']);
+        Route::get('services', [ServiceCatalogController::class, 'index'])->name('services.index');
+        Route::post('services', [ServiceCatalogController::class, 'store'])->name('services.store');
+        Route::patch('services/{service}', [ServiceCatalogController::class, 'update'])->name('services.update');
+        Route::patch('services/{service}/toggle', [ServiceCatalogController::class, 'toggle'])->name('services.toggle');
+        Route::post('services/{service}/prices', [ServicePriceController::class, 'store'])->name('services.prices.store');
+        Route::patch('services/{service}/prices/{price}/toggle', [ServicePriceController::class, 'toggle'])->name('services.prices.toggle');
 
         Route::get('night-audit', [NightAuditController::class, 'index'])->name('night-audit.index');
         Route::get('night-audit/{nightAuditRun}', [NightAuditController::class, 'show'])->name('night-audit.show');
@@ -167,6 +182,15 @@ Route::middleware('auth')->group(function (): void {
         Route::patch('bookings/{booking}/special-requests/{specialRequest}/acknowledge', [BookingSpecialRequestController::class, 'acknowledge'])->name('bookings.special-requests.acknowledge');
         Route::patch('bookings/{booking}/special-requests/{specialRequest}/fulfill', [BookingSpecialRequestController::class, 'fulfill'])->name('bookings.special-requests.fulfill');
         Route::delete('bookings/{booking}/special-requests/{specialRequest}', [BookingSpecialRequestController::class, 'destroy'])->name('bookings.special-requests.destroy');
+
+        // Unified Services & Requests (docs/yeucaumoi.txt) — Slice 1. New,
+        // separate booking-side screen; existing bookings.packages.* and
+        // bookings.special-requests.* routes above stay untouched.
+        Route::get('bookings/{booking}/services', [BookingServiceController::class, 'show'])->name('bookings.services.show');
+        Route::post('bookings/{booking}/services', [BookingServiceController::class, 'store'])->name('bookings.services.store');
+        Route::patch('bookings/{booking}/services/{bookingService}/confirm', [BookingServiceController::class, 'confirm'])->name('bookings.services.confirm');
+        Route::patch('bookings/{booking}/services/{bookingService}/complete', [BookingServiceController::class, 'complete'])->name('bookings.services.complete');
+        Route::patch('bookings/{booking}/services/{bookingService}/cancel', [BookingServiceController::class, 'cancel'])->name('bookings.services.cancel');
 
         // Phase 4.2 Milestone 4 — Housekeeping Workflow
         Route::prefix('housekeeping')->name('housekeeping.')->group(function (): void {

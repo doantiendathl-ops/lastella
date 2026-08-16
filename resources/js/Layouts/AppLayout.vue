@@ -50,6 +50,7 @@ const navItems = computed(() => [
     { label: 'Loại phòng', href: '/room-types', icon: Tags, show: can('room_types.manage') },
     { label: 'Phòng', href: '/rooms', icon: BedDouble, show: can('rooms.manage') },
     { label: 'Giá phòng', href: '/room-rates', icon: DollarSign, show: can('rates.manage') },
+    { label: 'Dịch vụ & Yêu cầu', href: '/admin/services', icon: DollarSign, show: can('services.manage') },
     { label: 'Gói dịch vụ', href: '/admin/service-packages', icon: DollarSign, show: can('service_packages.manage') },
     { label: 'Sản phẩm/Dịch vụ', href: '/product-services', icon: PackagePlus, show: can('product_services.manage') },
     { label: 'Cài đặt', href: '/settings', icon: Settings, show: can('settings.manage') },
@@ -126,7 +127,7 @@ watch(() => page.url, () => { mobileNavOpen.value = false; });
 
         <div class="lg:pl-64">
             <header class="sticky top-0 z-20 border-b border-gray-200 bg-white">
-                <div class="flex h-16 items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
+                <div class="flex min-h-16 items-center justify-between gap-3 px-4 py-2 sm:h-16 sm:py-0 sm:px-6 lg:px-8">
                     <button
                         type="button"
                         class="inline-flex h-11 w-11 shrink-0 items-center justify-center border border-gray-200 text-steel lg:hidden"

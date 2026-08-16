@@ -904,12 +904,15 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
 
     <AppLayout>
         <template #header>
-            <div class="flex min-w-0 items-center justify-between gap-4">
+            <div class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                 <div class="min-w-0">
                     <h1 class="truncate text-lg font-semibold">{{ booking.booking_code }}</h1>
                     <p class="truncate text-sm text-steel">{{ booking.customer_name }} - {{ labelFor('bookingStatus', booking.status) }}</p>
                 </div>
-                <div class="flex gap-2">
+                <div class="flex flex-wrap gap-2 sm:flex-nowrap">
+                    <Link :href="`/admin/bookings/${booking.id}/services`" class="inline-flex items-center gap-2 border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-steel hover:text-ink">
+                        Dịch vụ & Yêu cầu
+                    </Link>
                     <Link :href="`/admin/bookings/${booking.id}/packages`" class="inline-flex items-center gap-2 border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-steel hover:text-ink">
                         Gói dịch vụ
                     </Link>
@@ -1344,6 +1347,14 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                         </div>
                     </div>
 
+                    <!-- Sơ đồ phòng — giữ nguyên y hệt layout gốc (hàng ngang không xuống dòng). Chỉ
+                         MOBILE (< sm) mới bọc khung cuộn ngang riêng, để cả trang không bị vỡ layout;
+                         từ sm trở lên `sm:overflow-visible sm:pb-0` hủy cả overflow lẫn padding, trả về
+                         chính xác 100% hành vi gốc (không có gì khác trước đây trên desktop).
+                         `pb-72` trên mobile không phải giá trị thẩm mỹ — đây là khoảng đệm để tooltip
+                         hover `absolute top-full` của các phòng ở tầng CUỐI vẫn còn đủ chỗ hiển thị
+                         trong vùng cuộn thay vì bị cắt (overflow-x-auto bắt buộc overflow-y cũng thành
+                         auto theo spec CSS, nên vùng cuộn phải "dư" chiều cao để chứa tooltip cao nhất). -->
                     <div class="overflow-x-auto pb-72 sm:overflow-visible sm:pb-0">
                     <div class="space-y-1.5">
                         <section v-for="floor in roomBoard.floors" :key="floor.id" class="flex flex-nowrap items-center gap-2">

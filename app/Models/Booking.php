@@ -87,6 +87,12 @@ class Booking extends Model
         return $this->hasMany(BookingPackageFlag::class);
     }
 
+    /** Unified Services & Requests (docs/yeucaumoi.txt) — additive, alongside the legacy packageFlags()/specialRequests() relations. */
+    public function bookingServices(): HasMany
+    {
+        return $this->hasMany(BookingService::class);
+    }
+
     public function specialRequests(): HasMany
     {
         return $this->hasMany(BookingSpecialRequest::class);

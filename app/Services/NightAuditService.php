@@ -9,6 +9,7 @@ use App\Services\Posting\ExtraBedPostingJob;
 use App\Services\Posting\ExtraPersonPostingJob;
 use App\Services\Posting\RoomChargePostingJob;
 use App\Services\Posting\ServicePackagePostingJob;
+use App\Services\Posting\UnifiedServicePostingJob;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
 
@@ -22,6 +23,7 @@ class NightAuditService
         private readonly ExtraBedPostingJob $extraBedJob,
         private readonly ServicePackagePostingJob $servicePackageJob,
         private readonly CityTaxPostingJob $cityTaxJob,
+        private readonly UnifiedServicePostingJob $unifiedServiceJob,
         private readonly BusinessDateService $businessDate,
     ) {}
 
@@ -48,6 +50,7 @@ class NightAuditService
             ->register($this->extraBedJob)
             ->register($this->servicePackageJob)
             ->register($this->cityTaxJob)
+            ->register($this->unifiedServiceJob)
             ->run($auditRun, $businessDate);
 
         return $auditRun->refresh();
