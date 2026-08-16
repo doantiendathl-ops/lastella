@@ -51,3 +51,18 @@
 3. Cần xác nhận permission `services.manage` được gán đúng vai trò mong muốn trên production (hiện đang theo đúng seeder: ADMIN + MANAGER).
 
 Danh sách chính xác các lệnh cần chạy trên production nằm ở `unified-services-implementation-plan.md` Mục 7 "Production Actions Required".
+
+---
+
+## Bổ sung sau Slice 2 (Ăn sáng + Người thêm) — 2026-08-17
+
+Slice 2 không thêm code nghiệp vụ mới (chỉ mở rộng `UnifiedServiceSeeder.php` + 8 test mới `tests/Feature/UnifiedServiceSlice2SeedTest.php`, chạy trên dữ liệu seed thật thay vì fixture tổng hợp). Không cần rà soát bảo mật/code riêng — không có đường code mới nào ngoài phạm vi đã được rà soát ở Slice 1.
+
+| | Sau Slice 1 | Sau Slice 2 |
+|---|---|---|
+| Tests passed | 1400 | 1407 |
+| Tests failed | 28 | 29 |
+
+**Lỗi tăng thêm 1 — đã xác minh không liên quan tới Slice 2:** `Tests\Feature\PerStayAttributionTest > add charge accepts system auto posting source`, lỗi `UNIQUE constraint violation` trên `resources.code = 'RM-102'`. Đây là **flaky test có sẵn từ trước**, không nằm trong bất kỳ file nào Slice 1/2 đã sửa (`PerStayAttributionTest` thuộc module Kiểm phòng/Resource, hoàn toàn ngoài phạm vi) — nguyên nhân là factory tạo mã phòng ngẫu nhiên bị trùng giữa 2 test case khác nhau trong cùng 1 lượt chạy toàn bộ suite (không tất định, phụ thuộc thứ tự/seed ngẫu nhiên của Faker). Không tái hiện khi chạy riêng `PerStayAttributionTest`. Ghi nhận minh bạch, không sửa vì ngoài phạm vi Slice 1/2 — nếu muốn xử lý triệt để cần factory phòng dùng chuỗi duy nhất (`sequence()`/`unique()`) thay vì số ngẫu nhiên có thể trùng.
+
+**Kết luận không đổi:** READY FOR COMMIT = YES, READY FOR PRODUCTION MIGRATION = NO (cùng lý do đã nêu, cộng thêm: cần Admin tự nhập giá thật cho "Người thêm" trước khi dịch vụ này dùng được — cố tình để trống, không đoán giá).

@@ -123,3 +123,24 @@ Không lỗi nào trong số này lọt tới production hay dữ liệu develop
 2. 2 route booking-side song song (`/packages` cũ, `/services` mới) — rủi ro nhân viên dùng nhầm đường cũ cho dịch vụ đã chuyển sang catalog mới.
 3. Đặc điểm SQLite-vs-MySQL của `rollback()` (mục 4.6) tồn tại y hệt ở 2 job legacy, chưa sửa vì ngoài phạm vi.
 4. Chưa có trang admin thật sự hợp nhất (Mục 1 của prompt) — 2 trang song song tồn tại.
+
+---
+
+# Slice 2 — Ăn sáng + Người thêm (2026-08-17)
+
+**Trạng thái:** COMPLETE. Không có code nghiệp vụ mới — tái sử dụng 100% engine Slice 1.
+
+## Files changed
+
+| File | Thay đổi |
+|---|---|
+| `database/seeders/UnifiedServiceSeeder.php` | Sửa (additive) — thêm 2 category (`FOOD_BEVERAGE`, `GUEST_SURCHARGE`) + 2 Service (`BREAKFAST_PER_NIGHT`, `EXTRA_PERSON_PER_NIGHT`). Người thêm cố tình không có giá seed (production không có giá thật để mang forward). |
+| `tests/Feature/UnifiedServiceSlice2SeedTest.php` | Mới — 8 test, chạy trên catalog seed thật. |
+
+## Test results
+
+Bộ test Slice 2: 8/8 PASS. Hồi quy toàn bộ: 1407 passed / 29 failed (tăng 1 lỗi so với sau Slice 1 — đã xác minh là flaky test có sẵn, không liên quan, xem `unified-services-regression-review.md` phần bổ sung Slice 2). `npm run build`: không chạy lại (Slice 2 không sửa file frontend nào).
+
+## Known limitation mới
+
+"Người thêm" hiện **chưa dùng được** cho tới khi Admin vào `/admin/services` tự nhập giá — đây là chủ đích, không phải lỗi (không có giá thật nào để tự động điền).

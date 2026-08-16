@@ -101,3 +101,33 @@ Bắt lỗi thật trong lúc TDD: `BookingServiceEnrollmentService::confirm()/c
 - Deprecate/redirect route cũ.
 - Xóa bảng/cột legacy (`room_assignments.extra_bed_quantity`, `BookingPackageFlag`...).
 - `ChargeType` riêng cho catalog hợp nhất (hiện dùng chung `Other`).
+
+---
+
+# Slice 2 — Ăn sáng + Người thêm
+
+**Ngày:** 2026-08-17
+**Đã duyệt (GATE):** người dùng chọn "Ăn sáng + Người thêm (Recommended)" trong 3 lựa chọn slice tiếp theo.
+
+## Vì sao đây là slice rủi ro thấp
+
+Trên production, `service_packages` hiện **không có** dòng nào mã `BREAKFAST_PER_NIGHT`/`EXTRA_PERSON_PER_NIGHT` (chỉ có `QA_PILOT_PKG` và `GIUONGPHU`) — nghĩa là 2 nghiệp vụ này **chưa từng đăng ký được qua UI cũ**, không có dữ liệu thật nào đang chạy để phải "di dời". Slice này chỉ thêm dữ liệu catalog mới (không có code mới ngoài test), tái sử dụng 100% engine Slice 1 đã xây và đã qua rà soát bảo mật/code.
+
+## Quyết định đã tự chọn
+
+| Quyết định | Lựa chọn | Lý do |
+|---|---|---|
+| Giá Ăn sáng | 120.000đ, hiệu lực 01/08/2026 | Khớp đúng giá `service_rates` (FOOD_BEVERAGE) đang là giá thật duy nhất từng dùng để tính tiền — mang forward, không đoán. |
+| Giá Người thêm | **Không seed giá nào cả** | `service_rates` production **không có dòng EXTRA_PERSON nào** — không có số thật để mang forward. Tự bịa 1 con số sẽ đi ngược đúng nguyên tắc cả nỗ lực này hướng tới. Dịch vụ vẫn hiện trong catalog, nhưng `enroll()` sẽ từ chối ("chưa có giá chuẩn") cho tới khi Admin tự nhập giá thật — đã có test xác nhận hành vi này an toàn ở cả 2 trạng thái (trước/sau khi có giá). |
+| Scope | `BOOKING` cho cả 2 | Đúng bản chất nghiệp vụ (ăn sáng/người thêm áp dụng cho cả booking, không riêng 1 phòng) — đồng thời là phép thử thực tế đầu tiên cho đường `scope=BOOKING` bằng dữ liệu seed thật (Slice 1 chỉ test bằng fixture tổng hợp). |
+| `quantity_enabled` | Ăn sáng = false (luôn tính 1), Người thêm = true | Khớp đúng ngữ nghĩa `PackageQuantityMode` cũ (`NONE` vs `MANUAL_INPUT`). |
+| `fulfillment_required` | false cho cả 2 | Không có bước "giao/xác nhận vật lý" thật như giường phụ — nhân viên không cần thao tác xác nhận/hoàn thành riêng cho từng đêm ăn sáng. |
+| Code mới | Không có — chỉ sửa `UnifiedServiceSeeder.php` + thêm test | Đúng nguyên tắc Mục 24 "không rewrite mù" — engine Slice 1 đã đủ tổng quát. |
+
+## Test mới
+
+`tests/Feature/UnifiedServiceSlice2SeedTest.php` — 8 test, chạy trên **catalog seed thật** (không phải fixture tổng hợp): xác nhận đúng 3 Service được tạo, seeder idempotent, Ăn sáng có giá thật/Người thêm không có giá, không đăng ký được Người thêm tới khi có giá, số lượng ép về 1 khi `quantity_enabled=false`, cả 2 dịch vụ tính đúng 1 lần/đêm dù nhiều phòng, 2 dịch vụ cùng lúc tạo 2 khoản phí độc lập.
+
+## Không cần rà soát bảo mật/code riêng cho slice này
+
+Không có code nghiệp vụ mới — chỉ dữ liệu seed dùng lại đúng field/kiểu dữ liệu đã qua rà soát ở Slice 1, cộng test. Rủi ro tương đương 0.
