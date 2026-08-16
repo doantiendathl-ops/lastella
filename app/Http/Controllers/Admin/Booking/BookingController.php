@@ -607,35 +607,31 @@ class BookingController extends Controller
         );
     }
 
+    /**
+     * Unified Services & Requests (docs/yeucaumoi.txt) — the "Yêu cầu" tab
+     * (legacy BookingSpecialRequestController/SpecialRequestPanel.vue) has
+     * been decommissioned, fully superseded by the "Dịch vụ & Yêu cầu"
+     * screen (bookings.services.show) linked from the header above these
+     * tabs. Historical BookingSpecialRequest data is untouched and still
+     * read elsewhere (e.g. RoomOperationsBoardService's bed-join merge).
+     */
     private function detailTabs(): array
     {
-        $user = request()->user();
-        $canViewRequests = $user?->can('special_request.create')
-            || $user?->can('special_request.fulfill')
-            || $user?->can('special_request.cancel');
-
-        $tabs = [
+        return [
             ['key' => 'info', 'label' => 'Thông tin Booking'],
             ['key' => 'room_map', 'label' => 'Sơ đồ phòng'],
             ['key' => 'payments', 'label' => 'Tài chính'],
+            ['key' => 'history', 'label' => 'Lịch sử'],
         ];
-
-        if ($canViewRequests) {
-            $tabs[] = ['key' => 'special_requests', 'label' => 'Yêu cầu'];
-        }
-
-        $tabs[] = ['key' => 'history', 'label' => 'Lịch sử'];
-
-        return $tabs;
     }
 
     private function normalizeDetailTab(string $tab): string
     {
         return match ($tab) {
-            'overview', 'requirements'                                     => 'info',
-            'assignments', 'stays'                                         => 'room_map',
-            'payments', 'history', 'room_map', 'info', 'special_requests' => $tab,
-            default                                                        => 'info',
+            'overview', 'requirements'          => 'info',
+            'assignments', 'stays'              => 'room_map',
+            'payments', 'history', 'room_map', 'info' => $tab,
+            default                              => 'info',
         };
     }
 

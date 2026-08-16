@@ -1,9 +1,7 @@
 ﻿<script setup>
 import AppLayout from '@/Layouts/AppLayout.vue';
 import FolioPanel from './Partials/FolioPanel.vue';
-import PackagePanel from './Partials/PackagePanel.vue';
 import RoomBoardPanel from './Partials/RoomBoardPanel.vue';
-import SpecialRequestPanel from './Partials/SpecialRequestPanel.vue';
 import { labelFor } from '@/Support/vietnameseLabels';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import { BedDouble, CheckCircle, Eye, Pencil, Plus, RotateCcw, Trash2, X, XCircle } from 'lucide-vue-next';
@@ -913,9 +911,6 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                     <Link :href="`/admin/bookings/${booking.id}/services`" class="inline-flex items-center gap-2 border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-steel hover:text-ink">
                         Dịch vụ & Yêu cầu
                     </Link>
-                    <Link :href="`/admin/bookings/${booking.id}/packages`" class="inline-flex items-center gap-2 border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-steel hover:text-ink">
-                        Gói dịch vụ
-                    </Link>
                     <Link v-if="can.editBooking" :href="`/admin/bookings/${booking.id}/edit`" class="inline-flex items-center gap-2 border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-steel hover:text-ink">
                         <Pencil class="h-4 w-4" />
                         Sửa
@@ -969,10 +964,6 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                     @click="tab = item.key"
                 >
                     {{ item.label }}
-                    <span
-                        v-if="item.key === 'special_requests' && booking.pendingCount > 0"
-                        class="rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-800"
-                    >{{ booking.pendingCount }}</span>
                 </button>
             </div>
 
@@ -1141,11 +1132,6 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                     </table>
                 </div>
 
-                <PackagePanel
-                    :booking-id="booking.id"
-                    :package-flags="booking.packageFlags ?? []"
-                    :can-manage="can.managePackage"
-                />
             </div>
 
             <FolioPanel
@@ -1736,16 +1722,6 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                 :available-rooms="allBoardRooms"
             />
 
-            <div v-if="tab === 'special_requests'" class="p-5">
-                <SpecialRequestPanel
-                    :booking="booking"
-                    :can="{
-                        createSpecialRequest: can.createSpecialRequest,
-                        fulfillSpecialRequest: can.fulfillSpecialRequest,
-                        cancelSpecialRequest: can.cancelSpecialRequest,
-                    }"
-                />
-            </div>
 
             <div v-if="tab === 'history'" class="p-5 text-sm text-steel">
                 Lịch sử booking sẽ được hiển thị ở giai đoạn sau.

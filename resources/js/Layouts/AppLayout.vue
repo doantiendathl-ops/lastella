@@ -51,7 +51,10 @@ const navItems = computed(() => [
     { label: 'Phòng', href: '/rooms', icon: BedDouble, show: can('rooms.manage') },
     { label: 'Giá phòng', href: '/room-rates', icon: DollarSign, show: can('rates.manage') },
     { label: 'Dịch vụ & Yêu cầu', href: '/admin/services', icon: DollarSign, show: can('services.manage') },
-    { label: 'Gói dịch vụ', href: '/admin/service-packages', icon: DollarSign, show: can('service_packages.manage') },
+    // "Gói dịch vụ" đã được hợp nhất vào "Dịch vụ & Yêu cầu" ở trên và gỡ khỏi menu.
+    // "Phụ phí hệ thống" giữ lại — quản lý các loại phí (Thuế du lịch, Trả phòng muộn,
+    // Nhận phòng sớm...) chưa được hợp nhất, trước đây chỉ vào được qua trang Gói dịch vụ.
+    { label: 'Phụ phí hệ thống', href: '/admin/service-rates', icon: DollarSign, show: can('service_rates.manage') },
     { label: 'Sản phẩm/Dịch vụ', href: '/product-services', icon: PackagePlus, show: can('product_services.manage') },
     { label: 'Cài đặt', href: '/settings', icon: Settings, show: can('settings.manage') },
     { label: 'Nhật ký', href: '/audit-logs', icon: ClipboardList, show: can('report.view') },

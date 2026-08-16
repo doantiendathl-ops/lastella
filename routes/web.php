@@ -7,8 +7,6 @@ use App\Http\Controllers\Admin\RevenueReportController;
 use App\Http\Controllers\Admin\HotelSettingsController;
 use App\Http\Controllers\Admin\HousekeepingBulkActionController;
 use App\Http\Controllers\Admin\NightAuditController;
-use App\Http\Controllers\Admin\ServicePackageController;
-use App\Http\Controllers\Admin\ServicePackageRateController;
 use App\Http\Controllers\Admin\ServiceRateController;
 use App\Http\Controllers\Admin\ServiceCategoryController;
 use App\Http\Controllers\Admin\ServiceCatalogController;
@@ -22,8 +20,6 @@ use App\Http\Controllers\Admin\Booking\FolioController;
 use App\Http\Controllers\Admin\Booking\FolioEntryController;
 use App\Http\Controllers\Admin\Booking\RoomAssignmentController;
 use App\Http\Controllers\Admin\Booking\BookingPackageController;
-use App\Http\Controllers\Admin\PackageEnrollmentController;
-use App\Http\Controllers\Admin\Booking\BookingSpecialRequestController;
 use App\Http\Controllers\Admin\Booking\StayController;
 use App\Http\Controllers\Admin\CheckoutInspectionController;
 use App\Http\Controllers\Admin\FloorController;
@@ -80,17 +76,14 @@ Route::middleware('auth')->group(function (): void {
         Route::patch('service-rates/{serviceRate}/toggle', [ServiceRateController::class, 'toggleActive'])->name('service-rates.toggle');
         Route::get('service-rates/history/{chargeType}', [ServiceRateController::class, 'history'])->name('service-rates.history');
 
-        Route::get('service-packages', [ServicePackageController::class, 'index'])->name('service-packages.index');
-        Route::post('service-packages', [ServicePackageController::class, 'store'])->name('service-packages.store');
-        Route::patch('service-packages/{servicePackage}', [ServicePackageController::class, 'update'])->name('service-packages.update');
-        Route::patch('service-packages/{servicePackage}/toggle', [ServicePackageController::class, 'toggle'])->name('service-packages.toggle');
-        Route::get('service-packages/{servicePackage}/history', [ServicePackageController::class, 'history'])->name('service-packages.history');
-        Route::post('service-packages/{servicePackage}/rates', [ServicePackageRateController::class, 'store'])->name('service-packages.rates.store');
-        Route::patch('service-packages/{servicePackage}/rates/{rate}/toggle', [ServicePackageRateController::class, 'toggle'])->name('service-packages.rates.toggle');
-
-        // Unified Services & Requests (docs/yeucaumoi.txt) — Slice 1. New,
-        // additive admin catalog. Legacy service-packages/service-rates
-        // routes above stay reachable (Section 29 — no forced redirect yet).
+        // Unified Services & Requests (docs/yeucaumoi.txt) — the legacy
+        // "Gói dịch vụ" admin catalog (ServicePackageController/
+        // ServicePackageRateController, routes service-packages.*) has been
+        // decommissioned — fully superseded by the unified catalog below.
+        // service-rates.* above is KEPT: it manages several ChargeTypes
+        // (City Tax, Late Checkout, Early Checkin, Spa, Laundry...) that
+        // were never part of Gói dịch vụ and have no equivalent in the new
+        // catalog yet.
         Route::resource('service-categories', ServiceCategoryController::class)->except(['show'])->parameters(['service-categories' => 'serviceCategory']);
         Route::get('services', [ServiceCatalogController::class, 'index'])->name('services.index');
         Route::post('services', [ServiceCatalogController::class, 'store'])->name('services.store');
@@ -169,19 +162,17 @@ Route::middleware('auth')->group(function (): void {
         Route::post('bookings/{booking}/stays/{stay}/move-room', [StayController::class, 'moveRoom'])->name('bookings.stays.move-room');
         Route::patch('bookings/{booking}/stays/{stay}/actual-check-in', [StayController::class, 'updateActualCheckIn'])->name('bookings.stays.actual-check-in');
         Route::patch('bookings/{booking}/stays/{stay}/actual-check-out', [StayController::class, 'updateActualCheckOut'])->name('bookings.stays.actual-check-out');
-        Route::get('bookings/{booking}/packages', [PackageEnrollmentController::class, 'show'])->name('bookings.packages');
-        Route::post('bookings/{booking}/packages', [PackageEnrollmentController::class, 'enroll'])->name('bookings.packages.enroll');
-        Route::delete('bookings/{booking}/packages/{packageKey}', [PackageEnrollmentController::class, 'unenroll'])->name('bookings.packages.unenroll');
-        // Room-Scoped Bed Operations Correction — per-room Extra Bed quantities,
-        // separate from the generic booking-wide enroll/unenroll above.
-        Route::patch('bookings/{booking}/packages/extra-bed-rooms', [PackageEnrollmentController::class, 'updateExtraBedRooms'])->name('bookings.packages.extra-bed-rooms');
-
-        // Phase 4.1 — Room Setup Requests
-        Route::get('bookings/{booking}/special-requests', [BookingSpecialRequestController::class, 'index'])->name('bookings.special-requests.index');
-        Route::post('bookings/{booking}/special-requests', [BookingSpecialRequestController::class, 'store'])->name('bookings.special-requests.store');
-        Route::patch('bookings/{booking}/special-requests/{specialRequest}/acknowledge', [BookingSpecialRequestController::class, 'acknowledge'])->name('bookings.special-requests.acknowledge');
-        Route::patch('bookings/{booking}/special-requests/{specialRequest}/fulfill', [BookingSpecialRequestController::class, 'fulfill'])->name('bookings.special-requests.fulfill');
-        Route::delete('bookings/{booking}/special-requests/{specialRequest}', [BookingSpecialRequestController::class, 'destroy'])->name('bookings.special-requests.destroy');
+        // Unified Services & Requests (docs/yeucaumoi.txt) — legacy Package
+        // Enrollment (bookings.packages.*) and Special Requests
+        // (bookings.special-requests.*) routes decommissioned — fully
+        // superseded by bookings.services.* below (Admin/Booking/Services.vue),
+        // which already covers chargeable + free, per-room + per-booking.
+        // Underlying models/services/legacy posting jobs (PackageEnrollmentService,
+        // SpecialRequestService, BookingSpecialRequest, ServicePackage,
+        // ExtraBedPostingJob, ServicePackagePostingJob...) are left in place —
+        // they still own historical data other code reads (e.g.
+        // RoomOperationsBoardService's bed-join board merge) — only the
+        // create/edit HTTP entry points are removed.
 
         // Unified Services & Requests (docs/yeucaumoi.txt) — Slice 1. New,
         // separate booking-side screen; existing bookings.packages.* and

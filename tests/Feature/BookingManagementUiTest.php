@@ -177,11 +177,13 @@ class BookingManagementUiTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Admin/Bookings/Show')
                 ->where('activeTab', 'info')
+                // Unified Services & Requests: the legacy "Yêu cầu" tab
+                // (special_requests) was decommissioned — fully superseded
+                // by the "Dịch vụ & Yêu cầu" screen linked from this page's header.
                 ->where('tabs', [
                     ['key' => 'info', 'label' => 'Thông tin Booking'],
                     ['key' => 'room_map', 'label' => 'Sơ đồ phòng'],
                     ['key' => 'payments', 'label' => 'Tài chính'],
-                    ['key' => 'special_requests', 'label' => 'Yêu cầu'],
                     ['key' => 'history', 'label' => 'Lịch sử'],
                 ])
             );
