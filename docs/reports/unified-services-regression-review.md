@@ -66,3 +66,18 @@ Slice 2 không thêm code nghiệp vụ mới (chỉ mở rộng `UnifiedService
 **Lỗi tăng thêm 1 — đã xác minh không liên quan tới Slice 2:** `Tests\Feature\PerStayAttributionTest > add charge accepts system auto posting source`, lỗi `UNIQUE constraint violation` trên `resources.code = 'RM-102'`. Đây là **flaky test có sẵn từ trước**, không nằm trong bất kỳ file nào Slice 1/2 đã sửa (`PerStayAttributionTest` thuộc module Kiểm phòng/Resource, hoàn toàn ngoài phạm vi) — nguyên nhân là factory tạo mã phòng ngẫu nhiên bị trùng giữa 2 test case khác nhau trong cùng 1 lượt chạy toàn bộ suite (không tất định, phụ thuộc thứ tự/seed ngẫu nhiên của Faker). Không tái hiện khi chạy riêng `PerStayAttributionTest`. Ghi nhận minh bạch, không sửa vì ngoài phạm vi Slice 1/2 — nếu muốn xử lý triệt để cần factory phòng dùng chuỗi duy nhất (`sequence()`/`unique()`) thay vì số ngẫu nhiên có thể trùng.
 
 **Kết luận không đổi:** READY FOR COMMIT = YES, READY FOR PRODUCTION MIGRATION = NO (cùng lý do đã nêu, cộng thêm: cần Admin tự nhập giá thật cho "Người thêm" trước khi dịch vụ này dùng được — cố tình để trống, không đoán giá).
+
+---
+
+## Bổ sung sau Slice 3 (Danh mục Yêu cầu + cập nhật Sơ đồ thao tác) — 2026-08-17
+
+Slice 3 sửa trực tiếp 2 file đang chạy thật (`RoomOperationsBoardService.php`, `RoomSwapService.php`) — mức rủi ro cao hơn Slice 2, nên áp dụng lại đầy đủ quy trình rà soát của Slice 1 (agent `code-reviewer` độc lập). Chi tiết 4 lỗi phát hiện/sửa nằm ở `unified-services-implementation-plan.md` phần "Slice 3".
+
+| | Sau Slice 2 | Sau Slice 3 |
+|---|---|---|
+| Tests passed | 1407 | 1421 |
+| Tests failed | 29 | 29 (giữ nguyên, cùng 5 nhóm cũ) |
+
+**Xác nhận đặc biệt cho slice này:** toàn bộ 19 test của `RoomOperationsBedOperationsTest.php` (hàng rào hồi quy cho nguồn dữ liệu ghép giường cũ) và 100% test có sẵn của `RoomSwapServiceTest.php` chạy lại PASS nguyên vẹn sau khi sửa — xác nhận việc thêm nguồn dữ liệu mới không làm hỏng đường cũ.
+
+**Kết luận không đổi:** READY FOR COMMIT = YES, READY FOR PRODUCTION MIGRATION = NO.

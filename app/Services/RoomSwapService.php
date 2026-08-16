@@ -329,6 +329,7 @@ class RoomSwapService
         // The source assignment covers its WHOLE stay in one new segment
         // (Mục XII), so relinking is unambiguous here.
         $this->relinkSpecialRequests($source, $newStay);
+        $this->relinkUnifiedServices($source, $newStay);
     }
 
     /**
@@ -357,6 +358,7 @@ class RoomSwapService
         // there.
         $swapStay = $this->createSplitSegment($displacedOriginal, $source->room_id, $overlapStart, $overlapEnd, $batch, $actor, 'displaced_swap');
         $this->relinkSpecialRequests($displacedOriginal, $swapStay);
+        $this->relinkUnifiedServices($displacedOriginal, $swapStay);
 
         if ($overlapEnd->lt($displacedOriginal->end_at)) {
             $this->createSplitSegment($displacedOriginal, $targetRoomId, $overlapEnd, $displacedOriginal->end_at, $batch, $actor, 'displaced_remain_after');
@@ -392,6 +394,32 @@ class RoomSwapService
                 // Never abort the swap over a relink failure.
             }
         }
+    }
+
+    /**
+     * Unified Services & Requests (docs/yeucaumoi.txt, Slice 3) — the exact
+     * same "must follow the booking to its new room" principle as
+     * relinkSpecialRequests() above, applied to the new catalog. Unlike
+     * BookingSpecialRequest (linked by stay_id, which survives untouched
+     * here — only the Stay's OWN room_assignment_id FK moves), BookingService
+     * rows are linked by room_assignment_id directly (required for Slice 1's
+     * per-room billing correctness), so a swap that creates a brand-new
+     * RoomAssignment+Stay pair (see class docblock's ARCHITECTURE DECISION)
+     * leaves them silently pointing at the now-released old assignment
+     * unless explicitly rebound here. Safe to do unconditionally: swap
+     * sources are always pre-check-in (status ASSIGNED — enforced by Mục IX
+     * below), so there is never a posted FolioEntry attributed to the old
+     * assignment_id that this could disturb.
+     */
+    private function relinkUnifiedServices(RoomAssignment $originalAssignment, Stay $newStay): void
+    {
+        if ($newStay->room_assignment_id === null || $originalAssignment->id === $newStay->room_assignment_id) {
+            return;
+        }
+
+        \App\Models\BookingService::where('room_assignment_id', $originalAssignment->id)
+            ->where('fulfillment_status', '!=', \App\Enums\ServiceFulfillmentStatus::Cancelled->value)
+            ->update(['room_assignment_id' => $newStay->room_assignment_id]);
     }
 
     private function createSplitSegment(RoomAssignment $original, int $roomId, Carbon $startAt, Carbon $endAt, RoomSwapBatch $batch, User $actor, string $reason): Stay

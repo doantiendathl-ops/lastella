@@ -144,3 +144,11 @@ Bộ test Slice 2: 8/8 PASS. Hồi quy toàn bộ: 1407 passed / 29 failed (tăn
 ## Known limitation mới
 
 "Người thêm" hiện **chưa dùng được** cho tới khi Admin vào `/admin/services` tự nhập giá — đây là chủ đích, không phải lỗi (không có giá thật nào để tự động điền).
+
+---
+
+# Slice 3 — Danh mục Yêu cầu (2026-08-17)
+
+**Trạng thái:** COMPLETE. Chi tiết đầy đủ (quyết định, lỗi bắt được, files changed) đã ghi trong `unified-services-implementation-plan.md` phần "Slice 3" — không lặp lại ở đây để tránh 2 nguồn thông tin lệch nhau.
+
+**Tóm tắt:** 23 loại yêu cầu (loại trừ `extra_bed`) di dời sang catalog hợp nhất; `RoomOperationsBoardService`/`RoomSwapService` được cập nhật để badge "Ghép giường" hoạt động đúng với cả 2 nguồn dữ liệu (cũ + mới), kể cả khi đổi phòng. Rà soát code phát hiện + đã sửa 4 lỗi thật (2 fatal lúc TDD, 1 rủi ro bảo trì, 1 lỗi mất dữ liệu hiển thị khi đổi phòng — nghiêm trọng nhất). Test mới: 14/14 PASS. Hồi quy toàn bộ: 1421 passed / 29 failed (giữ nguyên 29 lỗi cũ, 0 lỗi mới).

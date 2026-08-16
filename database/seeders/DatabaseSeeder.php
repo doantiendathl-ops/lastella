@@ -22,6 +22,7 @@ class DatabaseSeeder extends Seeder
             ProductServiceCategorySeeder::class,
             ProductServiceSeeder::class,
             UnifiedServiceSeeder::class,
+            UnifiedRequestCatalogSeeder::class,
         ]);
     }
 }

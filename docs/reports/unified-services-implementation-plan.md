@@ -131,3 +131,54 @@ Trên production, `service_packages` hiện **không có** dòng nào mã `BREAK
 ## Không cần rà soát bảo mật/code riêng cho slice này
 
 Không có code nghiệp vụ mới — chỉ dữ liệu seed dùng lại đúng field/kiểu dữ liệu đã qua rà soát ở Slice 1, cộng test. Rủi ro tương đương 0.
+
+---
+
+# Slice 3 — Danh mục Yêu cầu (BookingSpecialRequest → catalog hợp nhất)
+
+**Ngày:** 2026-08-17
+**Đã duyệt (GATE):** người dùng chọn phương án mở rộng nhất — di dời cả 24 loại yêu cầu, cập nhật luôn Sơ đồ thao tác để đọc dữ liệu ghép giường từ cả 2 nguồn.
+
+## Vì sao đây là slice rủi ro cao hơn Slice 1/2
+
+Khác với 2 slice trước (chỉ thêm dữ liệu/code hoàn toàn mới), Slice 3 **sửa trực tiếp vào code đang chạy thật** của Sơ đồ thao tác (`RoomOperationsBoardService.php`) và Đổi phòng (`RoomSwapService.php`) — 2 hệ thống nằm trong danh sách "tuyệt đối không được làm hỏng" của `docs/yeucaumoi.txt`. Vì vậy slice này áp dụng đúng quy trình rà soát nghiêm ngặt như Slice 1 (agent `code-reviewer` độc lập), thay vì bỏ qua như Slice 2.
+
+## Quyết định đã tự chọn
+
+| Quyết định | Lựa chọn | Lý do |
+|---|---|---|
+| Loại trừ `extra_bed` ("Thêm giường phụ") khỏi danh sách di dời | Không seed loại này vào catalog mới, kể cả khi người dùng chọn "di dời cả 24" | Đã có sẵn dịch vụ "Giường phụ" **có tính phí** ở Slice 1 (mã `EXTRA_BED_PER_NIGHT`). Tạo thêm 1 bản "yêu cầu" miễn phí trùng ý nghĩa sẽ tái tạo đúng lỗi gốc của toàn bộ phiên làm việc này (nhân viên chọn nhầm mục miễn phí, khách không bị tính tiền giường phụ thật). Đây là điểm mình chủ động lệch khỏi câu trả lời "cả 24" của người dùng — đã nêu rõ trong hội thoại, không âm thầm quyết định. |
+| `twin_to_double` ("Ghép thành giường đôi") | Di dời, **scope=ROOM** (khác 22 loại còn lại dùng `BOTH`) | Board hiện đọc badge "Ghép giường" theo từng phòng cụ thể — ghép giường "cho cả booking" không có ý nghĩa vật lý. Chọn `ROOM` thay vì `BOTH` loại bỏ hoàn toàn trạng thái "chưa gán phòng" mơ hồ cho nguồn dữ liệu mới, đơn giản hóa phần merge trên Board. |
+| Cách Board đọc dữ liệu ghép giường | **Hợp (union) cả 2 nguồn**, không thay thế | Đúng nguyên tắc "introduce → migrate → switch runtime → verify → deprecate" (Mục 1) — đây là bước "introduce + verify", chưa phải "switch". Nhân viên dùng màn hình nào (cũ hay mới) để tạo yêu cầu ghép giường, Board đều hiện đúng badge. |
+| Xung đột khi 1 phòng có dữ liệu ở cả 2 nguồn cùng lúc | Nguồn cũ (legacy) thắng | Trường hợp hiếm (nhân viên phải cố tình tạo cả 2), nhưng cần 1 quy tắc rõ ràng — ưu tiên nguồn đã tồn tại lâu hơn, an toàn hơn khi không chắc. |
+| 21 loại còn lại (Thêm đồ dùng, Trang trí, Hỗ trợ đặc biệt, Yêu cầu khác) | `scope=BOTH` | Khớp đúng hành vi cũ — `BookingSpecialRequest.stay_id` vốn luôn optional cho mọi loại, `BOTH` cho phép nhân viên chọn y hệt như trước (toàn booking hoặc theo phòng cụ thể). |
+
+## Lỗi thật đã bắt được và sửa trong quá trình TDD/review (Slice 3)
+
+| # | Lỗi | Phát hiện bởi | Mức độ | Đã sửa |
+|---|---|---|---|---|
+| 1 | `Illuminate\Database\Eloquent\Collection::merge()/unique()` fatal error "Call to a member function getKey() on array" — collection bắt nguồn từ Eloquent Collection vẫn giữ hành vi đòi hỏi Model kể cả sau khi `.map()` biến toàn bộ giá trị thành mảng thường | Test tự viết (TDD) | Cao (crash ngay khi có dữ liệu) | Có — thêm `.toBase()` trước khi merge |
+| 2 | `Collection::merge()` với khóa là số nguyên (`stay_id`) áp dụng ngữ nghĩa nối danh sách (đánh số lại), **âm thầm xóa mất việc gắn key theo `stay_id`** — badge ghép giường biến mất dù dữ liệu đúng | Test tự viết (TDD), sau khi sửa lỗi #1 | Cao (mất dữ liệu hiển thị, không crash nên khó nhận ra) | Có — đổi `merge()` thành `union()` |
+| 3 | Bộ lọc trạng thái dùng danh sách cho phép cứng (`whereIn(...,['CREATED','CONFIRMED','COMPLETED'])`) thay vì loại trừ Cancelled như mọi chỗ khác trong cùng file | Agent rà soát code | Trung bình (sẽ âm thầm hỏng nếu enum có thêm trạng thái mới sau này) | Có — đổi thành `where('fulfillment_status','!=','CANCELLED')` |
+| 4 | **Đổi phòng (RoomSwapService) không di chuyển dữ liệu ghép giường mới sang phòng mới** — vì `booking_services.room_assignment_id` trỏ thẳng vào `RoomAssignment`, trong khi Đổi phòng luôn tạo `RoomAssignment`+`Stay` hoàn toàn mới (không sửa tại chỗ); dữ liệu cũ tưởng như "biến mất" khỏi phòng mới sau khi đổi phòng | Tự phát hiện khi viết test theo gợi ý của agent rà soát ("cần xác nhận đường này đã được test") | **Cao** — đúng bug "Mục XXVI" mà code cũ đã từng phải sửa 1 lần rồi, nay tái diễn ở nguồn dữ liệu mới | Có — thêm `RoomSwapService::relinkUnifiedServices()`, gọi song song với `relinkSpecialRequests()` đã có sẵn, kèm test `test_swap_moves_unified_bed_join_association_to_new_assignment` |
+
+Lỗi #4 là phát hiện quan trọng nhất của slice này — không phải do agent rà soát tự tìm ra trực tiếp (agent chỉ đánh dấu MEDIUM "cần xác nhận đường này đã test" thay vì khẳng định có bug), nhưng viết test theo đúng gợi ý đó đã lộ ra lỗi thật.
+
+## Files changed
+
+| File | Thay đổi |
+|---|---|
+| `database/seeders/UnifiedRequestCatalogSeeder.php` | Mới — 23 Service (24 loại yêu cầu cũ trừ `extra_bed`), 5 category. |
+| `database/seeders/DatabaseSeeder.php` | Sửa (additive) — gọi seeder mới. |
+| `app/Services/RoomOperationsBoardService.php` | Sửa — `bedJoinRequestsByStayId()` và phần liên quan trong `dailySummaryForDate()` hợp nhất 2 nguồn dữ liệu ghép giường. |
+| `app/Services/RoomSwapService.php` | Sửa — thêm `relinkUnifiedServices()`, gọi song song `relinkSpecialRequests()` ở cả 2 điểm gọi. |
+| `tests/Feature/UnifiedRequestCatalogSeedTest.php` | Mới — 5 test kiểm tra catalog. |
+| `tests/Feature/RoomOperationsUnifiedBedJoinTest.php` | Mới — 9 test (đã bổ sung 2 test theo gợi ý rà soát: completed status, đổi phòng). |
+
+## Test results
+
+Slice 3: 14 test mới, 14/14 PASS (5 catalog + 9 board/swap). Hồi quy toàn bộ hệ thống: **1421 passed / 29 failed** — giữ nguyên đúng 29 lỗi cũ (bao gồm cả lỗi flaky `PerStayAttributionTest` đã ghi nhận từ Slice 2), không có lỗi mới nào phát sinh — xác nhận qua đối chiếu chính xác từng nhóm test lỗi. Đặc biệt: toàn bộ 19 test cũ của `RoomOperationsBedOperationsTest.php` (hàng rào hồi quy cho nguồn dữ liệu cũ) và 100% test có sẵn của `RoomSwapServiceTest.php` vẫn PASS nguyên vẹn.
+
+## READY FOR COMMIT = YES · READY FOR PRODUCTION MIGRATION = NO
+
+Lý do NO giống các slice trước — cần xác nhận thủ công, không tự chạy migration/seed lên production.

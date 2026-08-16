@@ -6,8 +6,10 @@ namespace App\Services;
 
 use App\Enums\AssignmentStatus;
 use App\Enums\RequestStatus;
+use App\Enums\ServiceFulfillmentStatus;
 use App\Enums\StayStatus;
 use App\Models\Booking;
+use App\Models\BookingService;
 use App\Models\BookingSpecialRequest;
 use App\Models\Floor;
 use App\Models\RoomAssignment;
@@ -29,12 +31,15 @@ use Illuminate\Support\Collection;
  *                          Bed Operations Correction; was BookingPackageFlag, booking-level,
  *                          which could not identify which room in a multi-room booking and
  *                          also caused a per-room over-posting bug — see ExtraBedPostingJob)
- *  - bed joined           → BookingSpecialRequest (category=bed_config, request_type=
- *                          twin_to_double), keyed by stay_id — the EXISTING Special Request
- *                          module, not a second, independent boolean (Room-Scoped Bed
- *                          Operations Correction; room_assignments.bed_joined was removed —
- *                          it would have been a duplicate, unsynchronized source of the
- *                          exact same fact)
+ *  - bed joined           → merged from TWO sources, keyed by stay_id (Unified Services &
+ *                          Requests, Slice 3): legacy BookingSpecialRequest (category=
+ *                          bed_config, request_type=twin_to_double) — unchanged, staff can
+ *                          still create these via the old "Yêu cầu đặc biệt" panel — UNION
+ *                          BookingService rows for the new catalog's TWIN_TO_DOUBLE Service,
+ *                          created via the new "Dịch vụ & Yêu cầu" screen. Neither source was
+ *                          deprecated; this is the "introduce → verify" step (Mục 1 of
+ *                          docs/yeucaumoi.txt), not yet "switch runtime". See
+ *                          bedJoinRequestsByStayId() for the exact merge.
  *  - quick note            → room_assignments.quick_note (new field, Mục VII)
  *  - date overlap semantics → same predicate as RoomAvailabilityRuleService::applyOverlap()
  *
@@ -122,6 +127,10 @@ class RoomOperationsBoardService
                 'stays.roomAssignment',
                 'packageFlags',
                 'specialRequests',
+                // Unified Services & Requests, Slice 3 — see bedJoinRequestsByStayId()'s
+                // docblock for why TWIN_TO_DOUBLE is merged in alongside specialRequests.
+                'bookingServices.service',
+                'bookingServices.roomAssignment.stay',
                 'folio.folioEntries',
                 'bookingPayments',
                 'bookingRequirements',
@@ -145,11 +154,27 @@ class RoomOperationsBoardService
                 ->where('category', \App\Enums\RequestCategory::BedConfig)
                 ->where('request_type', 'twin_to_double')
                 ->where('status', '!=', \App\Enums\RequestStatus::Cancelled);
-            $bedJoinResolved = $bedJoinRequests->whereNotNull('stay_id')
+            // .toBase(): see bedJoinRequestsByStayId()'s docblock — Eloquent Collection's
+            // merge()/unique() assume Model items once the underlying collection is that
+            // subtype, even after map() turns the values into plain strings.
+            $legacyBedJoinResolved = $bedJoinRequests->whereNotNull('stay_id')
                 ->map(fn (BookingSpecialRequest $r) => $activeStays->firstWhere('id', $r->stay_id)?->room?->room_number)
                 ->filter()
-                ->values();
+                ->toBase();
+            // Legacy-only: the new TWIN_TO_DOUBLE Service is scope=ROOM (see
+            // UnifiedRequestCatalogSeeder), so a unified row can never be "unresolved".
             $bedJoinUnresolvedCount = $bedJoinRequests->whereNull('stay_id')->count();
+
+            $unifiedBedJoinResolved = $booking->bookingServices
+                ->filter(fn (BookingService $bs): bool => $bs->service->code === 'TWIN_TO_DOUBLE'
+                    && $bs->fulfillment_status !== ServiceFulfillmentStatus::Cancelled)
+                ->map(fn (BookingService $bs) => $bs->roomAssignment?->stay?->id !== null
+                    ? $activeStays->firstWhere('id', $bs->roomAssignment->stay->id)?->room?->room_number
+                    : null)
+                ->filter()
+                ->toBase();
+
+            $bedJoinResolved = $legacyBedJoinResolved->merge($unifiedBedJoinResolved)->unique()->values();
 
             return [
                 'booking_id' => $booking->id,
@@ -197,7 +222,7 @@ class RoomOperationsBoardService
         $stay = $primary?->stay;
 
         $inspectionStatus = $stay?->inspectionStatus() ?? 'none';
-        /** @var BookingSpecialRequest|null $bedJoinRequest */
+        /** @var array{status: string, status_label: string}|null $bedJoinRequest */
         $bedJoinRequest = $stay !== null ? $bedJoinByStayId->get($stay->id) : null;
 
         // Room-Conflict Detection follow-up + Pre-Commit Critical Safety
@@ -243,10 +268,7 @@ class RoomOperationsBoardService
                 'assignment_status' => $primary->status->value,
                 'is_checked_in' => $stay?->actual_checkin_at !== null,
                 'is_checked_out' => $stay?->actual_checkout_at !== null,
-                'bed_join' => $bedJoinRequest === null ? null : [
-                    'status' => $bedJoinRequest->status->value,
-                    'status_label' => $bedJoinRequest->status->label(),
-                ],
+                'bed_join' => $bedJoinRequest,
                 'extra_bed_quantity' => $primary->extra_bed_quantity,
                 'inspection_status' => $inspectionStatus,
                 'quick_note' => $primary->quick_note,
@@ -398,8 +420,19 @@ class RoomOperationsBoardService
      * any of them (Mục XXIII); see ambiguousBedJoinCount() for surfacing
      * that state instead.
      *
+     * Unified Services & Requests, Slice 3: merges the legacy
+     * BookingSpecialRequest source with the new catalog's BookingService
+     * rows for the TWIN_TO_DOUBLE Service (hard-coded code match — a
+     * deliberate, narrow, documented compatibility bridge between the old
+     * and new "Ghép giường" entry points, not a new general pattern; see
+     * UnifiedRequestCatalogSeeder's class docblock for the full reasoning
+     * and why this is the one exception to Mục 25's "never hard-code a
+     * service code" rule). Both entries are normalized to the same plain
+     * array shape ({status, status_label}) so buildRoomCell() never needs
+     * to know which of the two models a given room's badge came from.
+     *
      * @param  int[]  $bookingIds
-     * @return Collection<int, BookingSpecialRequest> keyed by stay_id
+     * @return Collection<int, array{status: string, status_label: string}> keyed by stay_id
      */
     private function bedJoinRequestsByStayId(array $bookingIds): Collection
     {
@@ -407,13 +440,47 @@ class RoomOperationsBoardService
             return collect();
         }
 
-        return BookingSpecialRequest::whereIn('booking_id', $bookingIds)
+        // .toBase(): mapWithKeys() on an Eloquent Collection still returns an
+        // Eloquent Collection even once the values are plain arrays, not
+        // Models — and Eloquent Collection::merge()/unique() without a key
+        // assume Model items and call ->getKey() on them, fatal-erroring on
+        // a plain array. Drop to the base Support Collection before merging.
+        $legacy = BookingSpecialRequest::whereIn('booking_id', $bookingIds)
             ->where('category', 'bed_config')
             ->where('request_type', 'twin_to_double')
             ->where('status', '!=', RequestStatus::Cancelled->value)
             ->whereNotNull('stay_id')
             ->get()
-            ->keyBy('stay_id');
+            ->mapWithKeys(fn (BookingSpecialRequest $r): array => [
+                $r->stay_id => ['status' => $r->status->value, 'status_label' => $r->status->label()],
+            ])
+            ->toBase();
+
+        $unified = BookingService::whereIn('booking_id', $bookingIds)
+            ->whereHas('service', fn ($q) => $q->where('code', 'TWIN_TO_DOUBLE'))
+            // "!= Cancelled" (not an allowlist of the other 3 statuses) — matches the
+            // legacy query above and dailySummaryForDate()'s equivalent check, so a
+            // future 5th ServiceFulfillmentStatus case stays visible by default instead
+            // of silently disappearing from the board until this array is updated.
+            ->where('fulfillment_status', '!=', ServiceFulfillmentStatus::Cancelled->value)
+            ->whereNotNull('room_assignment_id')
+            ->with('roomAssignment.stay')
+            ->get()
+            ->filter(fn (BookingService $bs): bool => $bs->roomAssignment?->stay !== null)
+            ->mapWithKeys(fn (BookingService $bs): array => [
+                $bs->roomAssignment->stay->id => [
+                    'status' => $bs->fulfillment_status->value,
+                    'status_label' => $bs->fulfillment_status->label(),
+                ],
+            ])
+            ->toBase();
+
+        // union(), NOT merge(): stay_id keys are integers, and Collection::merge()
+        // treats integer keys as list items to append/renumber (PHP array_merge
+        // semantics), silently discarding the stay_id keying entirely. union()
+        // preserves the base collection's keys and values on conflict — exactly
+        // "legacy wins" — and fills in any additional keys only unified has.
+        return $legacy->union($unified);
     }
 
     private function boardTotals(Collection $floors): array
