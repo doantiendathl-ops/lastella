@@ -182,3 +182,32 @@ Slice 3: 14 test mới, 14/14 PASS (5 catalog + 9 board/swap). Hồi quy toàn b
 ## READY FOR COMMIT = YES · READY FOR PRODUCTION MIGRATION = NO
 
 Lý do NO giống các slice trước — cần xác nhận thủ công, không tự chạy migration/seed lên production.
+
+---
+
+# Slice 4 — Sản phẩm/Dịch vụ kiểm phòng: AUDIT-ONLY, không sửa code
+
+**Ngày:** 2026-08-17
+**Quyết định tự chọn (Mục 2 — không phải Business Blocker, tự suy luận được từ code):** không di dời `ProductService`/Kiểm đồ trả phòng vào catalog hợp nhất.
+
+## Audit — đã đọc kỹ `CheckoutInspectionService.php` trước khi quyết định
+
+Yêu cầu cốt lõi của Mục 18 ("Room Inspection → service/charge transaction → Folio", "Sản phẩm miễn phí không được tạo charge") **đã được đáp ứng từ trước**, không cần code mới:
+
+- `CheckoutInspectionService::postChargesToFolio()` post thẳng qua `FolioService::addCharge()` — cùng 1 `Folio`/`FolioEntry` mà `UnifiedServicePostingJob` (Slice 1-3) và mọi job khác đang dùng. **Không có sổ tiền song song.**
+- Có sẵn điều kiện chặn `chargeable_quantity <= 0 || line_total <= 0` trước khi post — sản phẩm miễn phí/số lượng 0 không bao giờ tạo charge.
+- Giá đã snapshot đúng cách (`unit_price_snapshot`) — đổi giá catalog sau không ảnh hưởng phiếu kiểm đồ cũ (có test `updating price does not change historical snapshot` xác nhận).
+
+## Vì sao không di dời sâu vào `booking_services`
+
+`ProductService` không cùng hình dạng nghiệp vụ với 3 domain đã di dời — đây là hàng hóa tiêu thụ 1 lần lúc kiểm phòng (mô hình gần với POS), không có khái niệm "đăng ký theo đêm/theo booking, xác nhận/hoàn thành" mà `scope`/`billing_mode`/`fulfillment_status` được thiết kế cho. Ép vào khuôn đó sẽ gượng ép, không tạo giá trị thật, trong khi `CheckoutInspectionService.php` là một trong những file có nhiều lớp bảo vệ tài chính đã được đúc kết qua nhiều lần sửa lỗi thật trước đây (khóa sau khi post, ADR-50 guard, chặn sửa sau checkout) — rủi ro đụng vào không tương xứng với lợi ích.
+
+Mục 18 của `docs/yeucaumoi.txt` tự nó cũng cho phép việc này: *"Không cần ép toàn bộ UI kiểm phòng phải dùng màn hình Booking Services nếu điều đó phá workflow tốt hiện có. Nhưng phía financial data phải thống nhất."* — vế sau đã đúng sẵn, vế đầu được giữ nguyên.
+
+## Files changed
+
+Không có — đây là slice thuần audit, không sửa/thêm file code nào.
+
+## Kết luận backlog còn lại
+
+Các hạng mục còn lại (trang admin hợp nhất thật sự gộp 4 trang catalog thành 1, deprecate route cũ, xóa bảng/cột legacy) đều bị chính `docs/yeucaumoi.txt` (Mục 21: "không xóa bảng/cột/module legacy nếu dữ liệu vẫn có khả năng tham chiếu"; nguyên tắc "introduce → migrate → switch runtime → **verify** → deprecate") yêu cầu phải trải qua giai đoạn **verify trên production** trước — điều không thể thực hiện từ môi trường này (Mục 22, chỉ đọc production). Vì vậy dừng backlog "Unified Services & Requests" tại đây là điểm dừng hợp lý cho 1 lượt làm việc — 3 slice đã triển khai giải quyết đúng và đầy đủ các vấn đề kiến trúc nghiêm trọng đã audit ban đầu (giá trùng nguồn, danh mục viết cứng, rủi ro tính tiền sai nhiều phòng).
