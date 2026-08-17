@@ -66,11 +66,13 @@ Lý do không ghi COMPLETE: một số mục (icon dịch vụ có thể cấu h
 
 ## Git
 
-5 commit trên `phase-3`, chưa push:
+6 commit trên `phase-3`, chưa push:
 - `be8488d` — Sơ đồ thao tác: booking color + historical occupancy + select-all
 - `3c9d02f` — Sơ đồ chọn phòng: bỏ hover popup
 - `d9c1c9d` — Sơ đồ Check phòng: booking color nền chính
 - `e82cccd` — Room Charge: sửa lỗi multi-rate-group
+- `4409c09` — docs: 4 báo cáo hoàn thành lượt đầu (Room Map PARTIAL 3/4)
+- `4a6f9b1` — True Shared Component: `RoomTile`/`RoomFloorGrid` dùng chung cho cả 4 màn (bao gồm Sơ đồ Kiểm đồ), Room Map nay COMPLETE 4/4
 
 ## Production Actions Required
 
@@ -137,8 +139,8 @@ Không áp dụng (không có data migration). Nếu tương lai có backfill `b
 
 - [ ] Booking: tạo/sửa 1 booking thử, xác nhận Excel Color Picker hoạt động đúng.
 - [ ] Service: `/admin/services` load đúng, tạo 1 Dịch vụ/Yêu cầu thử trên 1 booking.
-- [ ] Room Map: mở cả 3 màn hình đã migrate (Sơ đồ thao tác, Sơ đồ chọn phòng, Kiểm tra phòng) — xác nhận nền màu booking hiển thị đúng, không vỡ layout.
-- [ ] Room Inspection: mở Kiểm đồ trả phòng, xác nhận workflow không đổi.
+- [ ] Room Map: mở cả 4 màn hình (Sơ đồ thao tác, Sơ đồ chọn phòng, Kiểm tra phòng, Kiểm đồ trả phòng) — xác nhận nền màu booking hiển thị đúng, cùng kích thước/layout thẻ, không vỡ layout.
+- [ ] Room Inspection: mở Kiểm đồ trả phòng, xác nhận workflow không đổi (chỉ vỏ hiển thị đổi, dữ liệu/luồng draft-complete-edit giữ nguyên).
 - [ ] Night Audit: xác nhận trang Night Audit vẫn hiển thị đúng trạng thái, KHÔNG tự động chạy audit thử trên production.
 - [ ] Folio: mở 1 booking đã có Room Charge, xác nhận số tiền không đổi so với trước deploy (đặc biệt các booking có ≥2 dòng nhu cầu cùng room_type đã ghi nhận ở Preflight).
 - [ ] Reconciliation: `/admin/reconciliation` load đúng, không có booking nào bất thường mới xuất hiện do lỗi tính toán.
