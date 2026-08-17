@@ -11,6 +11,7 @@
 // (StoreBookingRequest/UpdateBookingRequest) — the legacy system never
 // allowed an uncolored Booking either, so a Booking must stay identifiable
 // on the Room Map at all times (mục V.1.C — backward-compatible choice).
+import { readableTextClass } from '@/Support/colorContrast';
 import { Check } from 'lucide-vue-next';
 import { computed, ref, watch } from 'vue';
 
@@ -33,6 +34,12 @@ const select = (hex) => {
     if (isConflicting(hex)) return; // mục VI — ưu tiên ngăn lựa chọn cho palette có sẵn
     emit('update:modelValue', normalize(hex));
 };
+
+// mục V.4 — the checkmark icon sits directly on the swatch's own fill, so
+// it needs the same auto-contrast treatment as text/icons on a booking-
+// colored Room Tile: a hard-coded white check disappears on the white/
+// near-white swatches this exact picker offers.
+const checkmarkClass = (hex) => readableTextClass(hex);
 
 // mục V.5 — near-white/pale shades must stay visible even when not
 // selected/hovered: a fully transparent default border lets a white or
@@ -80,7 +87,7 @@ const applyCustomHex = () => {
                         :disabled="isConflicting(group.base)"
                         @click="select(group.base)"
                     >
-                        <Check v-if="isSelected(group.base)" class="absolute inset-0 m-auto h-3.5 w-3.5 text-white drop-shadow" />
+                        <Check v-if="isSelected(group.base)" class="absolute inset-0 m-auto h-3.5 w-3.5 drop-shadow" :class="checkmarkClass(group.base)" />
                     </button>
                     <button
                         v-for="shade in group.shades"
@@ -93,7 +100,7 @@ const applyCustomHex = () => {
                         :disabled="isConflicting(shade)"
                         @click="select(shade)"
                     >
-                        <Check v-if="isSelected(shade)" class="absolute inset-0 m-auto h-3 w-3 text-white drop-shadow" />
+                        <Check v-if="isSelected(shade)" class="absolute inset-0 m-auto h-3 w-3 drop-shadow" :class="checkmarkClass(shade)" />
                     </button>
                 </div>
             </div>
@@ -114,7 +121,7 @@ const applyCustomHex = () => {
                     :disabled="isConflicting(hex)"
                     @click="select(hex)"
                 >
-                    <Check v-if="isSelected(hex)" class="absolute inset-0 m-auto h-3.5 w-3.5 text-white drop-shadow" />
+                    <Check v-if="isSelected(hex)" class="absolute inset-0 m-auto h-3.5 w-3.5 drop-shadow" :class="checkmarkClass(hex)" />
                 </button>
             </div>
         </div>
