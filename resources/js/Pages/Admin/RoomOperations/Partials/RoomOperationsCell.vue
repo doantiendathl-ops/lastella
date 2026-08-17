@@ -1,4 +1,5 @@
 <script setup>
+import { readableTextClass } from '@/Support/colorContrast';
 import {
     AlertTriangle,
     BedDouble,
@@ -20,7 +21,7 @@ const props = defineProps({
     canEditNote: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['toggle-select', 'view-booking', 'save-note']);
+const emit = defineEmits(['toggle-select', 'view-booking', 'save-note', 'select-booking-rooms']);
 
 const occupant = computed(() => props.room.occupant);
 
@@ -48,22 +49,27 @@ function saveNote() {
     noteDraft.value = null;
 }
 
-// Mục X-XII: full-card tint reusing the SAME 5-state occupancy classification
-// the board already computes (status_theme) — not a new palette, only a new
-// rendering (full background instead of a left border strip).
-// Stronger Full-Card Room Colors: one shade stronger than the previous
-// round (bg-*-50/border-*-300 → bg-*-200/border-*-500) — same 5-state
-// palette, same semantics, just more saturated so status reads at a glance.
-// Text stays dark (gray-900/700) throughout, which still contrasts cleanly
-// against every *-200 tint below.
-const CARD_THEME = {
+// docs/yeucaumoi.txt mục 7 — when the room belongs to a Booking at the
+// selected date/time, the Booking's own color is the Room Tile's PRIMARY
+// background — not a second, semantic 5-state palette. Reuses
+// BookingColorService's stored HEX exactly as-is (no new palette).
+// Vacant rooms (no booking to color by) keep a plain neutral/status tint —
+// there's nothing to auto-contrast against, so no booking-color logic
+// applies to them.
+const VACANT_THEME = {
     unavailable: 'border-gray-500 bg-gray-300',
     vacant_clean: 'border-green-500 bg-green-200',
     vacant_dirty: 'border-amber-500 bg-amber-200',
-    assigned: 'border-purple-500 bg-purple-200',
-    checked_in: 'border-blue-500 bg-blue-200',
 };
-const cardThemeClass = computed(() => CARD_THEME[props.room.status_theme] ?? 'border-gray-200 bg-white');
+const bookingColor = computed(() => props.room.occupant?.booking_color ?? null);
+const cardThemeClass = computed(() => {
+    if (bookingColor.value) return 'border-gray-300';
+    return VACANT_THEME[props.room.status_theme] ?? 'border-gray-200 bg-white';
+});
+const cardStyle = computed(() => (bookingColor.value ? { backgroundColor: bookingColor.value } : {}));
+// mục 7 — auto contrast: light booking color → dark text, dark → light text.
+// Never hard-coded to one color for every booking.
+const cardTextClass = computed(() => (bookingColor.value ? readableTextClass(bookingColor.value) : 'text-gray-900'));
 
 // Mục XV-XXVI: one compact icon-only status row, five groups, each with an
 // exact tooltip/aria-label — canonical sources unchanged (only the display
@@ -89,11 +95,16 @@ const occupancyTooltip = computed(() => {
     if (occupant.value.is_checked_in) return 'Đã nhận phòng';
     return 'Chưa nhận phòng';
 });
+// docs/yeucaumoi.txt mục 8 — DoorClosed/DoorOpen/LogOut no longer own the
+// full Room Tile background; they're one icon inside the status-strip row
+// (see the icon row's bg-white/75 backing below) instead, so the Booking
+// color underneath stays the dominant, visible background. Same 3
+// operational states, same colors, new scope only.
 const occupancyClass = computed(() => {
     if (!occupant.value) return '';
-    if (occupant.value.is_checked_out) return 'text-gray-500';
-    if (occupant.value.is_checked_in) return 'text-blue-600';
-    return 'text-purple-600';
+    if (occupant.value.is_checked_out) return 'text-gray-700';
+    if (occupant.value.is_checked_in) return 'text-blue-700';
+    return 'text-purple-700';
 });
 
 const bedJoinTooltip = computed(() => (occupant.value?.bed_join ? `Ghép giường — ${occupant.value.bed_join.status_label}` : ''));
@@ -127,8 +138,10 @@ const conflictTooltip = computed(() => {
         class="relative flex w-64 shrink-0 flex-col gap-1.5 rounded-lg border p-2.5 text-xs shadow-sm transition hover:shadow-md"
         :class="[
             cardThemeClass,
+            cardTextClass,
             room.has_room_conflict ? 'ring-[3px] ring-red-600 ring-offset-2' : (selected ? 'ring-[3px] ring-indigo-600 ring-offset-2' : ''),
         ]"
+        :style="cardStyle"
     >
         <div v-if="selected" class="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-white shadow">
             <CheckCircle2 class="h-3.5 w-3.5" />
@@ -152,28 +165,47 @@ const conflictTooltip = computed(() => {
                     :checked="selected"
                     @change="emit('toggle-select', room.id)"
                 />
-                <span class="font-semibold text-gray-900">{{ room.room_number }}</span>
+                <span class="font-semibold">{{ room.room_number }}</span>
             </label>
             <span class="rounded bg-white/90 px-1.5 py-0.5 text-[10px] font-medium text-gray-700">{{ room.room_type }}</span>
         </div>
 
         <div v-if="occupant" class="space-y-1">
-            <button
-                type="button"
-                class="block text-left font-medium leading-snug text-indigo-700 hover:underline"
-                style="overflow-wrap: anywhere;"
-                @click="emit('view-booking', occupant.booking_id)"
-            >
-                {{ occupant.customer_name }}
-            </button>
-            <div class="text-[10px] text-gray-600">
+            <div class="flex items-start justify-between gap-1">
+                <button
+                    type="button"
+                    class="block text-left font-medium leading-snug underline decoration-dotted underline-offset-2 hover:decoration-solid"
+                    style="overflow-wrap: anywhere;"
+                    @click="emit('view-booking', occupant.booking_id)"
+                >
+                    {{ occupant.customer_name }}
+                </button>
+                <!-- docs/yeucaumoi.txt mục 12 — select every room this Booking
+                     currently occupies, without clicking each one. -->
+                <button
+                    type="button"
+                    title="Chọn tất cả phòng của booking này"
+                    aria-label="Chọn tất cả phòng của booking này"
+                    class="shrink-0 rounded border border-current/40 p-0.5 opacity-80 hover:opacity-100"
+                    @click="emit('select-booking-rooms', occupant.booking_id)"
+                >
+                    <CheckCircle2 class="h-3 w-3" />
+                </button>
+            </div>
+            <div class="text-[10px] opacity-80">
                 {{ occupant.start_at?.slice(5, 16) }} → {{ occupant.end_at?.slice(5, 16) }}
             </div>
         </div>
         <div v-else class="text-[11px] italic text-gray-500">Phòng trống</div>
 
-        <!-- Mục XVI-XXVI: one compact icon-only row, five status groups, never wraps. -->
-        <div class="flex flex-nowrap items-center gap-2 border-t border-dashed border-black/10 pt-1">
+        <!--
+            Mục XVI-XXVI: one compact icon-only row, five status groups, never wraps.
+            docs/yeucaumoi.txt mục 8 — this row IS the "status strip": a light backing
+            band that keeps every operational icon legible regardless of the Booking
+            color behind the tile, without letting any single state (DoorClosed/
+            DoorOpen/LogOut included) take over the tile's own background.
+        -->
+        <div class="flex flex-nowrap items-center gap-2 rounded bg-white/75 px-1 py-1 text-gray-900">
             <span :title="housekeepingTooltip" :aria-label="housekeepingTooltip" class="shrink-0">
                 <component :is="housekeepingIcon" class="h-4 w-4" :class="housekeepingClass" />
             </span>
@@ -202,8 +234,8 @@ const conflictTooltip = computed(() => {
 
         <!-- Mục XVIII/XXVII: quick note is shown in FULL — no truncate/line-clamp/max-height,
              wraps across as many lines as needed. -->
-        <div class="border-t border-dashed border-black/10 pt-1">
-            <div v-if="!editingNote" class="flex items-start gap-1">
+        <div class="pt-1">
+            <div v-if="!editingNote" class="flex items-start gap-1 rounded bg-white/75 px-1 py-1">
                 <MessageSquare class="mt-0.5 h-3 w-3 shrink-0 text-gray-500" />
                 <button
                     v-if="canEditNote && occupant"
@@ -240,7 +272,7 @@ const conflictTooltip = computed(() => {
             </div>
         </div>
 
-        <div v-if="room.pending_special_requests > 0" class="text-[10px] font-medium text-red-700">
+        <div v-if="room.pending_special_requests > 0" class="rounded bg-white/75 px-1 py-0.5 text-[10px] font-medium text-red-700">
             {{ room.pending_special_requests }} yêu cầu đặc biệt chờ xử lý
         </div>
     </div>

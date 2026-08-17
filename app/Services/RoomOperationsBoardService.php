@@ -50,7 +50,37 @@ class RoomOperationsBoardService
     public function __construct(
         private readonly RoomAvailabilityRuleService $rules,
         private readonly PaymentProjectionService $projection,
+        private readonly BusinessDateService $businessDate,
     ) {
+    }
+
+    /**
+     * docs/yeucaumoi.txt mục 11 — Historical Room Map: a genuinely PAST
+     * business date must resolve occupancy from the assignment's INTERVAL,
+     * not live operational status — a booking that has since CheckedOut
+     * still occupied this room that day and must still render. Today/future
+     * stays on the live operational filter (Assigned/CheckedIn only) so a
+     * guest who already checked out TODAY correctly shows the room as free
+     * right now.
+     *
+     * Released is deliberately NEVER included, historical or not:
+     * releaseAssignmentWithinTransaction() only ever transitions an
+     * Assigned row (never CheckedIn) and requires actual_checkin_at to
+     * still be null — by construction, a Released assignment never had a
+     * guest physically in the room. It is the same "never occupied" case
+     * as Cancelled/NoShow (mục 11's own example), just a different status
+     * name; rendering it as historically-occupied would be wrong.
+     *
+     * Uses the same BusinessDateService as Night Audit (mục 27 — one
+     * occupancy resolver semantics, not two disagreeing "today"s).
+     */
+    private function eligibleAssignmentStatuses(CarbonInterface $dateStart): array
+    {
+        $isHistoricalView = $dateStart->lt($this->businessDate->currentBusinessDate());
+
+        return $isHistoricalView
+            ? [AssignmentStatus::Assigned, AssignmentStatus::CheckedIn, AssignmentStatus::CheckedOut]
+            : [AssignmentStatus::Assigned, AssignmentStatus::CheckedIn];
     }
 
     public function boardForDate(CarbonInterface|string $date, User $user): array
@@ -60,7 +90,7 @@ class RoomOperationsBoardService
         $dateEnd = $day->copy()->addDay();
 
         $assignments = RoomAssignment::query()
-            ->whereIn('status', [AssignmentStatus::Assigned, AssignmentStatus::CheckedIn])
+            ->whereIn('status', $this->eligibleAssignmentStatuses($dateStart))
             ->where('start_at', '<', $dateEnd)
             ->where('end_at', '>', $dateStart)
             ->with([
@@ -263,6 +293,9 @@ class RoomOperationsBoardService
                 'booking_id' => $primary->booking_id,
                 'booking_code' => $primary->booking?->booking_code,
                 'customer_name' => $primary->booking?->customer_name,
+                // docs/yeucaumoi.txt mục 7 — Room Tile background; reuses the
+                // Booking's own stored color, no second palette.
+                'booking_color' => $primary->booking?->booking_color,
                 'assignment_id' => $primary->id,
                 'stay_id' => $stay?->id,
                 'assignment_status' => $primary->status->value,

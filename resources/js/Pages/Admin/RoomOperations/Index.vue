@@ -84,6 +84,27 @@ function clearSelection() {
 
 const selectedRooms = computed(() => allRoomsFlat.value.filter((r) => selectedIds.value.has(r.id)));
 
+// docs/yeucaumoi.txt mục 12 — select every room this Booking currently
+// occupies (from the full, unfiltered set — a room hidden by search/filter
+// still belongs to the booking and should still be selected). "Currently
+// occupies" is exactly what room.occupant already encodes: only rooms whose
+// occupant truly matches this booking at the selected date/time.
+function selectBookingRooms(bookingId) {
+    const bookingRoomIds = allRoomsFlat.value
+        .filter((r) => r.occupant?.booking_id === bookingId)
+        .map((r) => r.id);
+    if (bookingRoomIds.length === 0) return;
+    selectedIds.value = new Set([...selectedIds.value, ...bookingRoomIds]);
+}
+
+// docs/yeucaumoi.txt mục 13 — select every room currently VISIBLE, i.e.
+// respecting floor/search/filters/selected date already applied to
+// filteredFloors — never a room that's been filtered out.
+function selectAllVisible() {
+    const visibleIds = filteredFloors.value.flatMap((f) => f.rooms.map((r) => r.id));
+    selectedIds.value = new Set(visibleIds);
+}
+
 // ---- Toasts ----------------------------------------------------------------
 const toasts = ref([]);
 let toastSeq = 0;
@@ -378,6 +399,15 @@ function onSwapDone() {
                     <option value="pending">Chờ nhận phòng</option>
                     <option value="checked_in">Đã nhận phòng</option>
                 </select>
+                <!-- docs/yeucaumoi.txt mục 13 — select every room currently visible
+                     under the filters above, in one action. -->
+                <button
+                    type="button"
+                    class="ml-auto inline-flex items-center gap-1 rounded border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                    @click="selectAllVisible"
+                >
+                    Chọn tất cả đang hiển thị
+                </button>
             </div>
 
             <RoomOperationsBoard
@@ -387,6 +417,7 @@ function onSwapDone() {
                 @toggle-select="toggleSelect"
                 @view-booking="viewBooking"
                 @save-note="saveNote"
+                @select-booking-rooms="selectBookingRooms"
             />
 
             <div>

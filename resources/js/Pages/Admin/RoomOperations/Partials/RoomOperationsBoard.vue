@@ -7,7 +7,7 @@ defineProps({
     canEditNote: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['toggle-select', 'view-booking', 'save-note']);
+const emit = defineEmits(['toggle-select', 'view-booking', 'save-note', 'select-booking-rooms']);
 </script>
 
 <template>
@@ -34,6 +34,7 @@ const emit = defineEmits(['toggle-select', 'view-booking', 'save-note']);
                         @toggle-select="emit('toggle-select', $event)"
                         @view-booking="emit('view-booking', $event)"
                         @save-note="emit('save-note', $event)"
+                        @select-booking-rooms="emit('select-booking-rooms', $event)"
                     />
                 </div>
             </section>
