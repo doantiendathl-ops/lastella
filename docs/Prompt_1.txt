@@ -1,0 +1,315 @@
+# THAY THẾ MỤC V — BOOKING COLOR PICKER GIỐNG EXCEL
+
+Thay Color Picker hiện tại bằng bảng lựa chọn màu có **bố cục và trải nghiệm tương tự bảng màu Microsoft Excel** theo hình tham chiếu người dùng đã cung cấp.
+
+Không cần sao chép pixel-perfect giao diện Microsoft Excel, nhưng phải giữ đúng tư duy UX và cách tổ chức màu.
+
+---
+
+## V.1. CẤU TRÚC BẢNG MÀU
+
+Popup chọn màu phải được chia rõ thành các khu vực:
+
+### A. Theme Colors — Màu chủ đề
+
+Hiển thị một hàng các màu cơ sở, ví dụ theo cấu trúc tương tự:
+
+* Trắng
+* Đen
+* Xám/Beige
+* Xanh navy
+* Xanh dương
+* Đỏ
+* Xanh lá
+* Tím
+* Xanh cyan/teal
+* Cam
+
+Bên dưới mỗi màu chủ đề phải có các **biến thể sáng/tối theo chiều dọc**, tương tự Excel.
+
+Ví dụ conceptual:
+
+```text
+Theme Colors
+
+□ ■ □ ■ ■ ■ ■ ■ ■ ■
+│ │ │ │ │ │ │ │ │ │
+│ │ │ │ │ │ │ │ │ │
+│ │ │ │ │ │ │ │ │ │
+│ │ │ │ │ │ │ │ │ │
+│ │ │ │ │ │ │ │ │ │
+```
+
+Mục tiêu là cho người dùng chọn được nhiều sắc độ nhưng vẫn nằm trong một hệ màu nhất quán.
+
+---
+
+### B. Standard Colors — Màu tiêu chuẩn
+
+Bên dưới Theme Colors có một hàng riêng:
+
+**Màu tiêu chuẩn**
+
+Bao gồm các màu mạnh/dễ phân biệt tương tự Excel, ví dụ:
+
+* Đỏ đậm
+* Đỏ
+* Cam/Vàng cam
+* Vàng
+* Xanh lá sáng
+* Xanh lá
+* Cyan
+* Xanh dương
+* Navy
+* Tím
+
+Các màu này phải hiển thị dưới dạng ô vuông click một lần để chọn.
+
+---
+
+### C. Không tô màu
+
+Có lựa chọn:
+
+**Không màu / No Fill**
+
+Tuy nhiên đối với **Booking Color**, cần xem xét business rule:
+
+* nếu Booking bắt buộc phải có màu để nhận diện trên Room Map thì không cho chọn No Fill;
+* nếu legacy system hiện cho phép Booking không có màu thì vẫn hỗ trợ.
+
+Tự audit behavior hiện tại và chọn phương án backward-compatible.
+
+Không được để booking đang hoạt động trở thành khó nhận biết chỉ vì chọn màu trắng/trong suốt.
+
+---
+
+### D. Màu khác...
+
+Có tùy chọn:
+
+**Màu khác...**
+
+Cho phép chọn màu ngoài palette bằng color picker phù hợp của browser/UI framework hiện tại.
+
+Có thể hỗ trợ:
+
+* HEX;
+* RGB;
+* native color picker;
+
+tùy convention hiện tại.
+
+Không cần xây color editor phức tạp kiểu Excel.
+
+---
+
+# V.2. HIGH-CONTRAST
+
+Ảnh Excel tham chiếu có tùy chọn:
+
+**High-contrast only**
+
+LASTELLA không bắt buộc phải sao chép đúng checkbox này nếu application hiện không có accessibility mode tương ứng.
+
+Nhưng Color Picker phải đảm bảo:
+
+* màu đủ phân biệt;
+* text/icon trên Room Tile vẫn đọc được;
+* không tạo màu nền khiến thông tin biến mất.
+
+Nếu application đã có accessibility/high-contrast infrastructure thì có thể tích hợp.
+
+Không tạo một accessibility system mới chỉ để phục vụ Color Picker.
+
+---
+
+# V.3. TRẠNG THÁI MÀU ĐANG CHỌN
+
+Màu hiện tại của Booking phải được thể hiện rõ bằng:
+
+* viền;
+* checkmark;
+* hoặc selection indicator phù hợp.
+
+Khi click màu:
+
+* preview/update đúng flow hiện tại;
+* không yêu cầu nhập mã màu thủ công;
+* hoạt động tốt desktop và mobile.
+
+---
+
+# V.4. AUTO TEXT CONTRAST
+
+Vì màu Booking sẽ trở thành **background chính của Room Tile**, phải có cơ chế tự chọn màu chữ/icon phù hợp.
+
+Ví dụ:
+
+Background tối:
+
+→ text/icon sáng.
+
+Background sáng:
+
+→ text/icon tối.
+
+Không hard-code text trắng cho tất cả booking colors.
+
+Có thể dùng luminance/contrast calculation tiêu chuẩn.
+
+Áp dụng nhất quán cho:
+
+* room number;
+* guest/booking information;
+* relevant icons;
+* labels nằm trực tiếp trên booking-colored background.
+
+Dải trạng thái DoorClosed / DoorOpen / LogOut vẫn phải có độ tương phản độc lập.
+
+---
+
+# V.5. BOOKING PALETTE
+
+Không giới hạn booking vào palette cũ 16 màu nếu kiến trúc hiện tại cho phép mở rộng an toàn.
+
+Ưu tiên xây một **Booking Color Palette** gồm:
+
+1. Theme colors.
+2. Các shade phù hợp.
+3. Standard colors.
+4. Custom color nếu user chọn.
+
+Tuy nhiên các shade quá gần:
+
+* trắng;
+* xám cực nhạt;
+* hoặc các màu gần như không thể phân biệt trên Room Map;
+
+có thể vẫn hiển thị trong picker nhưng cần đảm bảo border/text đủ rõ.
+
+Không tự loại màu chỉ vì “không đẹp”.
+
+---
+
+# V.6. KHÔNG GẮN COLOR ID VÀO THỨ TỰ PALETTE
+
+Nếu hiện tại Booking lưu:
+
+* palette index;
+* ordinal;
+* array position;
+
+hãy audit.
+
+Kiến trúc mới nên ưu tiên lưu **giá trị màu ổn định**, ví dụ HEX hoặc representation hiện tại phù hợp.
+
+Không để việc thay đổi thứ tự palette sau này làm Booking lịch sử đổi màu.
+
+Booking đã lưu màu:
+
+→ lịch sử phải giữ đúng màu đó.
+
+---
+
+# BỔ SUNG VÀO MỤC VI — CƠ CHẾ PHÂN BỔ MÀU BOOKING
+
+Giữ nguyên requirement:
+
+> Chỉ những Booking có khoảng thời gian chiếm phòng trùng nhau mới cần tránh dùng cùng màu.
+
+Nhưng bổ sung các quy tắc sau.
+
+## Auto Allocation
+
+Khi hệ thống **tự chọn màu** cho Booking:
+
+1. Lấy tập Booking có occupancy interval overlap.
+2. Xác định màu đang được các Booking đó sử dụng.
+3. Chọn một màu khác trong **Booking Palette**.
+4. Không quan tâm màu đó đang được một Booking ở khoảng thời gian hoàn toàn khác sử dụng.
+
+Không tồn tại global lock:
+
+> “Màu đã dùng thì cấm cho tới khi Booking checkout”.
+
+---
+
+## Manual Selection
+
+Nếu user tự chọn màu:
+
+Hệ thống phải xác định có Booking overlap đang sử dụng cùng màu hay không.
+
+Nếu không có:
+
+→ cho lưu bình thường.
+
+Nếu có:
+
+→ ưu tiên ngăn lựa chọn hoặc cảnh báo rõ ràng theo UX hiện tại.
+
+Mục tiêu cuối cùng:
+
+> Hai Booking có thời gian chiếm phòng trùng nhau không được có cùng booking color.
+
+---
+
+## Color Comparison
+
+Nếu sử dụng custom HEX:
+
+so sánh theo normalized color value.
+
+Ví dụ:
+
+`#FF0000`
+
+và:
+
+`#ff0000`
+
+phải được hiểu là cùng một màu.
+
+Không dựa vào label/tên màu.
+
+---
+
+## Historical Stability
+
+Không được tự recolor Booking cũ để giải quyết conflict mới.
+
+Nếu dữ liệu legacy đã tồn tại conflict màu:
+
+* không âm thầm sửa lịch sử;
+* giữ nguyên historical data;
+* áp dụng rule mới cho allocation/edit mới.
+
+Nếu cần, báo legacy conflict trong audit/report thay vì mutate dữ liệu tự động.
+
+---
+
+# ACCEPTANCE TEST BỔ SUNG CHO COLOR PICKER
+
+Bắt buộc test/manual verify:
+
+1. Mở Booking Color Picker.
+2. Thấy rõ:
+
+   * Theme Colors;
+   * các shade;
+   * Standard Colors;
+   * Màu khác.
+3. Chọn một Theme Color.
+4. Chọn một shade.
+5. Chọn Standard Color.
+6. Chọn custom color.
+7. Màu Booking lưu đúng sau reload.
+8. Booking lịch sử giữ nguyên màu.
+9. Background sáng → text tối.
+10. Background tối → text sáng.
+11. Hai Booking overlap không được auto nhận cùng màu.
+12. Hai Booking không overlap được dùng lại cùng màu.
+13. Booking checkout không làm mất màu khi xem lại lịch sử.
+14. Thay đổi palette/order không làm Booking cũ đổi màu.
+15. Mobile picker vẫn thao tác được.

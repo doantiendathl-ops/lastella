@@ -1,0 +1,511 @@
+# LASTELLA PMS — CHECKOUT WITH OUTSTANDING BALANCE
+
+## MỤC TIÊU
+
+Thực hiện trong **một lượt duy nhất** việc audit, thiết kế, triển khai, test và regression review để:
+
+> Cho phép nhân viên checkout khách ngay cả khi Booking vẫn còn số dư chưa thanh toán.
+
+Số tiền chưa thanh toán phải tiếp tục tồn tại dưới dạng:
+
+> Công nợ / khoản phải thu
+
+và được hiển thị, quản lý trong hệ thống:
+
+> Đối soát / Thông tin bất thường
+
+Không tạo một dashboard công nợ mới nếu kiến trúc `/admin/reconciliation` hiện tại đã đáp ứng.
+
+Không xóa hoặc “coi như đã thanh toán” phần dư nợ chỉ vì Booking checkout.
+
+---
+
+# I. WORKFLOW
+
+Tự chạy:
+
+Audit
+→ Architecture
+→ Implementation
+→ Tests
+→ Regression
+→ Commit.
+
+Không dừng giữa phase.
+
+Chỉ hỏi BUSINESS BLOCKER nếu quyết định có thể làm thay đổi trực tiếp:
+
+* số tiền khách còn nợ;
+* cách payment được ghi nhận;
+* accounting semantics;
+
+mà không thể suy ra từ hệ thống hiện tại.
+
+---
+
+# II. REGRESSION SAFETY
+
+Không làm hỏng:
+
+* Booking
+* Check-in
+* Check-out
+* Folio
+* Payments
+* Night Audit
+* Reconciliation
+* Booking Finance
+* Unified Services
+* Room Map
+* Customer Display
+* KDS
+
+Không rewrite financial ledger nếu không cần.
+
+---
+
+# III. AUDIT CHECKOUT HIỆN TẠI
+
+Trace đầy đủ:
+
+1. UI checkout.
+2. Backend validation.
+3. Service/controller.
+4. Điều kiện outstanding balance.
+5. Folio balance.
+6. Payment status.
+7. Booking/stay status transition.
+8. Room release.
+9. Reconciliation.
+10. Abnormal information.
+11. Later payment against checked-out booking.
+12. Permission.
+
+Xác định chính xác đoạn code hiện đang chặn:
+
+> outstanding > 0 → cannot checkout.
+
+---
+
+# IV. BUSINESS RULE MỚI
+
+Nhân viên được phép checkout dù:
+
+`outstanding_balance > 0`
+
+Ví dụ:
+
+Folio total:
+2.000.000
+
+Paid:
+1.500.000
+
+Outstanding:
+500.000
+
+Nhân viên checkout:
+
+→ Booking/Stay được checkout bình thường.
+
+→ Room được giải phóng theo flow hiện tại.
+
+→ 500.000 KHÔNG biến mất.
+
+→ 500.000 trở thành khoản phải thu/công nợ đang mở.
+
+---
+
+# V. KHÔNG TẠO FINANCIAL LEDGER THỨ HAI
+
+Folio phải tiếp tục phản ánh:
+
+Total charges
+Payments
+Outstanding balance.
+
+Nếu Reconciliation cần record/reference bổ sung:
+
+tạo relationship/reference chứ không duplicate balance độc lập gây lệch số.
+
+Source of truth tài chính phải rõ.
+
+---
+
+# VI. RECONCILIATION
+
+Booking đã checkout nhưng còn nợ phải xuất hiện trong:
+
+**Đối soát**
+
+với đủ thông tin cần thiết:
+
+* Booking code;
+* guest/customer identifier theo UI hiện có;
+* checkout date;
+* total;
+* paid;
+* outstanding;
+* trạng thái công nợ;
+* link về Booking/Folio nếu phù hợp.
+
+Reuse `/admin/reconciliation`.
+
+Không xây dashboard công nợ khác nếu không cần.
+
+---
+
+# VII. THÔNG TIN BẤT THƯỜNG
+
+Nếu hệ thống hiện có module/section “Thông tin bất thường”:
+
+Booking checkout còn dư nợ phải được đánh dấu phù hợp.
+
+Không duplicate cảnh báo nhiều nơi vô ích.
+
+Mục tiêu là để Manager nhìn thấy:
+
+> khách đã rời phòng nhưng vẫn còn công nợ.
+
+---
+
+# VIII. CHECKOUT CONFIRMATION
+
+Khi outstanding = 0:
+
+giữ flow checkout bình thường.
+
+Khi outstanding > 0:
+
+UI phải cảnh báo rõ:
+
+> Booking còn công nợ X đồng. Sau khi checkout, số tiền này sẽ tiếp tục được theo dõi trong Đối soát.
+
+Cho nhân viên xác nhận checkout.
+
+Không dùng wording khiến người dùng hiểu rằng khoản nợ được miễn/xóa.
+
+Không bắt buộc thanh toán trước nữa.
+
+---
+
+# IX. PERMISSIONS
+
+Requirement:
+
+> Nhân viên được phép thực hiện checkout còn công nợ.
+
+Reuse permission/role architecture hiện tại.
+
+Không hard-code user ID.
+
+Admin/Manager không bị mất quyền.
+
+Nếu checkout permission hiện tại đã tồn tại:
+
+người có checkout permission phải được phép dùng flow mới, trừ khi security model hiện tại có capability rõ ràng khác.
+
+Không tự tạo approval workflow mới nếu không có requirement.
+
+---
+
+# X. AUDIT TRAIL
+
+Phải lưu/truy vết được:
+
+* ai checkout;
+* thời gian;
+* outstanding balance tại thời điểm checkout.
+
+Không cần snapshot thành ledger thứ hai nếu Folio history đã đủ.
+
+Nếu cần metadata để audit:
+
+thêm minimal data.
+
+Không overwrite financial history.
+
+---
+
+# XI. PAYMENT SAU CHECKOUT
+
+Audit và đảm bảo Booking đã checkout vẫn có thể xử lý khoản thanh toán sau đó theo financial architecture hiện có.
+
+Ví dụ:
+
+Checkout 16/08:
+Outstanding 500.000.
+
+Ngày 20/08:
+Khách/chủ booking thanh toán 500.000.
+
+Hệ thống phải:
+
+* ghi payment;
+* giảm Folio outstanding;
+* cập nhật Reconciliation;
+* bỏ trạng thái outstanding/anomaly khi balance = 0 theo semantics hiện tại.
+
+Không yêu cầu reopen stay/room.
+
+---
+
+# XII. PARTIAL PAYMENT SAU CHECKOUT
+
+Phải hỗ trợ nếu hệ thống payment hiện tại cho phép.
+
+Ví dụ:
+
+Outstanding 500.000.
+
+Thanh toán thêm 200.000.
+
+Remaining:
+300.000.
+
+Reconciliation phải còn hiển thị 300.000.
+
+Không mark paid prematurely.
+
+---
+
+# XIII. NIGHT AUDIT / SERVICE CHARGES TRƯỚC CHECKOUT
+
+Trước checkout phải đảm bảo Folio phản ánh chính xác các charge đủ điều kiện.
+
+Audit flow hiện tại xem:
+
+* room charges;
+* PER_NIGHT services;
+* room inspection charges;
+
+có cần finalization trước checkout hay không.
+
+Không tự chạy duplicate Night Audit.
+
+Không tạo phí hai lần.
+
+Nếu hệ thống có final posting mechanism:
+
+reuse.
+
+Nếu không có và đây là defect độc lập lớn:
+
+ghi nhận nhưng không rewrite Night Audit mù.
+
+Chỉ implement minimal safe logic cần thiết để Folio không thiếu các khoản đã phát sinh rõ ràng.
+
+---
+
+# XIV. ROOM RELEASE
+
+Dù còn nợ:
+
+Room phải chuyển trạng thái sau checkout đúng workflow hiện tại:
+
+* checkout;
+* housekeeping/dirty state nếu có;
+* room availability.
+
+Không giữ room occupied chỉ vì còn công nợ.
+
+Financial debt và physical occupancy là hai trạng thái độc lập.
+
+---
+
+# XV. HISTORICAL ROOM MAP
+
+Checkout với outstanding balance không được làm mất dữ liệu historical occupancy.
+
+Shared Room Map phải vẫn có thể hiển thị booking trong khoảng lịch sử của nó.
+
+Không tạo special-case làm history biến mất.
+
+---
+
+# XVI. IDEMPOTENCY
+
+Checkout request retry/double click:
+
+không được:
+
+* checkout hai lần;
+* tạo hai receivable records;
+* duplicate anomaly;
+* duplicate financial movement.
+
+Thiết kế idempotent theo convention hiện tại.
+
+---
+
+# XVII. AUTOMATED TESTS
+
+Bắt buộc tối thiểu:
+
+### Zero Balance
+
+Checkout bình thường.
+
+### Outstanding Balance
+
+Total 2m
+Paid 1.5m
+Outstanding 500k
+
+→ checkout PASS.
+
+### Room
+
+Room được release.
+
+### Folio
+
+Outstanding vẫn = 500k.
+
+### Reconciliation
+
+Booking xuất hiện đúng.
+
+### Abnormal Information
+
+Xuất hiện cảnh báo phù hợp.
+
+### Later Full Payment
+
+Pay 500k
+→ outstanding = 0
+→ reconciliation/anomaly cập nhật đúng.
+
+### Later Partial Payment
+
+Pay 200k
+→ remaining 300k.
+
+### Retry
+
+Double checkout không duplicate.
+
+### Permission
+
+Staff có checkout permission thực hiện được.
+
+### Regression
+
+* fully paid checkout;
+* cancelled booking;
+* Night Audit;
+* Folio;
+* Payment;
+* Reconciliation;
+* Room status;
+* Room Map;
+* Customer Display;
+* KDS.
+
+---
+
+# XVIII. MANUAL TEST
+
+Checklist tối thiểu:
+
+1. Booking 1 phòng đã thanh toán đủ.
+2. Booking 1 phòng còn nợ.
+3. Booking nhiều phòng còn nợ.
+4. Partial payment trước checkout.
+5. Checkout.
+6. Kiểm tra room released.
+7. Kiểm tra Folio.
+8. Kiểm tra Đối soát.
+9. Kiểm tra Thông tin bất thường.
+10. Thanh toán nợ sau checkout.
+11. Kiểm tra debt cleared.
+12. Xem lại historical Room Map.
+
+---
+
+# XIX. REPORTS
+
+Tạo:
+
+`unpaid-checkout-architecture-review.md`
+
+`unpaid-checkout-implementation-plan.md`
+
+`unpaid-checkout-implementation-report.md`
+
+`unpaid-checkout-regression-review.md`
+
+---
+
+# XX. GIT
+
+Không reset unrelated changes.
+
+Final diff review.
+
+Chỉ commit nếu:
+
+* financial tests PASS;
+* checkout regression PASS;
+* reconciliation PASS;
+* room lifecycle PASS.
+
+Không deploy production.
+
+---
+
+# XXI. FINAL OUTPUT
+
+## Implementation Status
+
+COMPLETE / PARTIAL / BLOCKED
+
+## Current Blocker Removed
+
+Đoạn logic cũ chặn checkout.
+
+## Checkout Flow
+
+Flow mới.
+
+## Outstanding Balance
+
+Cách bảo toàn công nợ.
+
+## Reconciliation
+
+Cách hiển thị.
+
+## Abnormal Information
+
+Cách cảnh báo.
+
+## Later Payment
+
+Cách thu nợ sau checkout.
+
+## Room Lifecycle
+
+Xác nhận room release độc lập tài chính.
+
+## Financial Integrity
+
+Xác nhận không xóa/duplicate số tiền.
+
+## Tests
+
+PASS/FAIL.
+
+## Regression
+
+## Production Actions Required
+
+## Remaining Risks
+
+Bắt buộc kết luận:
+
+`READY FOR COMMIT = YES / NO`
+
+`READY FOR PRODUCTION MIGRATION = YES / NO`
+
+Không deploy production.

@@ -1,0 +1,1348 @@
+# LASTELLA PMS — FINAL COMPLETION RUN
+
+## MỤC TIÊU
+
+Đây là **một lượt implementation cuối để hoàn thiện toàn bộ các yêu cầu còn lại đã được người dùng đề ra**.
+
+Không tạo thêm:
+
+* Slice 4 / Slice 5 / Slice N;
+* Gate trung gian;
+* “phase sau”;
+* backlog để né việc hoàn tất;
+* câu hỏi “có muốn tôi tiếp tục không?”.
+
+Tự chạy xuyên suốt:
+
+**Current HEAD Audit**
+→ **Baseline**
+→ **Architecture correction**
+→ **Implementation**
+→ **Migration tooling**
+→ **Backend**
+→ **Frontend**
+→ **Automated tests**
+→ **Full regression**
+→ **Code review**
+→ **Final reports**
+→ **Commit nếu đủ điều kiện**
+
+Chỉ được dừng khi gặp **BUSINESS BLOCKER thực sự** theo định nghĩa ở cuối prompt.
+
+---
+
+# 1. BẮT ĐẦU TỪ CODE HIỆN TẠI — KHÔNG DỰA MÙ VÀO REPORT CŨ
+
+Trước khi sửa:
+
+```bash
+git status
+git branch --show-current
+git rev-parse HEAD
+git log --oneline -15
+```
+
+Sau đó audit code hiện tại để xác định chính xác những phần nào đã hoàn thành từ các lượt trước.
+
+Không implement lại feature đã có nếu code hiện tại đã đáp ứng.
+
+Không reset/discard unrelated changes.
+
+---
+
+# 2. CÁC PHẦN ĐÃ ĐƯỢC COI LÀ PRECOMPLETED
+
+## 2.1 Excel-style Booking Color Picker
+
+Đã có:
+
+* Theme Colors;
+* shade;
+* Standard Colors;
+* custom color;
+* HEX stable storage;
+* contrast text;
+* overlap-based color allocation;
+* server-side color conflict validation;
+* historical color stability.
+
+**KHÔNG viết lại Color Picker.**
+
+Chỉ reuse/integrate vào Room Map mới.
+
+Nếu phát hiện regression thực tế thì sửa tối thiểu.
+
+---
+
+## 2.2 Unpaid Checkout & Receivables
+
+Đã có:
+
+* checkout khi còn balance;
+* room release độc lập công nợ;
+* Folio giữ Open khi còn nợ;
+* Reconciliation;
+* abnormal financial information;
+* payment sau checkout;
+* partial payment;
+* auto-close Folio khi hết nợ;
+* warning UI;
+* audit trail.
+
+**KHÔNG rewrite financial checkout architecture.**
+
+Chỉ regression/integration với Room Map và các thay đổi mới.
+
+---
+
+# 3. UNIFIED SERVICES & REQUESTS — HOÀN THIỆN NẾU HEAD HIỆN TẠI CHƯA COMPLETE
+
+Trước khi bắt đầu Room Map, audit các acceptance criteria sau.
+
+Phải đạt:
+
+### One Catalog
+
+`services`
+
+### One Category System
+
+`service_categories`
+
+### One Canonical Price Source
+
+`service_prices`
++
+`ServicePricingResolver`
+
+### One Admin Function
+
+`/admin/services`
+
+### One Booking Function
+
+**Dịch vụ & Yêu cầu**
+
+### Dynamic Request Catalog
+
+Không còn catalog request hard-code backend/frontend cho request mới.
+
+### Service Icon
+
+Admin cấu hình được icon.
+
+### Room Inspection integration
+
+Sản phẩm/dịch vụ kiểm phòng dùng canonical Service identity + canonical pricing.
+
+### Legacy financial path
+
+Không được duplicate posting với unified path cho cùng nghiệp vụ.
+
+### ONE_TIME
+
+Financial semantics an toàn.
+
+### PER_NIGHT
+
+Idempotent + temporal.
+
+### Historical Night Audit catch-up
+
+Không bỏ Stay đã CheckedOut nhưng thực sự occupied tại business date.
+
+### Folio traceability
+
+Biết charge thuộc Service nào mà không parse description.
+
+Nếu một mục chưa hoàn thành:
+
+**HOÀN THIỆN NGAY TRONG LƯỢT NÀY.**
+
+Không dừng để gọi đó là một Slice mới.
+
+---
+
+# 4. KHÔNG REWRITE ROOM INSPECTION CHỈ ĐỂ “ĐẸP KIẾN TRÚC”
+
+Nếu `CheckoutInspectionService`/Room Inspection hiện đã post đúng vào Folio:
+
+giữ workflow ổn định.
+
+Mục tiêu của việc hợp nhất Room Inspection là:
+
+* canonical Service identity;
+* canonical price;
+* source traceability;
+* one Admin catalog;
+
+không phải ép tất cả phát sinh kiểm phòng vào lifecycle BookingService nếu nghiệp vụ không cần.
+
+---
+
+# 5. MỤC TIÊU CHÍNH CÒN LẠI — UNIFIED ROOM MAP
+
+Sau khi Unified Services đủ nền tảng, thực hiện toàn bộ hệ thống Room Map trong cùng lượt này.
+
+Phải chuẩn hóa các sơ đồ:
+
+1. **Sơ đồ thao tác**
+2. **Sơ đồ chọn phòng trong Booking / Đặt phòng**
+3. **Sơ đồ Check phòng**
+4. **Sơ đồ Kiểm tra / Kiểm đồ phòng**
+
+Mục tiêu:
+
+> Một visual language + shared Room Tile + shared occupancy resolver + shared booking/request rendering.
+
+Không copy/paste 4 implementation độc lập.
+
+Có thể có variant/config cho từng màn hình.
+
+---
+
+# 6. SHARED ROOM MAP ARCHITECTURE
+
+Audit component/API hiện tại rồi tạo shared architecture ở mức an toàn.
+
+Shared layer nên chịu trách nhiệm cho:
+
+* Room Tile structure;
+* booking color;
+* room identity;
+* occupancy at selected time;
+* selected state;
+* conflict state;
+* Door state/status strip;
+* request/service icons;
+* historical booking rendering;
+* common click/selection behavior.
+
+Variant có thể quyết định:
+
+* action button;
+* room inspection content;
+* booking assignment action;
+* hover/click behavior;
+* multi-select availability.
+
+Không ép mọi màn hình giống nghiệp vụ.
+
+---
+
+# 7. ROOM TILE — BOOKING COLOR LÀ BACKGROUND CHÍNH
+
+Trên các Room Map phù hợp:
+
+Nếu phòng đang thuộc một Booking tại selected date/time:
+
+> background chính của Room Tile = `booking_color`.
+
+Reuse Booking Color Picker/BookingColorService hiện có.
+
+Không tạo palette riêng thứ hai.
+
+Auto contrast:
+
+* background sáng → text/icon tối;
+* background tối → text/icon sáng.
+
+Không hard-code `text-white`.
+
+---
+
+# 8. DOORCLOSED / DOOROPEN / LOGOUT
+
+Không tiếp tục dùng 3 trạng thái:
+
+* DoorClosed
+* DoorOpen
+* LogOut
+
+làm màu nền toàn bộ Room Tile.
+
+Chuyển thành:
+
+> **một dải màu/status strip trên dòng hiển thị icon/thông tin của Room Tile.**
+
+Booking color vẫn phải nhìn thấy rõ ở phần nền chính.
+
+Các trạng thái trên chỉ biểu diễn operational state, không chiếm quyền màu Booking.
+
+---
+
+# 9. SELECTED VÀ ROOM CONFLICT
+
+Giữ rule:
+
+### Selected
+
+→ màu viền.
+
+### Room Conflict / Trùng phòng
+
+→ màu viền.
+
+Không dùng background.
+
+Nếu đồng thời selected + conflict:
+
+thiết kế biểu hiện phân biệt rõ.
+
+Không làm mất booking background.
+
+---
+
+# 10. BOOKING COLOR OVERLAP
+
+Reuse implementation hiện có.
+
+Business rule:
+
+> Chỉ các Booking có occupancy interval overlap mới không được dùng cùng màu.
+
+Không quay lại global color lock.
+
+Không recolor historical Booking.
+
+Không sửa màu cũ tự động.
+
+---
+
+# 11. HISTORICAL ROOM MAP — BẮT BUỘC
+
+Hiện yêu cầu:
+
+Booking đã checkout vẫn phải xuất hiện khi người dùng xem lại ngày/thời điểm nằm trong khoảng Booking đã chiếm phòng.
+
+Resolver phải dựa trên:
+
+> occupancy at selected date/time
+
+không dựa trên:
+
+> current booking status.
+
+Ví dụ:
+
+Booking:
+10/08 → 12/08
+
+Hiện tại:
+CheckedOut
+
+View:
+11/08
+
+→ PHẢI hiển thị.
+
+View:
+15/08
+
+→ KHÔNG hiển thị.
+
+Cancelled/NoShow chưa từng occupied:
+
+→ không render như occupied.
+
+Nếu có room reassignment:
+
+historical map phải phản ánh đúng room interval nếu schema hiện lưu đủ dữ liệu.
+
+---
+
+# 12. SELECT ALL ROOMS OF BOOKING
+
+Trên Sơ đồ thao tác:
+
+Cho phép một thao tác để:
+
+> chọn tất cả các phòng thuộc Booking đang hiển thị.
+
+Không bắt click từng phòng.
+
+Phải hoạt động với:
+
+* 1 phòng;
+* nhiều phòng;
+* nhiều tầng/group.
+
+Chỉ select phòng thực sự thuộc Booking tại selected time.
+
+---
+
+# 13. SELECT ALL VISIBLE ROOMS
+
+Thêm:
+
+> Chọn tất cả phòng đang hiển thị.
+
+“Visible” phải tôn trọng:
+
+* floor;
+* search;
+* filters;
+* selected date/time;
+* room status filter.
+
+Không chọn room đang bị filter out.
+
+Có clear/deselect hợp lý.
+
+---
+
+# 14. SERVICE / REQUEST ICON TRÊN ROOM TILE
+
+Khi một Dịch vụ/Yêu cầu được tạo cho Booking/phòng:
+
+nếu request/service thuộc phạm vi hiển thị của Room Tile:
+
+→ icon phải xuất hiện ngay trên dòng thông tin của ô phòng.
+
+Icon lấy từ:
+
+> Service Catalog configuration.
+
+Không hard-code mapping code → icon.
+
+---
+
+# 15. TEMPORAL SCOPE CỦA REQUEST ICON
+
+Request thuộc Booking chỉ được hiển thị trong thời gian Booking đó chiếm giữ.
+
+Ví dụ:
+
+Booking:
+10/09 → 12/09
+
+Request:
+“Thêm gối”.
+
+View:
+11/09
+→ hiển thị.
+
+View:
+20/09
+→ không hiển thị.
+
+Nếu request/service có:
+
+`active_from`
+`active_until`
+
+thì dùng range cụ thể đó.
+
+Nếu legacy request không có own temporal range:
+
+fallback booking occupancy range.
+
+Không để request “dính” vào Room vĩnh viễn.
+
+---
+
+# 16. REQUEST PERMISSIONS
+
+Người dùng đã yêu cầu:
+
+Nhân viên/lễ tân được phép:
+
+* tạo;
+* tiếp nhận/xác nhận;
+* xử lý/hoàn thành;
+
+request/service phù hợp.
+
+Reuse permission architecture.
+
+Không hard-code user ID.
+
+Admin/Manager giữ đầy đủ quyền.
+
+Audit:
+
+* who created;
+* who confirmed/accepted;
+* who completed;
+* timestamps.
+
+---
+
+# 17. SƠ ĐỒ ĐẶT PHÒNG / BOOKING ROOM SELECTION
+
+Phải chuyển sang shared visual model Room Map.
+
+Riêng màn hình này:
+
+### Hover
+
+Không hiện legacy popup/tab thông tin phòng khi chỉ hover.
+
+### Click phòng trống
+
+→ selection theo flow hiện tại.
+
+### Click phòng đã có Booking
+
+→ khi click mới mở/hiển thị thông tin booking/phòng phù hợp.
+
+Không để hover popup che màn hình mobile.
+
+---
+
+# 18. SƠ ĐỒ CHECK PHÒNG / KIỂM TRA PHÒNG / KIỂM ĐỒ
+
+Các Room Map này cũng dùng chung:
+
+* Room Tile;
+* booking color;
+* status strip;
+* request icons;
+* selection/conflict styling;
+* historical occupancy nếu màn hình có selected date.
+
+Nhưng:
+
+**KHÔNG rewrite nghiệp vụ kiểm phòng ổn định.**
+
+Các flow:
+
+* quantity;
+* minibar;
+* inspection;
+* checkout inspection;
+* free products;
+
+phải tiếp tục hoạt động.
+
+Shared visual component không được kéo theo regression business logic.
+
+---
+
+# 19. QUICK ROOM ASSIGNMENT — KHÔNG CẦN ROOM REQUIREMENT TRƯỚC
+
+Giữ/hoàn thiện flow:
+
+Nhân viên được chọn phòng trực tiếp trên Room Map.
+
+Không bắt buộc tạo Room Requirement trước.
+
+Sau khi chọn:
+
+→ hệ thống tạo/cập nhật ngược Room Requirement cần thiết.
+
+Compatibility với requirement-first flow phải được giữ.
+
+---
+
+# 20. FIX MULTIPLE SAME ROOM TYPE WITH DIFFERENT COMMERCIAL TERMS
+
+Đây là requirement bắt buộc.
+
+Ví dụ:
+
+Booking ban đầu:
+
+Twin
+10 phòng
+650.000đ/phòng
+
+Sau đó cần thêm:
+
+Twin
+1 phòng
+giá nội bộ dành cho hướng dẫn viên/lái xe
+ví dụ 300.000đ
++
+note riêng.
+
+Hiện hệ thống không được ép phòng mới kế thừa 650.000đ mà không cho sửa.
+
+Phải hỗ trợ:
+
+```text
+Requirement Group A
+Twin
+Quantity 10
+Rate 650.000
+Normal
+
+Requirement Group B
+Twin
+Quantity 1
+Rate 300.000
+Internal Driver
+Note riêng
+```
+
+Cùng Room Type nhưng khác commercial terms phải là các requirement line/group độc lập.
+
+---
+
+# 21. KHÔNG DÙNG ROOM_TYPE_ID LÀ IDENTITY DUY NHẤT
+
+Nếu architecture hiện có assumption:
+
+> one requirement per room_type per booking
+
+thì phải sửa.
+
+Identity cần dựa trên requirement line/item/group phù hợp.
+
+Không merge hai requirement chỉ vì cùng `room_type_id`.
+
+---
+
+# 22. ROOM RATE SNAPSHOT
+
+Khi một requirement/assignment có giá thực hiện:
+
+phải snapshot đúng giá.
+
+Thay đổi requirement khác không được overwrite.
+
+Ví dụ:
+
+10 Twin × 650.000
++
+1 Twin × 300.000
+
+Night Audit / Room Charge phải dùng đúng rate của từng assignment/stay.
+
+Reuse existing negotiated-rate/rate-plan architecture nếu có.
+
+Không tạo nguồn giá phòng duplicate vô ích.
+
+---
+
+# 23. NOTES / COMMERCIAL METADATA RIÊNG
+
+Requirement line mới phải hỗ trợ metadata riêng cần thiết, tối thiểu nếu system hiện có:
+
+* price;
+* notes;
+* purpose/internal note;
+* guest/driver/guide context nếu field hiện tại có.
+
+Không overwrite line trước.
+
+---
+
+# 24. HISTORICAL ROOM ASSIGNMENT
+
+Nếu guest đổi phòng:
+
+historical Room Map phải cố gắng render đúng:
+
+* room cũ trong interval cũ;
+* room mới trong interval mới.
+
+Không dùng current room assignment để vẽ toàn bộ quá khứ nếu dữ liệu interval hiện có.
+
+Nếu schema thiếu dữ liệu tối thiểu:
+
+thêm additive schema an toàn.
+
+Không rewrite lịch sử.
+
+---
+
+# 25. PERFORMANCE
+
+Không tạo request riêng cho từng Room Tile.
+
+Không N+1.
+
+Room Map payload nên load theo selected date/range.
+
+Service/request icons load theo batch.
+
+Không polling hung hãn.
+
+Tôn trọng hosting safety:
+
+* visibility aware nếu polling;
+* backoff khi lỗi;
+* chống request trùng;
+* payload gọn.
+
+Không stress test production.
+
+---
+
+# 26. UNPAID CHECKOUT INTEGRATION
+
+Không sửa lại financial architecture.
+
+Chỉ xác nhận Shared Room Map mới vẫn cho:
+
+* checkout room khi còn nợ;
+* room release;
+* booking historical display sau checkout;
+* outstanding warning hiện đúng;
+* reconciliation không regression.
+
+Không để Room Map mới vô tình reintroduce disable checkout khi `balance_due > 0`.
+
+---
+
+# 27. NIGHT AUDIT / HISTORICAL OCCUPANCY ALIGNMENT
+
+Nếu Unified Services task hiện chưa sửa historical Night Audit catch-up:
+
+phải hoàn tất trong lượt này.
+
+Một occupancy resolver tốt nên được reuse hoặc ít nhất dùng cùng semantics cho:
+
+* Room Map historical view;
+* Night Audit historical Stay eligibility.
+
+Không để:
+
+Room Map nói guest ở ngày D
+
+nhưng Night Audit resolver nói guest không tồn tại ở ngày D.
+
+---
+
+# 28. ONE_TIME / PER_NIGHT FINAL VERIFY
+
+Nếu chưa được hoàn tất ở HEAD:
+
+### ONE_TIME
+
+CREATED:
+→ no charge.
+
+CONFIRMED:
+→ exactly one charge.
+
+COMPLETED:
+→ no second charge.
+
+CANCEL before confirm:
+→ no charge.
+
+CANCEL after posting:
+→ reversal/adjustment, không xóa im lặng.
+
+### PER_NIGHT
+
+Confirmed + active date:
+→ eligible.
+
+Completed fulfillment:
+→ không tự stop.
+
+Cancel/Stop:
+→ stop future dates.
+
+Retry:
+→ no duplicate.
+
+---
+
+# 29. LEGACY ROUTE CLEANUP
+
+Sau khi Unified Services hoàn tất:
+
+Các route legacy:
+
+* `/admin/service-packages`
+* `/admin/service-rates`
+* `/admin/product-services`
+* legacy Booking package route
+
+không được còn là đường chỉnh canonical data song song.
+
+Ưu tiên:
+
+redirect
+hoặc
+read-only legacy history.
+
+Không tạo 404 nếu redirect an toàn.
+
+---
+
+# 30. AUTOMATED TESTS — ROOM MAP CORE
+
+Bắt buộc test:
+
+### Historical occupancy
+
+* checked-out booking visible inside interval;
+* invisible outside interval;
+* cancelled/no-show behavior;
+* room reassignment nếu supported.
+
+### Booking background
+
+* booking color được dùng.
+
+### Contrast
+
+* light booking color;
+* dark booking color.
+
+### Door status
+
+* DoorClosed strip;
+* DoorOpen strip;
+* LogOut strip.
+
+### Selected
+
+border.
+
+### Conflict
+
+border.
+
+---
+
+# 31. TESTS — COLOR INTEGRATION
+
+Không re-test toàn bộ Color Picker từ đầu nếu suite đã có.
+
+Nhưng phải xác nhận:
+
+* overlapping booking color conflict vẫn hoạt động;
+* non-overlap được reuse màu;
+* Room Map sử dụng đúng stored HEX;
+* historical booking giữ màu.
+
+---
+
+# 32. TESTS — SELECTION
+
+* select all rooms of booking;
+* select all visible;
+* filter-aware;
+* deselect/clear;
+* no hidden room selected.
+
+---
+
+# 33. TESTS — REQUEST ICONS
+
+* dynamic icon config;
+* create request → icon visible;
+* outside booking interval → hidden;
+* historical valid interval → visible;
+* no icon when service has no icon;
+* receptionist create/confirm/complete permissions.
+
+---
+
+# 34. TESTS — ROOM MAP VARIANTS
+
+Phải có test/regression cho:
+
+* Operations Map;
+* Booking Room Selection;
+* Check Room;
+* Room Inspection.
+
+Không cần pixel test nếu project không có visual testing.
+
+Nhưng component props/data behavior phải được test hợp lý.
+
+---
+
+# 35. TESTS — BOOKING SELECTION UX
+
+* hover occupied room không mở legacy popup;
+* click occupied room mở thông tin;
+* click empty room select;
+* mobile interaction không phụ thuộc hover.
+
+---
+
+# 36. TESTS — QUICK ASSIGNMENT
+
+* assignment without pre-existing requirement;
+* reverse-create/update requirement;
+* existing requirement-first still works.
+
+---
+
+# 37. TESTS — SAME ROOM TYPE / DIFFERENT RATE
+
+Bắt buộc scenario:
+
+```text
+Twin Group A:
+10 rooms × 650000
+
+Twin Group B:
+1 room × 300000
+note = internal driver
+```
+
+Verify:
+
+* hai requirement line riêng;
+* Group A không đổi;
+* Group B lưu giá riêng;
+* note riêng;
+* assignment đúng;
+* Room Charge/Night Audit đúng rate;
+* edit Group B không overwrite Group A.
+
+---
+
+# 38. REGRESSION — ROOM INSPECTION
+
+Tất cả test ổn định liên quan:
+
+* RoomOperationsBedOperationsTest;
+* RoomSwapServiceTest;
+* CheckoutInspectionService;
+* Product/Inspection;
+* minibar;
+* free product rules;
+
+phải pass theo baseline hiện tại.
+
+Không thay business rule miễn phí/tính phí đã ổn định.
+
+---
+
+# 39. FULL BASELINE — KHÔNG DÙNG SỐ CŨ MỘT CÁCH MÙ QUÁNG
+
+Trước implementation:
+
+chạy:
+
+```bash
+php artisan test
+npm run build
+```
+
+Ghi:
+
+* HEAD;
+* passed;
+* failed;
+* failing suites;
+* flaky nếu reproduce được.
+
+Đây là baseline chính thức cho lượt này.
+
+Sau implementation:
+
+chạy lại cùng full suite.
+
+Không được tăng deterministic regression failure count.
+
+Không được:
+
+* skip;
+* delete;
+* weaken assertion;
+
+để làm suite xanh.
+
+Nếu flaky test:
+
+reproduce/rerun targeted, ghi rõ bằng chứng.
+
+---
+
+# 40. CODE REVIEW
+
+Do thay đổi chạm:
+
+* Booking;
+* Room Assignment;
+* Night Audit;
+* Room Rate;
+* Folio integration;
+* Shared UI;
+
+phải thực hiện final review ít nhất cho:
+
+### Financial / Room Rate
+
+* multi-room;
+* same room type/different price;
+* Night Audit;
+* duplicate posting.
+
+### Historical Occupancy
+
+* checked-out;
+* room reassignment;
+* cancelled/no-show.
+
+### Frontend
+
+* shared component regression;
+* mobile;
+* click/selection semantics.
+
+Sửa HIGH/CRITICAL trước khi kết luận.
+
+---
+
+# 41. KHÔNG LÀM LẠI CÁC PHẦN ĐÃ DONE
+
+Không rewrite:
+
+* BookingColorService;
+* ExcelColorPicker;
+* unpaid checkout;
+* reconciliation debt architecture;
+
+trừ khi shared integration phát hiện defect thật.
+
+Mục tiêu là hoàn thiện nốt, không quay lại xây lại.
+
+---
+
+# 42. REPORTS CUỐI CÙNG
+
+Không tạo “Slice report”.
+
+Tạo/cập nhật:
+
+### `final-room-map-architecture-review.md`
+
+Phải gồm:
+
+* current Room Map implementations;
+* shared architecture;
+* historical occupancy model;
+* visual state model;
+* request/service icon integration;
+* booking assignment architecture;
+* multi-rate requirement model.
+
+### `final-room-map-implementation-report.md`
+
+* files changed;
+* schema;
+* components;
+* API changes;
+* legacy behavior retained;
+* migrations;
+* tests.
+
+### `final-room-map-regression-review.md`
+
+* baseline before;
+* result after;
+* failing suites;
+* build;
+* critical regressions;
+* review findings.
+
+### `lastella-final-feature-completion-report.md`
+
+Báo cáo tổng hợp toàn bộ các yêu cầu người dùng đã giao trong chuỗi này.
+
+---
+
+# 43. FINAL FEATURE COMPLETION REPORT — BẮT BUỘC CHECKLIST
+
+Phải ghi YES/NO cho từng mục:
+
+## Unified Services
+
+* One Service Catalog
+* One Canonical Pricing Source
+* One Admin Function
+* One Booking Service/Request Function
+* Dynamic Request Categories
+* Configurable Request Icons
+* Room Inspection Catalog/Pricing Integration
+* No Duplicate Legacy Posting
+* ONE_TIME safe
+* PER_NIGHT safe
+* Historical Night Audit catch-up
+* Folio Service traceability
+
+## Booking Colors
+
+* Excel-style picker
+* HEX stable storage
+* Overlap-only color exclusion
+* No global lifetime color lock
+* Historical color preserved
+
+## Room Maps
+
+* Shared Room Map architecture
+* Operations Map migrated
+* Booking Selection Map migrated
+* Check Room Map migrated
+* Room Inspection Map migrated
+* Booking color background
+* Door status strip
+* Selected border
+* Conflict border
+* Historical checked-out booking rendering
+* Select all booking rooms
+* Select all visible rooms
+* Request icons
+* Request temporal scope
+* No hover popup on Booking Selection
+
+## Room Assignment
+
+* Quick assignment without pre-request
+* Reverse requirement creation/update
+* Same Room Type multiple requirement groups
+* Independent room rate
+* Independent notes
+* Room Charge uses correct snapshot
+
+## Checkout
+
+* Checkout with outstanding balance
+* Room released
+* Debt preserved
+* Reconciliation
+* Later payment
+* Partial payment
+* Historical Room Map still shows stay
+
+Chỉ được ghi COMPLETE nếu mọi requirement bắt buộc ở trên = YES hoặc có ghi rõ requirement đã được người dùng hủy bỏ.
+
+---
+
+# 44. PRODUCTION RUNBOOK
+
+Không deploy production.
+
+Tạo section cuối:
+
+## Preflight
+
+* backup;
+* git commit;
+* DB schema;
+* production business date;
+* pending Night Audits;
+* legacy Service migration dry-run;
+* room requirement data audit.
+
+## Commands
+
+Exact commands theo đúng thứ tự.
+
+## Dry-run
+
+Bắt buộc trước data migration.
+
+## Apply
+
+Không tự chạy.
+
+## Verification
+
+* Booking;
+* Service;
+* Room Map;
+* Room Inspection;
+* Night Audit;
+* Folio;
+* Reconciliation;
+* checkout outstanding.
+
+## Rollback / Compensating Plan
+
+Rõ ràng.
+
+---
+
+# 45. COMMIT
+
+Có thể tạo nhiều intermediate commit trong cùng lượt nếu giúp rollback an toàn.
+
+Không dừng sau commit.
+
+Không push/deploy production.
+
+Final commit chỉ khi:
+
+* code review không còn HIGH/CRITICAL;
+* targeted tests pass;
+* full regression không có new deterministic failure;
+* build pass.
+
+---
+
+# 46. BUSINESS BLOCKER — ĐỊNH NGHĨA DUY NHẤT ĐƯỢC DỪNG
+
+Chỉ dừng nếu đồng thời:
+
+1. Có ít nhất hai lựa chọn nghiệp vụ hợp lý.
+2. Không thể suy ra từ code/database/yêu cầu người dùng.
+3. Chọn sai có thể:
+
+   * tính sai tiền;
+   * làm mất dữ liệu;
+   * thay đổi quyền đáng kể;
+   * thay đổi accounting/business semantics.
+4. Không có giải pháp backward-compatible/reversible an toàn.
+
+Không được coi các vấn đề sau là blocker:
+
+* naming;
+* component structure;
+* route redirect;
+* migration structure;
+* CSS/layout;
+* technical refactor;
+* test helper;
+* index;
+* extension table.
+
+---
+
+# 47. NẾU THỰC SỰ CÓ BUSINESS BLOCKER
+
+Chỉ hỏi đúng format:
+
+## BUSINESS BLOCKER
+
+**Vấn đề**
+
+**Bằng chứng code/database**
+
+**Option A**
+
+**Tác động**
+
+**Option B**
+
+**Tác động**
+
+**Khuyến nghị**
+
+**Một câu hỏi duy nhất cần người dùng quyết định**
+
+Không hỏi lan man.
+
+---
+
+# 48. FINAL OUTPUT — KHÔNG ĐƯỢC ĐỂ “PHẦN SAU”
+
+Kết thúc lượt này bằng:
+
+## Implementation Status
+
+`COMPLETE / PARTIAL / BLOCKED`
+
+## Unified Services
+
+Status.
+
+## Unified Room Map
+
+Status.
+
+## Historical Occupancy
+
+Status.
+
+## Booking Assignment
+
+Status.
+
+## Service/Request Icons
+
+Status.
+
+## Room Inspection
+
+Status.
+
+## Booking Colors
+
+Status.
+
+## Unpaid Checkout
+
+Regression status.
+
+## Night Audit
+
+Status.
+
+## Folio / Financial Integrity
+
+Status.
+
+## Tests
+
+Exact before/after numbers.
+
+## Build
+
+PASS/FAIL.
+
+## Git
+
+Commit(s).
+
+## Production Actions Required
+
+Exact commands/runbook reference.
+
+## Remaining Risks
+
+Chỉ risk thật.
+
+Cuối cùng bắt buộc ghi:
+
+`ALL REQUESTED FEATURES = COMPLETE / PARTIAL / BLOCKED`
+
+`READY FOR COMMIT = YES / NO`
+
+`READY FOR PRODUCTION MIGRATION = YES / NO`
+
+`READY FOR PILOT ACCEPTANCE TEST = YES / NO`
+
+---
+
+# 49. NGUYÊN TẮC CUỐI
+
+Không tối ưu cho việc “hoàn thành nhanh một Slice”.
+
+Tối ưu cho:
+
+> **hoàn tất thực sự các yêu cầu người dùng đã giao mà không phải quay lại sửa kiến trúc lần nữa.**
+
+Kiến trúc cuối phải đạt:
+
+**ONE SERVICE CATALOG**
+
+* **ONE CANONICAL SERVICE PRICE SOURCE**
+
+* **ONE BOOKING SERVICE/REQUEST WORKFLOW**
+
+* **SHARED ROOM MAP**
+
+* **HISTORICAL OCCUPANCY**
+
+* **BOOKING COLOR AS ROOM VISUAL IDENTITY**
+
+* **DYNAMIC REQUEST ICONS**
+
+* **FLEXIBLE ROOM ASSIGNMENT / MULTIPLE RATE GROUPS**
+
+* **SAFE NIGHT AUDIT**
+
+* **ONE FOLIO**
+
+* **UNPAID CHECKOUT WITH RECEIVABLES**
+
+Không tạo thêm Slice.
+
+Không dừng giữa chừng.
+
+BẮT ĐẦU TỪ CURRENT HEAD VÀ HOÀN TẤT NGAY.

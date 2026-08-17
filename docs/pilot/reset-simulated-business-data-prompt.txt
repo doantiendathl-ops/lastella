@@ -1,0 +1,234 @@
+LỆNH VẬN HÀNH: XÓA DỮ LIỆU KINH DOANH GIẢ LẬP TRƯỚC PILOT — LASTELLA
+=====================================================================
+Đưa nguyên văn prompt này cho Claude đang chạy trên máy chủ (có quyền
+truy cập shell + database của dự án Lastella). Không rút gọn, không bỏ bước.
+
+BỐI CẢNH
+--------
+Hệ thống Lastella sắp bắt đầu vận hành thực nghiệm (pilot) với dữ liệu
+kinh doanh thật. Dữ liệu nền tảng (phòng, hạng phòng, tài khoản nhân
+viên, cấu hình khách sạn, bảng giá) đã được xác nhận đúng với thực tế
+và PHẢI được giữ nguyên. Chỉ dữ liệu đặt phòng/tài chính/vận hành do
+quá trình thử nghiệm trước đó sinh ra (không có thật) mới cần xóa sạch,
+để hệ thống bắt đầu pilot với sổ sách kinh doanh trống (booking/folio/
+housekeeping đều rỗng) nhưng cấu hình khách sạn giữ nguyên như hiện tại.
+
+NGUYÊN TẮC BẤT BIẾN — KHÔNG ĐƯỢC BỎ QUA DƯỚI BẤT KỲ LÝ DO GÌ
+-------------------------------------------------------------
+1. KHÔNG được chạy bất kỳ lệnh DELETE/TRUNCATE/ALTER nào trước khi hoàn
+   thành backup ở Bước 2 và nhận được xác nhận thủ công ở Bước 4.
+2. KHÔNG được dùng `SET FOREIGN_KEY_CHECKS=0` hay bất kỳ cách nào để né
+   ràng buộc khóa ngoại. Nếu một lệnh DELETE báo lỗi khóa ngoại, đó là
+   dấu hiệu thứ tự xóa sai hoặc phạm vi sai — DỪNG LẠI, ROLLBACK, báo
+   cáo lỗi cho người vận hành, không tự ý "sửa" bằng cách tắt ràng buộc.
+3. KHÔNG được đụng đến các bảng/cột nằm trong "DANH SÁCH GIỮ NGUYÊN"
+   bên dưới, kể cả gián tiếp qua CASCADE không lường trước.
+4. Toàn bộ các lệnh DELETE phải chạy trong MỘT transaction duy nhất
+   (`START TRANSACTION` ... `COMMIT`). Nếu bất kỳ câu lệnh nào lỗi:
+   `ROLLBACK` toàn bộ, không commit một phần.
+5. Việc reset AUTO_INCREMENT (DDL) chỉ chạy SAU KHI transaction DELETE
+   đã COMMIT thành công (MySQL tự động commit ngầm khi gặp DDL, nên
+   không được xen DDL vào giữa transaction DELETE).
+6. Trước khi chạy bất kỳ câu lệnh xóa nào, PHẢI in ra cho người vận
+   hành: tên database, host, và số dòng hiện có của từng bảng sẽ bị
+   xóa. Chỉ tiếp tục sau khi người vận hành gõ đúng chuỗi xác nhận.
+7. Sau khi xóa xong, PHẢI chạy lại truy vấn đếm dòng để xác nhận: các
+   bảng trong phạm vi xóa = 0 dòng, các bảng trong "DANH SÁCH GIỮ
+   NGUYÊN" có số dòng KHÔNG đổi so với trước khi xóa.
+
+BƯỚC 0 — XÁC MINH MÔI TRƯỜNG
+------------------------------
+- Đọc `.env` trên máy chủ đang thao tác, in ra: `APP_ENV`, `APP_URL`,
+  `DB_CONNECTION`, `DB_HOST`, `DB_DATABASE` (KHÔNG in `DB_PASSWORD`
+  hay bất kỳ secret nào).
+- Hỏi rõ người vận hành: "Đây có đúng là máy chủ/database dự định xóa
+  dữ liệu giả lập không? (database: <DB_DATABASE> tại <DB_HOST>)" và
+  chờ xác nhận bằng lời trước khi đi tiếp. Nếu không chắc đây là đúng
+  máy chủ mục tiêu, DỪNG LẠI và hỏi lại.
+
+BƯỚC 1 — KIỂM TRA HIỆN TRẠNG (không sửa dữ liệu)
+--------------------------------------------------
+Chạy và in ra số dòng hiện tại của toàn bộ bảng trong "PHẠM VI XÓA"
+bên dưới (SELECT COUNT(*) FROM <table>), để người vận hành thấy quy mô
+dữ liệu sẽ mất trước khi quyết định.
+
+BƯỚC 2 — BACKUP BẮT BUỘC
+--------------------------
+Dự án đã có sẵn quy ước backup tại `storage/backups/database/` với tên
+dạng `lastella-db-YYYYMMDD-HHMMSS.sql` (+ bản `.gz`). Tạo một bản backup
+MỚI theo đúng quy ước này trước khi xóa, ví dụ:
+
+    mysqldump -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" \
+      "$DB_DATABASE" > storage/backups/database/lastella-db-$(date +%Y%m%d-%H%M%S).sql
+    gzip -k storage/backups/database/lastella-db-<timestamp>.sql
+
+Xác nhận file backup vừa tạo có kích thước > 0 và có thể đọc được
+(vd. kiểm tra vài dòng đầu bằng `head`) trước khi coi bước này là xong.
+Không tiếp tục nếu backup thất bại hoặc file rỗng.
+
+BƯỚC 3 — IN KẾ HOẠCH XÓA CHO NGƯỜI VẬN HÀNH XEM
+--------------------------------------------------
+In ra toàn bộ danh sách bảng sẽ xóa (mục "PHẠM VI XÓA" bên dưới), danh
+sách bảng/cột giữ nguyên (mục "DANH SÁCH GIỮ NGUYÊN"), và đoạn SQL đầy
+đủ ở mục "SQL THỰC THI" — để người vận hành đọc lại lần cuối.
+
+BƯỚC 4 — CHỜ XÁC NHẬN THỦ CÔNG
+--------------------------------
+Yêu cầu người vận hành gõ chính xác chuỗi:
+
+    CONFIRM DELETE
+
+Nếu người vận hành gõ bất kỳ nội dung nào khác, KHÔNG được chạy lệnh
+xóa — dừng lại và hỏi lại hoặc hủy thao tác.
+
+BƯỚC 5 — THỰC THI XÓA (chỉ sau khi có "CONFIRM DELETE")
+-----------------------------------------------------------
+Chạy đúng khối SQL ở mục "SQL THỰC THI" bên dưới, theo đúng thứ tự đã
+cho (thứ tự này tôn trọng toàn bộ ràng buộc khóa ngoại restrict/cascade
+hiện có trong schema — không được đổi thứ tự).
+
+BƯỚC 6 — RESET AUTO_INCREMENT (chạy sau khi COMMIT ở bước 5)
+-----------------------------------------------------------
+Chạy khối `ALTER TABLE ... AUTO_INCREMENT = 1` ở cuối mục "SQL THỰC
+THI" cho từng bảng đã xóa sạch (trừ `folio_number_sequences` dùng khóa
+chính là ngày, không có AUTO_INCREMENT).
+
+BƯỚC 7 — XÁC MINH SAU XÓA
+----------------------------
+- Đếm lại số dòng toàn bộ bảng trong "PHẠM VI XÓA": phải bằng 0.
+- Đếm lại số dòng toàn bộ bảng trong "DANH SÁCH GIỮ NGUYÊN": phải bằng
+  đúng số dòng đã ghi nhận ở Bước 1/Bước 0 (không đổi).
+- Kiểm tra nhanh bằng `php artisan migrate:status` (hoặc tương đương)
+  để xác nhận ứng dụng vẫn khởi động và kết nối DB bình thường.
+- Báo cáo tóm tắt cho người vận hành: tên file backup đã tạo, số dòng
+  đã xóa theo từng bảng, xác nhận các bảng giữ nguyên không đổi.
+
+PHẠM VI XÓA (dữ liệu kinh doanh/phát sinh — xóa sạch)
+--------------------------------------------------------
+Theo đúng thứ tự an toàn với khóa ngoại (con trước, cha sau):
+
+ 1. checkout_inspection_items
+ 2. checkout_inspections
+ 3. cleaning_records
+ 4. housekeeping_assignments
+ 5. stay_events
+ 6. night_audit_booking_logs
+ 7. night_audit_runs
+ 8. folio_entries
+ 9. folios
+10. folio_number_sequences
+11. booking_special_requests
+12. booking_package_flags
+13. booking_payments
+14. booking_requirements
+15. stays
+16. room_assignments
+17. bookings
+
+Ngoài ra:
+- `audit_logs`: CHỈ xóa các dòng có `entity_type` thuộc nhóm
+  booking/tài chính/vận hành-do-booking-sinh-ra (danh sách entity_type
+  chính xác nằm trong khối SQL bên dưới). KHÔNG xóa log của
+  user/role/permission/floor/room_type/resource/room/room_rate/
+  setting/product_service* — những log đó thuộc dữ liệu cấu hình, phải
+  giữ để truy vết sau này.
+- `rooms.status` và `rooms.cleaning_status`: CHỈ reset về trạng thái
+  trống-sạch cho những phòng đang ở trạng thái OCCUPIED hoặc RESERVED
+  (trạng thái này chỉ tồn tại vì có booking/stay giả lập — sau khi xóa
+  booking mà không cập nhật thì phòng sẽ hiển thị sai là "đang có
+  khách"/"đã đặt" trong khi thực tế không có ai). KHÔNG đụng vào các
+  phòng đang ở trạng thái OUT_OF_ORDER, OUT_OF_SERVICE, CLEANING,
+  INSPECTED, hay VACANT_DIRTY — đây có thể là tình trạng vật lý thật
+  của phòng (đang hỏng, đang dọn dở), không phải dữ liệu giả lập, và
+  việc tự ý "làm sạch" trạng thái này có thể che giấu vấn đề thật.
+  Nếu có phòng nào đang ở các trạng thái này, chỉ liệt kê ra trong báo
+  cáo cuối để người vận hành tự kiểm tra thủ công, KHÔNG tự động sửa.
+- KHÔNG đụng đến `rooms.last_cleaned_at` hay bất kỳ cột nào khác của
+  `rooms` ngoài `status`/`cleaning_status` theo điều kiện trên.
+
+DANH SÁCH GIỮ NGUYÊN — TUYỆT ĐỐI KHÔNG XÓA/SỬA
+--------------------------------------------------
+users, password_reset_tokens, sessions, cache, jobs, migrations,
+roles, permissions, model_has_roles, model_has_permissions,
+role_has_permissions, floors, room_types, resources, rooms (toàn bộ
+trừ 2 cột nêu trên với điều kiện nêu trên), room_rates, settings,
+hotel_settings, service_rates, product_service_categories,
+product_services, và toàn bộ dòng audit_logs không thuộc nhóm
+entity_type bị xóa.
+
+SQL THỰC THI (MySQL — điều chỉnh nếu DB_CONNECTION khác mysql)
+--------------------------------------------------------------
+-- ===== PHASE A: xóa dữ liệu trong 1 transaction =====
+START TRANSACTION;
+
+DELETE FROM checkout_inspection_items;
+DELETE FROM checkout_inspections;
+DELETE FROM cleaning_records;
+DELETE FROM housekeeping_assignments;
+DELETE FROM stay_events;
+DELETE FROM night_audit_booking_logs;
+DELETE FROM night_audit_runs;
+DELETE FROM folio_entries;
+DELETE FROM folios;
+DELETE FROM folio_number_sequences;
+DELETE FROM booking_special_requests;
+DELETE FROM booking_package_flags;
+DELETE FROM booking_payments;
+DELETE FROM booking_requirements;
+DELETE FROM stays;
+DELETE FROM room_assignments;
+DELETE FROM bookings;
+
+DELETE FROM audit_logs
+WHERE entity_type IN (
+  'App\\Models\\Booking',
+  'App\\Models\\BookingRequirement',
+  'App\\Models\\BookingPayment',
+  'App\\Models\\BookingSpecialRequest',
+  'App\\Models\\Folio',
+  'App\\Models\\FolioEntry',
+  'App\\Models\\RoomAssignment',
+  'App\\Models\\Stay',
+  'App\\Models\\HousekeepingAssignment',
+  'App\\Models\\CleaningRecord',
+  'App\\Models\\CheckoutInspection',
+  'App\\Models\\CheckoutInspectionItem'
+);
+
+UPDATE rooms
+SET status = 'VACANT_CLEAN', cleaning_status = 'CLEAN'
+WHERE status IN ('OCCUPIED', 'RESERVED');
+
+COMMIT;
+
+-- ===== PHASE B: reset AUTO_INCREMENT — chỉ chạy SAU khi PHASE A đã COMMIT =====
+ALTER TABLE checkout_inspection_items AUTO_INCREMENT = 1;
+ALTER TABLE checkout_inspections AUTO_INCREMENT = 1;
+ALTER TABLE cleaning_records AUTO_INCREMENT = 1;
+ALTER TABLE housekeeping_assignments AUTO_INCREMENT = 1;
+ALTER TABLE stay_events AUTO_INCREMENT = 1;
+ALTER TABLE night_audit_booking_logs AUTO_INCREMENT = 1;
+ALTER TABLE night_audit_runs AUTO_INCREMENT = 1;
+ALTER TABLE folio_entries AUTO_INCREMENT = 1;
+ALTER TABLE folios AUTO_INCREMENT = 1;
+ALTER TABLE booking_special_requests AUTO_INCREMENT = 1;
+ALTER TABLE booking_package_flags AUTO_INCREMENT = 1;
+ALTER TABLE booking_payments AUTO_INCREMENT = 1;
+ALTER TABLE booking_requirements AUTO_INCREMENT = 1;
+ALTER TABLE stays AUTO_INCREMENT = 1;
+ALTER TABLE room_assignments AUTO_INCREMENT = 1;
+ALTER TABLE bookings AUTO_INCREMENT = 1;
+-- folio_number_sequences: khóa chính là sequence_date (DATE), không có AUTO_INCREMENT — bỏ qua.
+-- audit_logs: chỉ xóa một phần dữ liệu (còn log cấu hình), KHÔNG reset AUTO_INCREMENT.
+
+GHI CHÚ CUỐI CÙNG CHO CLAUDE THỰC THI
+----------------------------------------
+- Nếu phát hiện bất kỳ bảng nào trong "PHẠM VI XÓA" có cấu trúc khác
+  với mô tả ở đây (migration mới đã thêm bảng/khóa ngoại kể từ khi
+  prompt này được viết), DỪNG LẠI và báo cho người vận hành thay vì tự
+  suy đoán thứ tự xóa mới.
+- Nếu bất kỳ bước nào ở trên thất bại, không được thử lại bằng cách
+  bỏ qua an toàn (ví dụ tắt FK check, xóa từng phần rồi commit dở
+  dang). Luôn ROLLBACK sạch và báo lỗi nguyên văn cho người vận hành.
+- Đây là thao tác không thể hoàn tác trên dữ liệu (ngoại trừ khôi phục
+  từ file backup ở Bước 2). Ưu tiên sự chậm rãi và minh bạch hơn tốc độ.

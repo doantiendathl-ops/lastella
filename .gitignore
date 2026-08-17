@@ -6,10 +6,12 @@
 /.env
 /.env.*
 !/.env.example
+!/.env.production.example
 /bootstrap/cache/*.php
 /storage/logs/*.log
 /storage/framework/cache/data
 /storage/framework/views/*.php
+/storage/backups/
 .phpunit.result.cache
 npm-debug.log
 yarn-error.log
