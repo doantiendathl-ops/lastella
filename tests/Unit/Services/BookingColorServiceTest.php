@@ -54,6 +54,26 @@ class BookingColorServiceTest extends TestCase
         }
     }
 
+    /**
+     * Found via hands-on visual testing (not obvious from the math alone):
+     * tinting an already-white base, or shading an already-black base, has
+     * nowhere left to go and silently reproduces the base itself — the
+     * White/Black columns must use a real neutral ladder instead, or the
+     * picker shows 3-4 visually identical swatches stacked on top of
+     * each other.
+     */
+    public function test_theme_group_shades_have_no_duplicates_within_a_column(): void
+    {
+        foreach ($this->service->themeGroups() as $group) {
+            $values = [$group['base'], ...$group['shades']];
+            $this->assertSame(
+                count($values),
+                count(array_unique($values)),
+                "Theme column '{$group['label']}' has duplicate swatches: ".implode(', ', $values),
+            );
+        }
+    }
+
     public function test_flat_palette_is_deduplicated_and_normalized(): void
     {
         $palette = $this->service->flatPalette();

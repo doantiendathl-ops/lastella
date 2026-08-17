@@ -34,13 +34,18 @@ const select = (hex) => {
     emit('update:modelValue', normalize(hex));
 };
 
+// mục V.5 — near-white/pale shades must stay visible even when not
+// selected/hovered: a fully transparent default border lets a white or
+// near-white swatch disappear into the picker's own light background.
+// A subtle neutral border keeps every swatch's edge readable regardless
+// of how close its fill is to the surrounding surface.
 const swatchClass = (hex) => {
     if (isConflicting(hex)) {
-        return 'cursor-not-allowed border-transparent opacity-30';
+        return 'cursor-not-allowed border-gray-200 opacity-30';
     }
     return isSelected(hex)
         ? 'scale-110 border-ink shadow-sm'
-        : 'border-transparent hover:scale-105 hover:border-gray-400';
+        : 'border-gray-300 hover:scale-105 hover:border-gray-500';
 };
 
 // Custom color ("Màu khác...") — hex text input paired with a native
@@ -68,7 +73,7 @@ const applyCustomHex = () => {
                 <div v-for="group in themeGroups" :key="group.label" class="flex shrink-0 flex-col gap-1">
                     <button
                         type="button"
-                        class="relative h-6 w-6 rounded-sm border-2 transition"
+                        class="relative h-7 w-7 rounded-sm border-2 transition"
                         :class="swatchClass(group.base)"
                         :style="{ backgroundColor: group.base }"
                         :title="isConflicting(group.base) ? `${group.label} — đang dùng bởi booking khác cùng thời gian` : group.label"
@@ -81,7 +86,7 @@ const applyCustomHex = () => {
                         v-for="shade in group.shades"
                         :key="shade"
                         type="button"
-                        class="relative h-4 w-6 border transition"
+                        class="relative h-5 w-7 border transition"
                         :class="swatchClass(shade)"
                         :style="{ backgroundColor: shade }"
                         :title="isConflicting(shade) ? 'Đang dùng bởi booking khác cùng thời gian' : shade"
@@ -102,7 +107,7 @@ const applyCustomHex = () => {
                     v-for="hex in standardColors"
                     :key="hex"
                     type="button"
-                    class="relative h-7 w-7 rounded-sm border-2 transition"
+                    class="relative h-8 w-8 rounded-sm border-2 transition"
                     :class="swatchClass(hex)"
                     :style="{ backgroundColor: hex }"
                     :title="isConflicting(hex) ? `${hex} — đang dùng bởi booking khác cùng thời gian` : hex"

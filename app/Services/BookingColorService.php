@@ -45,6 +45,19 @@ class BookingColorService
      */
     private const SHADE_STEPS = [0.8, 0.6, 0.4, -0.25, -0.5];
 
+    /**
+     * The tint/shade formula pivots off the base color itself: tinting
+     * (lighten) has nowhere left to go on a base that's already white, and
+     * shading (darken) has nowhere left to go on a base that's already
+     * black — applying SHADE_STEPS to either produces duplicate swatches
+     * (found by hands-on visual testing, not just reading the math: pure
+     * white's first 3 "tinted" shades all render as #FFFFFF again). Excel's
+     * own reference palette shows a genuine neutral grayscale ladder under
+     * both the White and Black columns instead, so this is used verbatim
+     * for those two rather than running them through shade().
+     */
+    private const NEUTRAL_SHADE_LADDER = ['#D9D9D9', '#BFBFBF', '#A6A6A6', '#808080', '#404040'];
+
     /** Standard Colors row — strong, easily distinguishable, one-click hues. */
     private const STANDARD_COLORS = [
         '#C00000', '#FF0000', '#FFC000', '#FFFF00', '#92D050',
@@ -82,7 +95,9 @@ class BookingColorService
             ->map(fn (string $base, string $label): array => [
                 'label' => $label,
                 'base' => $base,
-                'shades' => array_map(fn (float $step): string => $this->shade($base, $step), self::SHADE_STEPS),
+                'shades' => in_array($base, ['#FFFFFF', '#000000'], true)
+                    ? self::NEUTRAL_SHADE_LADDER
+                    : array_map(fn (float $step): string => $this->shade($base, $step), self::SHADE_STEPS),
             ])
             ->values()
             ->all();
