@@ -5,7 +5,9 @@ namespace App\Models;
 use App\Enums\BookingStatus;
 use App\Enums\BookingType;
 use App\Enums\CustomerType;
+use App\Services\BookingColorService;
 use Database\Factories\BookingFactory;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -55,6 +57,20 @@ class Booking extends Model
             'status' => BookingStatus::class,
             'cancelled_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Normalize to uppercase hex on write only — this is a formatting
+     * normalization (comparisons must be case-insensitive, docs/Prompt_1.txt
+     * mục VI — Color Comparison), never a recolor. Existing rows already
+     * saved in lowercase are left untouched; BookingColorService normalizes
+     * on every comparison anyway, so historical data reads correctly as-is.
+     */
+    protected function bookingColor(): Attribute
+    {
+        return Attribute::make(
+            set: fn (?string $value) => BookingColorService::normalize($value),
+        );
     }
 
     public function folio(): HasOne

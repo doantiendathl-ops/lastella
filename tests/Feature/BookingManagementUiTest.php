@@ -985,10 +985,29 @@ class BookingManagementUiTest extends TestCase
         return app(BookingService::class)->createBooking($payload);
     }
 
+    /**
+     * A single shared default color would make every Booking this file
+     * creates collide under the new overlap-based color rule the moment
+     * two of them share a time window — which many of the ROOM-conflict
+     * fixtures below intentionally do, as an incidental side effect of
+     * being unrelated to color at all. A monotonically unique default
+     * keeps those fixtures decoupled from booking_color entirely; tests
+     * that actually exercise the color rule still pass an explicit
+     * 'booking_color' override, which always wins via ...$overrides.
+     */
+    private static int $bookingColorSeq = 0;
+
+    private function uniqueTestBookingColor(): string
+    {
+        self::$bookingColorSeq++;
+
+        return sprintf('#%06X', self::$bookingColorSeq);
+    }
+
     private function bookingPayload(array $overrides = []): array
     {
         return [
-            'booking_color' => '#196251',
+            'booking_color' => $this->uniqueTestBookingColor(),
             'customer_name' => 'Jane Guest',
             'customer_phone' => '0800000000',
             'customer_email' => 'jane@example.test',
@@ -1347,48 +1366,112 @@ class BookingManagementUiTest extends TestCase
             );
     }
 
-    public function test_recommended_palette_excludes_colors_used_by_active_bookings(): void
+    // docs/Prompt_1.txt mục VI — Auto Allocation: only Bookings whose
+    // occupancy interval overlaps are avoided; there is no global lock.
+    public function test_used_colors_reflect_bookings_with_overlapping_occupancy(): void
     {
         $this->actingAs($this->admin);
-        $this->createBooking(['booking_color' => '#8B5CF6']);
+        $this->createBooking([
+            'booking_color' => '#FF0000',
+            'checkin_at' => '2026-07-01 14:00:00',
+            'checkout_at' => '2026-07-02 12:00:00',
+        ]);
 
-        $this->get('/admin/bookings/create')
+        $this->get('/admin/bookings/create?checkin_at=2026-07-01T14:00&checkout_at=2026-07-02T12:00')
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->where('options.recommended_booking_colors', fn ($colors): bool =>
-                    ! collect($colors)->contains('#8B5CF6')
-                    && collect($colors)->contains('#10B981')
-                )
+                ->where('options.used_booking_colors', fn ($colors): bool => collect($colors)->contains('#FF0000'))
+                ->where('options.recommended_booking_color', fn ($color): bool => $color !== '#FF0000')
             );
     }
 
-    public function test_completed_bookings_do_not_reserve_colors_in_palette(): void
+    public function test_non_overlapping_bookings_can_reuse_the_same_color(): void
     {
         $this->actingAs($this->admin);
-        $booking = $this->createBooking(['booking_color' => '#8B5CF6']);
+        $this->createBooking([
+            'booking_color' => '#FF0000',
+            'checkin_at' => '2026-01-01 14:00:00',
+            'checkout_at' => '2026-01-02 12:00:00',
+        ]);
+
+        $this->get('/admin/bookings/create?checkin_at=2026-07-01T14:00&checkout_at=2026-07-02T12:00')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('options.used_booking_colors', fn ($colors): bool => ! collect($colors)->contains('#FF0000'))
+            );
+    }
+
+    public function test_cancelled_bookings_do_not_reserve_colors(): void
+    {
+        $this->actingAs($this->admin);
+        $booking = $this->createBooking([
+            'booking_color' => '#FF0000',
+            'checkin_at' => '2026-07-01 14:00:00',
+            'checkout_at' => '2026-07-02 12:00:00',
+        ]);
         $booking->update(['status' => BookingStatus::Cancelled]);
 
-        $this->get('/admin/bookings/create')
+        $this->get('/admin/bookings/create?checkin_at=2026-07-01T14:00&checkout_at=2026-07-02T12:00')
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->where('options.recommended_booking_colors', fn ($colors): bool =>
-                    collect($colors)->contains('#8B5CF6')
-                )
+                ->where('options.used_booking_colors', fn ($colors): bool => ! collect($colors)->contains('#FF0000'))
             );
     }
 
-    public function test_editing_booking_keeps_own_color_in_palette(): void
+    public function test_editing_booking_excludes_its_own_color_from_conflicts(): void
     {
         $this->actingAs($this->admin);
-        $booking = $this->createBooking(['booking_color' => '#8B5CF6']);
+        $booking = $this->createBooking(['booking_color' => '#FF0000']);
 
         $this->get("/admin/bookings/{$booking->id}/edit")
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->where('options.recommended_booking_colors', fn ($colors): bool =>
-                    collect($colors)->contains('#8B5CF6')
-                )
+                ->where('options.used_booking_colors', fn ($colors): bool => ! collect($colors)->contains('#FF0000'))
             );
+    }
+
+    // Regression: extending an unrelated field (checkout_at) must not
+    // bypass the overlap check just because booking_color itself is
+    // unchanged — a date change can itself create a brand-new overlap.
+    public function test_extending_dates_into_a_new_overlap_is_rejected_even_without_changing_color(): void
+    {
+        $this->actingAs($this->admin);
+        $this->createBooking([
+            'booking_color' => '#FF0000',
+            'checkin_at' => '2026-07-10 14:00:00',
+            'checkout_at' => '2026-07-15 12:00:00',
+        ]);
+        $booking = $this->createBooking([
+            'booking_color' => '#FF0000', // legally reused: no overlap with the booking above (yet)
+            'checkin_at' => '2026-07-01 14:00:00',
+            'checkout_at' => '2026-07-05 12:00:00',
+        ]);
+
+        $this->put("/admin/bookings/{$booking->id}", $this->bookingPayload([
+            'booking_color' => '#FF0000', // unchanged
+            'checkin_at' => '2026-07-01 14:00:00',
+            'checkout_at' => '2026-07-20 12:00:00', // now overlaps the first booking
+        ]))->assertSessionHasErrors('booking_color');
+    }
+
+    public function test_manual_color_pick_overlapping_another_booking_is_rejected(): void
+    {
+        $this->actingAs($this->admin);
+        $this->createBooking([
+            'booking_color' => '#FF0000',
+            'checkin_at' => '2026-07-01 14:00:00',
+            'checkout_at' => '2026-07-02 12:00:00',
+        ]);
+
+        $payload = $this->bookingPayload([
+            'booking_color' => '#ff0000', // normalized comparison must be case-insensitive
+            'checkin_at' => '2026-07-01 18:00:00',
+            'checkout_at' => '2026-07-03 12:00:00',
+        ]);
+        $payload['requirements'] = [$this->requirementPayload(RoomType::where('code', 'TWIN')->firstOrFail())];
+
+        $this->post('/admin/bookings', $payload)
+            ->assertSessionHasErrors('booking_color');
     }
 
     public function test_custom_color_still_accepted_for_booking(): void
@@ -2614,8 +2697,8 @@ class BookingManagementUiTest extends TestCase
         $this->get('/admin/bookings/create')
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->where('options.recommended_booking_colors', fn ($colors): bool =>
-                    count($colors) > 0
+                ->where('options.recommended_booking_color', fn ($color): bool =>
+                    is_string($color) && preg_match('/^#[0-9A-F]{6}$/', $color) === 1
                 )
             );
     }
@@ -2838,8 +2921,8 @@ class BookingManagementUiTest extends TestCase
         $this->get('/admin/bookings/create')
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->where('options.recommended_booking_colors', fn ($colors): bool =>
-                    count($colors) > 0
+                ->where('options.recommended_booking_color', fn ($color): bool =>
+                    is_string($color) && preg_match('/^#[0-9A-F]{6}$/', $color) === 1
                 )
             );
     }

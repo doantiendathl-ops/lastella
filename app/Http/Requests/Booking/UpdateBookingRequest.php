@@ -6,14 +6,30 @@ use App\Enums\BookingStatus;
 use App\Enums\BookingType;
 use App\Enums\CustomerType;
 use App\Enums\PriceSource;
+use App\Http\Requests\Booking\Concerns\ValidatesBookingColorOverlap;
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class UpdateBookingRequest extends FormRequest
 {
+    use ValidatesBookingColorOverlap;
+
     public function authorize(): bool
     {
         return $this->user()?->can('booking.update') ?? false;
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        $booking = $this->route('booking');
+        $this->addBookingColorConflictRule(
+            $validator,
+            $booking?->getKey(),
+            $booking?->booking_color,
+            $booking?->checkin_at,
+            $booking?->checkout_at,
+        );
     }
 
     public function rules(): array

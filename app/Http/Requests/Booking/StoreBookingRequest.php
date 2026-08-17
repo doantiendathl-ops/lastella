@@ -5,14 +5,23 @@ namespace App\Http\Requests\Booking;
 use App\Enums\BookingType;
 use App\Enums\CustomerType;
 use App\Enums\PriceSource;
+use App\Http\Requests\Booking\Concerns\ValidatesBookingColorOverlap;
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class StoreBookingRequest extends FormRequest
 {
+    use ValidatesBookingColorOverlap;
+
     public function authorize(): bool
     {
         return $this->user()?->can('booking.create') ?? false;
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        $this->addBookingColorConflictRule($validator, null);
     }
 
     public function rules(): array

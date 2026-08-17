@@ -23,6 +23,7 @@ use App\Models\Room;
 use App\Models\RoomType;
 use App\Models\Stay;
 use App\Models\User;
+use App\Services\BookingColorService;
 use App\Services\BookingService;
 use App\Services\BusinessDateService;
 use App\Services\PaymentProjectionService;
@@ -31,6 +32,7 @@ use App\Services\RoomRateService;
 use App\Services\ServiceRateService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -45,6 +47,7 @@ class BookingController extends Controller
         private readonly BookingService $bookings,
         private readonly RoomRateService $roomRates,
         private readonly PaymentProjectionService $paymentProjection,
+        private readonly BookingColorService $bookingColors,
     ) {
     }
 
@@ -527,33 +530,46 @@ class BookingController extends Controller
         ];
     }
 
-    private function options(bool $includeRooms = false, ?Booking $booking = null): array
+    /**
+     * Only Bookings whose occupancy interval overlaps the one being edited
+     * (or the default new-booking window, when nothing is chosen yet) need
+     * their color avoided — mirrors BookingColorService::overlappingColors().
+     */
+    private function colorSuggestionRange(?Booking $booking): array
     {
-        $paletteColors = [
-            '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#3B82F6', '#EC4899',
-            '#14B8A6', '#6366F1', '#84CC16', '#F97316', '#06B6D4', '#A855F7',
-            '#22C55E', '#EAB308', '#F43F5E', '#64748B',
-        ];
+        // The in-progress form state (Form.vue's debounced partial reload)
+        // always wins over the booking's last-saved dates, so the
+        // suggestion/conflict list stays live while the user is still
+        // editing checkin/checkout — including on the Edit form, where
+        // $booking's stored dates would otherwise never change.
+        $checkin = request()->query('checkin_at');
+        $checkout = request()->query('checkout_at');
 
-        $usedColorsQuery = Booking::query()
-            ->whereNotNull('booking_color')
-            ->whereNotNull('status')
-            ->whereNotIn('status', [BookingStatus::Cancelled->value, BookingStatus::NoShow->value, BookingStatus::CheckedOut->value]);
-
-        if ($booking !== null) {
-            $usedColorsQuery->whereKeyNot($booking->id);
+        if ($checkin && $checkout) {
+            try {
+                return [Carbon::parse($checkin), Carbon::parse($checkout)];
+            } catch (\Exception) {
+                // fall through
+            }
         }
 
-        $usedColors = $usedColorsQuery->pluck('booking_color')->unique()->values()->all();
+        if ($booking !== null) {
+            return [$booking->checkin_at, $booking->checkout_at];
+        }
 
-        $recommendedColors = array_values(array_filter(
-            $paletteColors,
-            fn (string $color) => ! in_array($color, $usedColors, true),
-        ));
+        return [now()->setTime(14, 0), now()->addDay()->setTime(12, 0)];
+    }
+
+    private function options(bool $includeRooms = false, ?Booking $booking = null): array
+    {
+        [$colorCheckin, $colorCheckout] = $this->colorSuggestionRange($booking);
+        $excludeBookingId = $booking?->id;
 
         $options = [
-            'recommended_booking_colors' => $recommendedColors,
-            'used_booking_colors' => $usedColors,
+            'booking_color_theme_groups' => $this->bookingColors->themeGroups(),
+            'booking_color_standard_colors' => $this->bookingColors->standardColors(),
+            'recommended_booking_color' => $this->bookingColors->suggestColor($colorCheckin, $colorCheckout, $excludeBookingId),
+            'used_booking_colors' => $this->bookingColors->overlappingColors($colorCheckin, $colorCheckout, $excludeBookingId)->all(),
             'bookingTypes' => $this->enumOptions(BookingType::cases()),
             'customerTypes' => $this->enumOptions(CustomerType::cases()),
             'statuses' => $this->enumOptions(BookingStatus::cases()),

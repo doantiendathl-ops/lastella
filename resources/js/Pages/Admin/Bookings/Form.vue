@@ -1,9 +1,10 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { labelFor } from '@/Support/vietnameseLabels';
-import { Head, Link, useForm } from '@inertiajs/vue3';
+import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import { ArrowLeft, Save } from 'lucide-vue-next';
 import { computed, ref, watch } from 'vue';
+import ExcelColorPicker from './Partials/ExcelColorPicker.vue';
 
 const props = defineProps({
     booking: { type: Object, default: null },
@@ -68,7 +69,7 @@ const form = useForm({
     adults: props.booking?.adults ?? 1,
     children_under_6: props.booking?.children_under_6 ?? 0,
     children_over_6: props.booking?.children_over_6 ?? 0,
-    booking_color: props.booking?.booking_color ?? props.options.recommended_booking_colors?.[0] ?? '#196251',
+    booking_color: props.booking?.booking_color ?? props.options.recommended_booking_color ?? '#196251',
     sales_user_id: props.booking?.sales_user_id ?? '',
     note: props.booking?.note ?? '',
     internal_note: props.booking?.internal_note ?? '',
@@ -96,6 +97,28 @@ watch(
     },
     { immediate: true },
 );
+
+// Auto Allocation must react to the actual occupancy window being chosen
+// (docs/Prompt_1.txt mục VI), not just the values present when the form
+// first loaded. Re-fetch only `options` (recommended/used colors) via a
+// debounced partial reload whenever the date/time fields change — the
+// rest of the form state is untouched by Inertia partial reloads.
+let colorRefreshTimer = null;
+watch([checkinDate, checkinTime, checkoutDate, checkoutTime], () => {
+    if (!checkinDate.value || !checkinTime.value || !checkoutDate.value || !checkoutTime.value) return;
+    clearTimeout(colorRefreshTimer);
+    colorRefreshTimer = setTimeout(() => {
+        router.reload({
+            only: ['options'],
+            data: {
+                checkin_at: `${checkinDate.value}T${checkinTime.value}`,
+                checkout_at: `${checkoutDate.value}T${checkoutTime.value}`,
+            },
+            preserveScroll: true,
+            preserveState: true,
+        });
+    }, 400);
+});
 </script>
 
 <template>
@@ -140,29 +163,15 @@ watch(
                         <option v-for="option in options.bookingTypes" :key="option.value" :value="option.value">{{ labelFor('bookingType', option.value) }}</option>
                     </select>
                 </div>
-                <div>
+                <div class="md:col-span-2">
                     <label class="block text-sm font-medium">Màu đặt phòng</label>
-                    <div class="mt-2">
-                        <div v-if="options.recommended_booking_colors?.length" class="flex flex-wrap gap-2">
-                            <button
-                                v-for="color in options.recommended_booking_colors"
-                                :key="color"
-                                type="button"
-                                class="h-8 w-8 rounded-sm border-2 transition-transform"
-                                :class="form.booking_color === color ? 'scale-110 border-gray-800 shadow-sm' : 'border-transparent hover:border-gray-400'"
-                                :style="{ backgroundColor: color }"
-                                :title="color"
-                                @click="form.booking_color = color"
-                            />
-                        </div>
-                        <p v-else-if="options.used_booking_colors?.length" class="text-xs text-steel">
-                            Tất cả màu gợi ý đang được sử dụng bởi các booking chưa hoàn thành. Bạn có thể nhập màu tùy chỉnh.
-                        </p>
-                        <div class="mt-3 flex items-center gap-3">
-                            <span class="text-xs text-steel">Màu tùy chỉnh:</span>
-                            <input v-model="form.booking_color" type="color" class="h-8 w-14 cursor-pointer border border-gray-300 px-1 py-0.5">
-                            <span class="font-mono text-xs uppercase text-steel">{{ form.booking_color }}</span>
-                        </div>
+                    <div class="mt-2 border border-gray-200 bg-linen/40 p-3">
+                        <ExcelColorPicker
+                            v-model="form.booking_color"
+                            :theme-groups="options.booking_color_theme_groups ?? []"
+                            :standard-colors="options.booking_color_standard_colors ?? []"
+                            :used-colors="options.used_booking_colors ?? []"
+                        />
                     </div>
                     <p v-if="form.errors.booking_color" class="mt-1 text-sm text-coral">{{ form.errors.booking_color }}</p>
                 </div>

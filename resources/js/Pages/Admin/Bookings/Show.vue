@@ -3,6 +3,7 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import FolioPanel from './Partials/FolioPanel.vue';
 import RoomBoardPanel from './Partials/RoomBoardPanel.vue';
 import { labelFor } from '@/Support/vietnameseLabels';
+import { readableSurfaceClass, readableTextClass } from '@/Support/colorContrast';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import { BedDouble, CheckCircle, Eye, Pencil, Plus, RotateCcw, Trash2, X, XCircle } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
@@ -510,7 +511,12 @@ const toggleRoomSelection = (room) => {
 
 const roomCardClass = (room) => {
     if (isRoomSelected(room)) {
-        return 'border-transparent text-white shadow-sm ring-2 ring-pine/20 ring-offset-1';
+        // Mục V.4 — Auto Text Contrast: the tile's background becomes the
+        // Booking's own color when selected, so the text color must be
+        // derived from it too. A hard-coded text-white here would go
+        // unreadable the moment someone picks a pale/white booking color.
+        const textClass = readableTextClass(props.booking.booking_color);
+        return `border-transparent ${textClass} shadow-sm ring-2 ring-pine/20 ring-offset-1`;
     }
 
     if (room.availability_status === 'conflict') {
@@ -553,7 +559,7 @@ const roomCardStyle = (room) => {
 
 const roomStatusDotClass = (room) => {
     if (isRoomSelected(room)) {
-        return 'bg-white';
+        return readableSurfaceClass(props.booking.booking_color);
     }
 
     if (room.availability_status === 'current_booking') {
