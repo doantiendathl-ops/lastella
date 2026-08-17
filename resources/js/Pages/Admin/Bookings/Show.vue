@@ -5,7 +5,7 @@ import RoomBoardPanel from './Partials/RoomBoardPanel.vue';
 import { labelFor } from '@/Support/vietnameseLabels';
 import { readableSurfaceClass, readableTextClass } from '@/Support/colorContrast';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
-import { BedDouble, CheckCircle, Eye, Pencil, Plus, RotateCcw, Trash2, X, XCircle } from 'lucide-vue-next';
+import { BedDouble, CheckCircle, Pencil, Plus, RotateCcw, Trash2, X, XCircle } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 const props = defineProps({
@@ -31,12 +31,6 @@ const conflictPanelRoom = ref(null);
 const showCurrentBookingPanel = ref(false);
 const currentBookingPanelRoom = ref(null);
 const showAssignmentHistory = ref(false);
-
-const anyModalOpen = computed(() =>
-    showConflictPanel.value ||
-    showCurrentBookingPanel.value ||
-    releaseDialogAssignment.value !== null,
-);
 
 const nowLocal = () => {
     const date = new Date();
@@ -579,6 +573,28 @@ const roomStatusDotClass = (room) => {
     }
 
     return 'bg-pine';
+};
+
+// docs/yeucaumoi.txt mục 17 — no legacy popup/tab on hover (it blocked
+// mobile taps: a group-hover panel intercepts the very click meant to
+// select/open the room). A native title attribute reads on desktop hover
+// exactly like before, does nothing on touch (never blocks a tap), and has
+// no nested interactive elements — conflict/current_booking rooms already
+// open a full click-triggered panel (openConflictPanel/openCurrentBookingPanel)
+// with the same detail plus a "Xem booking" link, so nothing is lost.
+const roomTooltip = (room) => {
+    const lines = [`${room.room_number} - ${room.room_type_name ?? room.room_type}`, availabilityLabel(room)];
+
+    if (room.disabled_reason) lines.push(room.disabled_reason);
+    if (room.conflict_booking?.lock_reason) lines.push(room.conflict_booking.lock_reason);
+    if (room.current_assignment?.lock_reason) lines.push(room.current_assignment.lock_reason);
+    if (!room.matches_requirement) lines.push('Không đúng loại phòng yêu cầu');
+    if (room.info_booking) {
+        lines.push(`${room.info_booking.booking_code} · ${room.info_booking.customer_name} (${room.info_booking.checkin_at} → ${room.info_booking.checkout_at})`);
+        lines.push('Phòng có booking ở thời điểm khác, không ảnh hưởng tới khoảng thời gian hiện tại.');
+    }
+
+    return lines.join('\n');
 };
 
 const submitAssignment = () => {
@@ -1358,9 +1374,10 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                                 v-for="room in floor.rooms"
                                     :key="room.id"
                                     role="button"
-                                    class="group relative shrink-0 h-16 w-20 cursor-pointer border px-2 py-1.5 text-center text-xs transition focus:outline-none focus:ring-2 focus:ring-pine/40"
+                                    class="relative shrink-0 h-16 w-20 cursor-pointer border px-2 py-1.5 text-center text-xs transition focus:outline-none focus:ring-2 focus:ring-pine/40"
                                     :class="roomCardClass(room)"
                                     :style="roomCardStyle(room)"
+                                    :title="roomTooltip(room)"
                                     :aria-disabled="!canSelectRoom(room) && room.availability_status !== 'conflict' && room.availability_status !== 'current_booking'"
                                     :tabindex="canSelectRoom(room) || room.availability_status === 'conflict' || room.availability_status === 'current_booking' ? 0 : -1"
                                     @click="toggleRoomSelection(room)"
@@ -1383,74 +1400,6 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                                         <span class="mt-0.5 h-2 w-2 rounded-full" :class="roomStatusDotClass(room)" />
                                     </div>
 
-                                    <div
-                                        class="absolute left-1/2 top-full z-30 mt-2 w-64 -translate-x-1/2 border border-gray-200 bg-gray-950 p-3 text-left text-xs leading-relaxed text-white shadow-xl"
-                                        :class="anyModalOpen ? 'hidden' : 'hidden group-hover:block group-focus:block'"
-                                    >
-                                        <div class="font-semibold">{{ room.room_number }} - {{ room.room_type_name ?? room.room_type }}</div>
-                                        <dl class="mt-2 space-y-1">
-                                            <div class="flex justify-between gap-3">
-                                                <dt class="text-gray-300">Trạng thái phòng</dt>
-                                                <dd class="text-right font-medium">{{ room.status_label }}</dd>
-                                            </div>
-                                            <div class="flex justify-between gap-3">
-                                                <dt class="text-gray-300">Khả dụng</dt>
-                                                <dd class="text-right font-medium">{{ availabilityLabel(room) }}</dd>
-                                            </div>
-                                            <div v-if="room.assignment_detail" class="mt-2 border-t border-white/10 pt-2">
-                                                <div class="flex justify-between gap-3">
-                                                    <dt class="text-gray-300">Mã booking</dt>
-                                                    <dd class="text-right font-medium">{{ room.assignment_detail.booking_code }}</dd>
-                                                </div>
-                                                <div class="flex justify-between gap-3">
-                                                    <dt class="text-gray-300">Khách hàng</dt>
-                                                    <dd class="text-right font-medium">{{ room.assignment_detail.customer_name }}</dd>
-                                                </div>
-                                                <div class="flex justify-between gap-3">
-                                                    <dt class="text-gray-300">Nhận phòng</dt>
-                                                    <dd class="text-right font-medium">{{ room.assignment_detail.checkin_at }}</dd>
-                                                </div>
-                                                <div class="flex justify-between gap-3">
-                                                    <dt class="text-gray-300">Trả phòng</dt>
-                                                    <dd class="text-right font-medium">{{ room.assignment_detail.checkout_at }}</dd>
-                                                </div>
-                                                <div class="flex justify-between gap-3">
-                                                    <dt class="text-gray-300">Phân phòng</dt>
-                                                    <dd class="text-right font-medium">{{ labelFor('assignmentStatus', room.assignment_detail.status) }}</dd>
-                                                </div>
-                                                <div v-if="room.conflict_booking" class="flex justify-between gap-3">
-                                                    <dt class="text-gray-300">Trạng thái booking</dt>
-                                                    <dd class="text-right font-medium">{{ labelFor('bookingStatus', room.conflict_booking.status) }}</dd>
-                                                </div>
-                                            </div>
-                                        </dl>
-                                        <div v-if="room.disabled_reason" class="mt-2 border-t border-white/10 pt-2 font-semibold">
-                                            {{ room.disabled_reason }}
-                                        </div>
-                                        <div v-if="room.conflict_booking?.lock_reason || room.current_assignment?.lock_reason" class="mt-2 text-amber-300">
-                                            {{ room.conflict_booking?.lock_reason ?? room.current_assignment?.lock_reason }}
-                                        </div>
-                                        <div v-if="!room.matches_requirement" class="mt-2 text-amber-200">
-                                            Không đúng loại phòng yêu cầu
-                                        </div>
-                                        <div v-if="isRoomSelected(room)" class="mt-2 text-emerald-200">
-                                            Đã chọn cho booking hiện tại
-                                        </div>
-                                        <div v-if="room.conflict_booking?.can_view && room.conflict_booking?.id" class="pointer-events-auto mt-2 border-t border-white/10 pt-2">
-                                            <Link
-                                                :href="`/admin/bookings/${room.conflict_booking.id}`"
-                                                class="inline-flex items-center gap-1 bg-white/10 px-2 py-1 text-[10px] font-semibold text-white hover:bg-white/20"
-                                                @click.stop
-                                            >
-                                                <Eye class="h-3 w-3" /> Xem booking
-                                            </Link>
-                                        </div>
-                                        <div v-if="room.info_booking" class="mt-2 border-t border-white/10 pt-2">
-                                            <div class="font-semibold">{{ room.info_booking.booking_code }} · {{ room.info_booking.customer_name }}</div>
-                                            <div class="text-gray-300">{{ room.info_booking.checkin_at }} → {{ room.info_booking.checkout_at }}</div>
-                                            <div class="mt-1 text-amber-200">Phòng có booking ở thời điểm khác, không ảnh hưởng tới khoảng thời gian hiện tại.</div>
-                                        </div>
-                                    </div>
                                 </div>
                         </section>
                     </div>
