@@ -436,6 +436,17 @@ const availabilityLabel = (room) => ({
     current_booking: 'Đã phân cho booking này',
 }[room.availability_status] ?? 'Không xác định');
 
+// docs/yeucaumoi.txt mục 6 — same status-row badge pattern as the other 3
+// Room Map screens (colored pill in a bg-white/75 band), so every tile here
+// has the same status-strip band Sơ đồ thao tác always shows, not just an
+// empty area for rooms without a conflict/current_booking.
+const availabilityBadgeClass = (room) => ({
+    available: 'bg-green-100 text-green-800',
+    conflict: 'bg-red-100 text-red-800',
+    unavailable: 'bg-gray-200 text-gray-600',
+    current_booking: 'bg-indigo-100 text-indigo-800',
+}[room.availability_status] ?? 'bg-gray-100 text-gray-600');
+
 const openConflictPanel = (room) => {
     conflictPanelRoom.value = room;
     showConflictPanel.value = true;
@@ -1334,8 +1345,35 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                                 @keydown.space.prevent="toggleRoomSelection(room)"
                             >
                                 <template #body>
-                                    <div v-if="room.availability_status === 'conflict' && room.conflict_booking" class="truncate text-[10px] opacity-80">
-                                        {{ room.conflict_booking.code }}
+                                    <!-- Same content shape as Sơ đồ thao tác's occupant body: guest
+                                         name + date range when the room belongs to a booking (this one
+                                         or the conflicting one), a placeholder text otherwise — no tile
+                                         is ever left empty below the header. -->
+                                    <div v-if="room.assignment_detail" class="space-y-1">
+                                        <div class="truncate font-medium" style="overflow-wrap: anywhere;">{{ room.assignment_detail.customer_name }}</div>
+                                        <div class="text-[10px] opacity-80">
+                                            {{ room.assignment_detail.checkin_at?.slice(5, 16) }} → {{ room.assignment_detail.checkout_at?.slice(5, 16) }}
+                                        </div>
+                                    </div>
+                                    <div v-else-if="room.availability_status === 'unavailable'" class="text-[11px] italic text-gray-500">{{ room.disabled_reason }}</div>
+                                    <div v-else class="text-[11px] italic text-gray-500">Trống</div>
+                                </template>
+
+                                <template #status-row>
+                                    <!-- Same status-strip band as the other 3 Room Map screens. -->
+                                    <div class="flex flex-wrap items-center gap-1.5 rounded bg-white/75 px-1 py-1 text-gray-900">
+                                        <span class="inline-flex w-fit rounded px-1.5 py-0.5 text-[10px] font-semibold" :class="availabilityBadgeClass(room)">
+                                            {{ availabilityLabel(room) }}
+                                        </span>
+                                        <span v-if="!room.matches_requirement" class="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                                            Sai loại phòng
+                                        </span>
+                                    </div>
+                                </template>
+
+                                <template #footer>
+                                    <div v-if="room.info_booking" class="rounded bg-white/75 px-1 py-1 text-[10px] leading-snug text-gray-700" style="overflow-wrap: anywhere;">
+                                        {{ room.info_booking.customer_name }} ({{ room.info_booking.checkin_at?.slice(5, 16) }} → {{ room.info_booking.checkout_at?.slice(5, 16) }})
                                     </div>
                                 </template>
                             </RoomTile>

@@ -126,6 +126,14 @@ function hasSingleBookingColor(room) {
     return SINGLE_BOOKING_STATES.includes(room.availability) && !!room.primary_color && room.booking_count === 1;
 }
 
+// docs/yeucaumoi.txt mục 6 — the tile body shows this booking's name/dates
+// the same way Sơ đồ thao tác shows its occupant, regardless of whether the
+// room also gets a booking_color background (multi_booking/overlap rooms
+// still show the FIRST booking here even though no single color applies).
+function primaryBooking(room) {
+    return room.bookings?.[0] ?? null;
+}
+
 // Fed to RoomTile's `vacant-class` prop — only applies when there's no
 // bookingColor (i.e. NOT hasSingleBookingColor); RoomTile itself owns the
 // booking_color background + auto-contrast text for the single-booking case.
@@ -241,15 +249,39 @@ function badgeClass(badge) {
                     </template>
 
                     <template #body>
-                        <div class="flex flex-wrap items-center gap-1">
-                            <span v-if="room.booking_count > 1 && !room.has_overlap" class="text-xs font-bold text-amber-700">×{{ room.booking_count }}</span>
+                        <!-- Same content shape as Sơ đồ thao tác's occupant body: guest
+                             name + date range when a booking owns the room, "Phòng
+                             trống" placeholder otherwise. -->
+                        <div v-if="primaryBooking(room)" class="space-y-1">
+                            <div class="flex items-start justify-between gap-1">
+                                <span class="truncate font-medium" style="overflow-wrap: anywhere;">{{ primaryBooking(room).customer_name }}</span>
+                                <span v-if="room.booking_count > 1 && !room.has_overlap" class="shrink-0 text-[10px] font-bold text-amber-700">×{{ room.booking_count }}</span>
+                            </div>
+                            <div class="text-[10px] opacity-80">
+                                {{ primaryBooking(room).checkin_at?.slice(5, 16) }} → {{ primaryBooking(room).checkout_at?.slice(5, 16) }}
+                            </div>
+                        </div>
+                        <div v-else class="text-[11px] italic text-gray-500">Phòng trống</div>
+                    </template>
+
+                    <template #status-row>
+                        <!-- Same status-strip band as the other 3 Room Map screens — one
+                             badge for the room's availability state, so every tile has the
+                             same status band whether or not it has a booking. -->
+                        <div class="flex flex-wrap items-center gap-1.5 rounded bg-white/75 px-1 py-1 text-gray-900">
+                            <span class="inline-flex w-fit rounded px-1.5 py-0.5 text-[10px] font-semibold" :class="availabilityStyles[room.availability]?.badge">
+                                {{ room.availability_label }}
+                            </span>
                             <span
                                 v-if="pendingRequestCounts[room.room_id] > 0"
                                 class="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
                                 title="Yêu cầu đặc biệt đang chờ"
                             >{{ pendingRequestCounts[room.room_id] }} yc</span>
                         </div>
-                        <div v-if="showColorHint(room)" class="mt-1 h-1 w-full rounded-full" :style="{ backgroundColor: room.primary_color }"></div>
+                    </template>
+
+                    <template #footer>
+                        <div v-if="showColorHint(room)" class="h-1 w-full rounded-full" :style="{ backgroundColor: room.primary_color }"></div>
                     </template>
                 </RoomTile>
             </template>
