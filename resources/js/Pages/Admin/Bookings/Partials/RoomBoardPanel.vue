@@ -22,9 +22,10 @@ const checkedInStays = computed(() => activeStays.value.filter((s) => s.status =
 const isLastCheckedIn = (stay) =>
     stay.status === 'CHECKED_IN' && checkedInStays.value.length === 1
 
-// ADR-52: disabled state is UX only; OutstandingBalanceException is authoritative on server
-const checkoutDisabled = (stay) =>
-    isLastCheckedIn(stay) && (props.paymentSummary?.balance_due ?? 0) > 0
+// docs/Prompt_2.txt mục VIII — outstanding balance warning on the final
+// checkout confirmation. Never implies the debt is forgiven; it stays
+// trackable in Đối soát after checkout.
+const formatCurrency = (value) => `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Number(value) || 0)} đ`
 
 const lastStayConfirmTarget = ref(null)
 const checkoutWarningStay = ref(null)
@@ -295,8 +296,6 @@ const checkOutAll = () => {
     doNext(0)
 }
 
-const checkOutAllDisabled = computed(() => (props.paymentSummary?.balance_due ?? 0) > 0)
-
 // Phase 4.3A M5: minimal frontend integration for the already-approved Stay Extension
 // backend capability (Milestone 2). One field, no approval step — matches the
 // Reception-Centric / Minimal Clicks operational design principles.
@@ -408,16 +407,10 @@ function requestStatusClass(status) {
                 >
                     <LogIn class="h-3.5 w-3.5" /> Nhận tất cả phòng
                 </button>
-                <!-- ADR-52: disabled when balance > 0 — last-stay checkout would throw OBE -->
-                <span
-                    v-if="can.checkOut && activeStays.some(s => s.can_check_out) && checkOutAllDisabled"
-                    class="inline-flex cursor-not-allowed items-center gap-1.5 border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-400"
-                    title="Còn số dư cần thanh toán trước khi trả tất cả phòng"
-                >
-                    <LogOut class="h-3.5 w-3.5" /> Trả tất cả phòng
-                </span>
+                <!-- docs/Prompt_2.txt mục VIII: outstanding balance no longer disables
+                     checkout — server-side confirmation gate now carries the warning. -->
                 <button
-                    v-else-if="can.checkOut && activeStays.some(s => s.can_check_out)"
+                    v-if="can.checkOut && activeStays.some(s => s.can_check_out)"
                     type="button"
                     class="inline-flex items-center gap-1.5 border border-gray-300 px-3 py-1 text-xs font-semibold text-steel hover:border-pine hover:text-pine"
                     @click="requestCheckOutAll"
@@ -493,16 +486,11 @@ function requestStatusClass(status) {
                             >
                                 <LogIn class="h-3.5 w-3.5" /> Nhận phòng
                             </button>
-                            <!-- ADR-52: disabled for last checked-in stay with outstanding balance -->
-                            <span
-                                v-if="can.checkOut && stay.can_check_out && checkoutDisabled(stay)"
-                                class="inline-flex cursor-not-allowed items-center gap-2 border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-400"
-                                :title="`Còn số dư cần thanh toán trước khi trả phòng cuối cùng`"
-                            >
-                                <LogOut class="h-3.5 w-3.5" /> Trả phòng
-                            </span>
+                            <!-- docs/Prompt_2.txt mục VIII: outstanding balance no longer
+                                 disables checkout — server-side confirmation gate now
+                                 carries the warning instead of a hard client-side block. -->
                             <button
-                                v-else-if="can.checkOut && stay.can_check_out"
+                                v-if="can.checkOut && stay.can_check_out"
                                 type="button"
                                 class="inline-flex items-center gap-2 border border-gray-300 px-3 py-1 text-xs font-semibold text-steel hover:border-pine hover:text-pine"
                                 @click="checkOut(stay)"
@@ -601,6 +589,9 @@ function requestStatusClass(status) {
                 <li>• Phí vận hành (minibar, giặt ủi, nhà hàng…) <strong>sẽ không thể thêm hoặc huỷ nữa.</strong></li>
                 <li>• Vui lòng đảm bảo tất cả phí phát sinh đã được nhập trước khi tiếp tục.</li>
             </ul>
+            <div v-if="(paymentSummary?.balance_due ?? 0) > 0" class="mt-3 border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                Booking còn công nợ <strong>{{ formatCurrency(paymentSummary.balance_due) }}</strong>. Sau khi trả phòng, số tiền này sẽ tiếp tục được theo dõi trong Đối soát.
+            </div>
             <div class="mt-5 flex justify-end gap-2">
                 <button
                     type="button"
@@ -632,6 +623,9 @@ function requestStatusClass(status) {
                 <li>• Phí vận hành (minibar, giặt ủi, nhà hàng…) <strong>sẽ không thể thêm hoặc huỷ nữa.</strong></li>
                 <li>• Vui lòng đảm bảo tất cả phí phát sinh đã được nhập trước khi tiếp tục.</li>
             </ul>
+            <div v-if="(paymentSummary?.balance_due ?? 0) > 0" class="mt-3 border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                Booking còn công nợ <strong>{{ formatCurrency(paymentSummary.balance_due) }}</strong>. Sau khi trả phòng, số tiền này sẽ tiếp tục được theo dõi trong Đối soát.
+            </div>
             <div class="mt-5 flex justify-end gap-2">
                 <button
                     type="button"
@@ -731,7 +725,10 @@ function requestStatusClass(status) {
     <!-- Non-last stay with outstanding balance warning modal -->
     <div v-if="checkoutWarningStay" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
         <div class="w-full max-w-sm border border-gray-200 bg-white p-5 shadow-xl">
-            <h2 class="text-base font-semibold text-coral">Booking còn số dư chưa thanh toán</h2>
+            <h2 class="text-base font-semibold text-coral">Booking còn công nợ</h2>
+            <p class="mt-2 text-sm text-steel">
+                Booking còn công nợ <strong>{{ formatCurrency(paymentSummary?.balance_due ?? 0) }}</strong>. Sau khi trả phòng, số tiền này sẽ tiếp tục được theo dõi trong Đối soát.
+            </p>
             <p class="mt-2 text-sm text-steel">
                 Bạn có muốn tiếp tục trả phòng <strong>{{ checkoutWarningStay.room_number }}</strong> không?
             </p>

@@ -225,12 +225,17 @@ class StayService
 
             if ($remainingActive === 0) {
                 // ADR-48: finalise runs inside caller's transaction; Booking lock already held.
-                $this->bookings->finaliseBookingCheckout($lockedBooking);
+                // docs/Prompt_2.txt mục X — audit trail: who/when already come from the
+                // StayEvent row itself (actor + created_at); the outstanding balance at the
+                // moment of checkout is the one additional fact worth capturing, so it rides
+                // along in this same event instead of a second ledger/table.
+                $outstandingBalanceAtCheckout = $this->bookings->finaliseBookingCheckout($lockedBooking);
                 $this->stayEvents->record($lockedStay, StayEventType::Checkout, Auth::user(), [
                     'version' => 1,
                     'booking_id' => $lockedBooking->id,
                     'room_assignment_id' => $assignment->id,
                     'remaining_active_stays' => $remainingActive,
+                    'outstanding_balance_at_checkout' => $outstandingBalanceAtCheckout,
                 ]);
             } else {
                 $this->bookings->updateBookingStayStatus($lockedBooking);

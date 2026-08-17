@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Admin\Booking;
 
 use App\Exceptions\FinalCheckoutConfirmationRequiredException;
-use App\Exceptions\OutstandingBalanceException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Booking\CheckInStayRequest;
 use App\Http\Requests\Booking\CheckOutStayRequest;
@@ -48,14 +47,12 @@ class StayController extends Controller
         } catch (FinalCheckoutConfirmationRequiredException) {
             // ADR-55: final checkout gate — redirect back to room_map so the frontend
             // shows the charge-review confirmation dialog and retries with confirmed=true.
+            // docs/Prompt_2.txt mục VIII: an outstanding-balance warning rides on the SAME
+            // gate rather than a separate one — RoomBoardPanel.vue reads the fresh
+            // paymentSummary prop this redirect reloads to decide whether to show it.
             return redirect()
                 ->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'room_map'])
                 ->with('final_checkout_confirmation_required', $stay->id);
-        } catch (OutstandingBalanceException $e) {
-            // ADR-53: caught per-controller; redirects to payments tab (most actionable destination).
-            return redirect()
-                ->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'payments'])
-                ->with('error', 'Không thể trả phòng: ' . $e->getMessage() . ' Vui lòng thanh toán trên tab Tài chính.');
         }
 
         return redirect()->route('admin.bookings.show', ['booking' => $booking, 'tab' => 'room_map'])->with('success', 'Đã trả phòng.');

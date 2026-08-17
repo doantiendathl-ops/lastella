@@ -193,11 +193,16 @@ function confirmCheckout() {
         onSuccess: (page) => {
             const flash = page.props.flash ?? {};
             const pendingStayIds = flash.final_checkout_confirmation_required ?? [];
+            const balancesByStay = flash.final_checkout_balances ?? {};
 
             if (pendingStayIds.length > 0) {
                 checkoutFlow.value = {
                     stage: 'final-confirm',
-                    finalRooms: rooms.filter((r) => pendingStayIds.includes(r.stay_id)),
+                    // docs/Prompt_2.txt mục VIII — each room carries its own booking's
+                    // real balance_due so the dialog can warn per booking, not just once.
+                    finalRooms: rooms
+                        .filter((r) => pendingStayIds.includes(r.stay_id))
+                        .map((r) => ({ ...r, balance_due: balancesByStay[r.stay_id] ?? 0 })),
                     pendingStayIds,
                 };
                 return;

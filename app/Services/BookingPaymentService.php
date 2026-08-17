@@ -7,12 +7,30 @@ use App\Enums\PaymentType;
 use App\Exceptions\BookingTerminalException;
 use App\Models\Booking;
 use App\Models\BookingPayment;
+use App\Models\Folio;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class BookingPaymentService
 {
+    public function __construct(private readonly FolioService $folios)
+    {
+    }
+
+    /**
+     * docs/Prompt_2.txt mục XI/XII — a CheckedOut booking may still be
+     * collecting on an outstanding balance, so it must NOT be treated as
+     * terminal for a general payment the way Cancelled/NoShow are.
+     * addDeposit()/addRefund()/deletePayment() are unaffected — they keep
+     * the original all-terminal-statuses guard; only the general
+     * "settle the balance" payment path is relaxed.
+     */
+    private const NON_PAYABLE_STATUSES = [
+        BookingStatus::Cancelled,
+        BookingStatus::NoShow,
+    ];
+
     private const DEPOSITABLE_STATUSES = [
         BookingStatus::Draft,
         BookingStatus::PendingAssignment,
@@ -51,8 +69,23 @@ class BookingPaymentService
     {
         return DB::transaction(function () use ($booking, $data): BookingPayment {
             $locked = Booking::lockForUpdate()->findOrFail($booking->id);
-            $this->assertBookingNotTerminal($locked);
-            return $this->insertPayment($locked, $data);
+            $this->assertBookingAcceptsPayment($locked);
+
+            $payment = $this->insertPayment($locked, $data);
+
+            // docs/Prompt_2.txt mục XI — paying off a CheckedOut booking's
+            // debt is what finally settles its Folio; auto-close mirrors
+            // exactly what finaliseBookingCheckout() already does when the
+            // balance is zero AT checkout time (FolioService::autoCloseFolio
+            // is idempotent — a no-op if already Closed/Voided). Scoped to
+            // CheckedOut only: a mid-stay balance hitting zero must NOT
+            // close the Folio, more charges are still expected before the
+            // guest actually checks out.
+            if ($locked->status === BookingStatus::CheckedOut) {
+                $this->autoCloseFolioIfSettled($locked);
+            }
+
+            return $payment;
         });
     }
 
@@ -92,6 +125,36 @@ class BookingPaymentService
     {
         if ($booking->status->isTerminal()) {
             throw new BookingTerminalException();
+        }
+    }
+
+    private function assertBookingAcceptsPayment(Booking $booking): void
+    {
+        if (in_array($booking->status, self::NON_PAYABLE_STATUSES, true)) {
+            throw new BookingTerminalException();
+        }
+    }
+
+    /**
+     * Same formula as BookingService::finaliseBookingCheckout()/paymentSummary()
+     * and ReconciliationService::computeBalance() (pre-existing duplication,
+     * not introduced here) — recomputed under lock so the auto-close decision
+     * reflects the payment just inserted, not a stale read.
+     */
+    private function autoCloseFolioIfSettled(Booking $booking): void
+    {
+        $folio = $booking->folio()->first();
+        if ($folio === null) {
+            return;
+        }
+
+        $lockedFolio = Folio::lockForUpdate()->findOrFail($folio->id);
+        $totalCharges = $this->folios->getFolioTotal($booking);
+        $paidTotal = $this->calculatePaidTotal($booking);
+        $balanceDue = (float) bcsub((string) $totalCharges, (string) $paidTotal, 2);
+
+        if ($balanceDue <= 0) {
+            $this->folios->autoCloseFolio($lockedFolio, Auth::user());
         }
     }
 

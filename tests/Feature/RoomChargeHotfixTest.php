@@ -9,7 +9,6 @@ use App\Enums\CustomerType;
 use App\Enums\FolioStatus;
 use App\Enums\PaymentMethod;
 use App\Enums\StayStatus;
-use App\Exceptions\OutstandingBalanceException;
 use App\Models\Booking;
 use App\Models\Room;
 use App\Models\RoomType;
@@ -179,9 +178,11 @@ class RoomChargeHotfixTest extends TestCase
         $this->assertSame(FolioStatus::Closed, $booking->folio->fresh()->status);
     }
 
-    public function test_checkout_all_last_stay_blocked_by_obe_when_balance_outstanding(): void
+    // docs/Prompt_2.txt mục IV — supersedes the old OBE-blocks-final-checkout
+    // behavior: the last stay's checkout now succeeds with the balance
+    // preserved on the (still OPEN) Folio, instead of throwing.
+    public function test_checkout_all_last_stay_succeeds_with_balance_outstanding(): void
     {
-        // This is the server-side enforcement that backs the UI disabled state.
         $this->travelTo('2026-07-01 14:00:00');
 
         $booking = $this->createBooking();
@@ -206,9 +207,15 @@ class RoomChargeHotfixTest extends TestCase
         $this->assertSame(StayStatus::CheckedOut, $stay1->fresh()->status);
         $this->assertSame(BookingStatus::PartiallyCheckedOut, $booking->fresh()->status);
 
-        // Last stay checkout throws OBE — this is what the UI disabled state prevents
-        $this->expectException(OutstandingBalanceException::class);
+        // Last stay checkout now succeeds — the 2-room aggregate charge
+        // (1,600,000) stays outstanding, tracked on the Folio, not blocked.
         app(StayService::class)->checkOut($stay2, null, true);
+
+        $booking = $booking->fresh();
+        $this->assertSame(StayStatus::CheckedOut, $stay2->fresh()->status);
+        $this->assertSame(BookingStatus::CheckedOut, $booking->status);
+        $this->assertSame(FolioStatus::Open, $booking->folio->fresh()->status);
+        $this->assertEquals(1600000.0, app(BookingService::class)->paymentSummary($booking)['balance_due']);
     }
 
     public function test_partial_checkout_booking_can_checkout_remaining_rooms_after_payment(): void
@@ -270,7 +277,10 @@ class RoomChargeHotfixTest extends TestCase
 
     // ── HTTP layer tests ──────────────────────────────────────────────────────
 
-    public function test_checkout_all_http_blocked_when_balance_outstanding(): void
+    // docs/Prompt_2.txt mục IV — supersedes the old HTTP-level OBE-block proof:
+    // the last stay's checkout now succeeds (with confirmed=true) despite the
+    // outstanding balance, instead of redirecting to the payments tab with an error.
+    public function test_checkout_all_http_succeeds_when_balance_outstanding(): void
     {
         $this->travelTo('2026-07-01 14:00:00');
 
@@ -293,14 +303,14 @@ class RoomChargeHotfixTest extends TestCase
 
         $this->assertSame(StayStatus::CheckedOut, $stay1->fresh()->status);
 
-        // Last stay checkout with confirmed=true: reaches OBE → redirects to payments tab with error
+        // Last stay checkout with confirmed=true now succeeds despite the balance.
         $response = $this->post(route('admin.bookings.stays.check-out', [$booking, $stay2]), ['confirmed' => true]);
-        $response->assertRedirect(route('admin.bookings.show', ['booking' => $booking->id, 'tab' => 'payments']));
-        $response->assertSessionHas('error');
+        $response->assertRedirect(route('admin.bookings.show', ['booking' => $booking->id, 'tab' => 'room_map']));
+        $response->assertSessionHas('success');
 
-        // Last stay must NOT be checked out
-        $this->assertSame(StayStatus::CheckedIn, $stay2->fresh()->status);
-        $this->assertNotSame(BookingStatus::CheckedOut, $booking->fresh()->status);
+        $this->assertSame(StayStatus::CheckedOut, $stay2->fresh()->status);
+        $this->assertSame(BookingStatus::CheckedOut, $booking->fresh()->status);
+        $this->assertEquals(1600000.0, app(BookingService::class)->paymentSummary($booking->fresh())['balance_due']);
     }
 
     public function test_checkout_all_http_succeeds_after_full_payment(): void

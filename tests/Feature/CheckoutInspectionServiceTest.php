@@ -2,9 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Enums\BookingStatus;
 use App\Enums\BookingType;
 use App\Enums\CheckoutInspectionStatus;
 use App\Enums\CustomerType;
+use App\Enums\FolioStatus;
 use App\Enums\StayEventType;
 use App\Models\Booking;
 use App\Models\ProductService;
@@ -591,15 +593,15 @@ class CheckoutInspectionServiceTest extends TestCase
     // ------------------------------------------------------------------
 
     /**
-     * TEST 1 — ROLLBACK: checkOut() posts the inspection charge, then a
-     * LATER step in the SAME transaction throws (the existing ADR-40
-     * outstanding-balance guard inside BookingService::
-     * finaliseBookingCheckout(), reached right after the inspection-posting
-     * call) — no mock/fake, a real existing throw path. Expected: the whole
-     * transaction rolls back — zero persisted inspection FolioEntry, stay
-     * still not checked out.
+     * TEST 1 — COMMIT WITH OUTSTANDING BALANCE (docs/Prompt_2.txt mục IV/XIII):
+     * checkOut() posts the inspection charge, then finaliseBookingCheckout()
+     * runs — outstanding balance no longer throws (supersedes the old ADR-40
+     * rollback proof this test used to exercise). Both the inspection charge
+     * AND the checkout finalization must commit TOGETHER in the same
+     * transaction: the charge is real money owed, so checkout must not
+     * silently proceed without it ever being posted.
      */
-    public function test_checkout_rolls_back_inspection_charge_when_a_later_guard_throws(): void
+    public function test_checkout_commits_inspection_charge_together_with_outstanding_balance(): void
     {
         $stay = $this->checkedInStay();
         $service = app(CheckoutInspectionService::class);
@@ -610,23 +612,24 @@ class CheckoutInspectionServiceTest extends TestCase
 
         // Deliberately do NOT pay the outstanding balance (room 800,000 +
         // inspection 60,000) — this stay is the booking's only stay, so
-        // checkOut(confirmed: true) reaches finaliseBookingCheckout(), which
-        // throws OutstandingBalanceException AFTER the inspection charge is
-        // posted within the same transaction.
-        try {
-            app(StayService::class)->checkOut($stay->fresh(), null, true);
-            $this->fail('Expected OutstandingBalanceException to propagate.');
-        } catch (\App\Exceptions\OutstandingBalanceException) {
-            // expected
-        }
+        // checkOut(confirmed: true) reaches finaliseBookingCheckout() with a
+        // positive balance, which now succeeds instead of throwing.
+        $checkedOut = app(StayService::class)->checkOut($stay->fresh(), null, true);
 
-        $this->assertNull($stay->fresh()->actual_checkout_at, 'Checkout state must be rolled back, not partially applied.');
+        $this->assertNotNull($checkedOut->actual_checkout_at);
+        $this->assertSame(BookingStatus::CheckedOut, $stay->booking->fresh()->status);
         $this->assertSame(
-            0,
+            1,
             $stay->booking->folio->folioEntries()->where('posting_source', 'CHECKOUT_INSPECTION')->count(),
-            'The inspection charge posted earlier in the SAME transaction must be rolled back too — never left orphaned.',
+            'The inspection charge must be posted, not silently dropped just because checkout now tolerates a balance.',
         );
-        $this->assertFalse($inspection->fresh()->isPosted(), 'isPosted() must reflect the rollback, not a stale in-memory true.');
+        $this->assertTrue($inspection->fresh()->isPosted());
+
+        // The Folio must reflect the debt — never zeroed/closed just because checkout succeeded.
+        $folio = $stay->booking->folio->fresh();
+        $this->assertSame(FolioStatus::Open, $folio->status);
+        $balance = app(BookingService::class)->paymentSummary($stay->booking->fresh())['balance_due'];
+        $this->assertEquals(self::ROOM_PRICE + 60000, $balance);
     }
 
     /**

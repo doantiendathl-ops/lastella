@@ -7,6 +7,7 @@ namespace Tests\Feature;
 use App\Enums\BookingStatus;
 use App\Enums\BookingType;
 use App\Enums\CustomerType;
+use App\Enums\FolioStatus;
 use App\Enums\PaymentMethod;
 use App\Models\Booking;
 use App\Models\Room;
@@ -53,34 +54,35 @@ class CheckoutUiTest extends TestCase
         $this->twinType = RoomType::where('code', 'TWIN')->firstOrFail();
     }
 
-    // ── ADR-53: OBE → flash error + redirect to payments tab ─────────────────
+    // ── docs/Prompt_2.txt mục IV (supersedes ADR-53 OBE block) ────────────────
 
-    public function test_checkout_with_outstanding_balance_redirects_to_payments_tab_with_flash_error(): void
+    public function test_checkout_with_outstanding_balance_redirects_to_room_map_and_succeeds(): void
     {
         [$booking, $stay] = $this->bookingWithCheckedInStay();
 
-        // No payment — balance outstanding
-
-        // Pass confirmed=true to reach the OBE guard (confirmation gate fires before OBE).
+        // No payment — balance outstanding. confirmed=true passes the final
+        // checkout confirmation gate; the balance itself no longer blocks.
         $response = $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out", ['confirmed' => true]);
 
         $response->assertRedirect(route('admin.bookings.show', [
             'booking' => $booking->id,
-            'tab'     => 'payments',
+            'tab'     => 'room_map',
         ]));
 
-        $response->assertSessionHas('error');
-        $response->assertSessionMissing('errors');
+        $response->assertSessionHas('success');
+        $response->assertSessionMissing('error');
     }
 
-    public function test_checkout_with_outstanding_balance_does_not_change_booking_status(): void
+    public function test_checkout_with_outstanding_balance_finalizes_booking_status(): void
     {
         [$booking, $stay] = $this->bookingWithCheckedInStay();
 
-        // Pass confirmed=true so the OBE guard is reached and the booking stays unchanged.
         $this->post("/admin/bookings/{$booking->id}/stays/{$stay->id}/check-out", ['confirmed' => true]);
 
-        $this->assertNotSame(BookingStatus::CheckedOut, $booking->fresh()->status);
+        $booking = $booking->fresh();
+        $this->assertSame(BookingStatus::CheckedOut, $booking->status);
+        $this->assertSame(FolioStatus::Open, $booking->folio()->first()->status);
+        $this->assertGreaterThan(0, app(BookingService::class)->paymentSummary($booking)['balance_due']);
     }
 
     // ── Checkout success ─────────────────────────────────────────────────────

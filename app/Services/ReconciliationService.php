@@ -26,6 +26,10 @@ class ReconciliationService
                 'folio',
                 'folio.folioEntries' => fn ($q) => $q->whereNull('voided_at'),
                 'bookingPayments',
+                // docs/Prompt_2.txt mục VI — "checkout date" field; sourced from the
+                // Stay(s), not Booking.checkout_at (that column is the planned date at
+                // booking time, not when checkout actually happened).
+                'stays:id,booking_id,actual_checkout_at',
             ])
             ->whereHas('folio', fn ($q) => $q->where('status', '!=', FolioStatus::Voided->value));
 
@@ -48,6 +52,12 @@ class ReconciliationService
                     'total_charges' => $balance['total_charges'],
                     'paid_total'    => $balance['paid_total'],
                     'balance_due'   => $balance['balance_due'],
+                    // Only meaningful once the booking as a whole has checked out — a
+                    // PartiallyCheckedOut booking would otherwise show a stray date from
+                    // just one of its rooms while the guest is still in-house.
+                    'checkout_at'   => $booking->status === BookingStatus::CheckedOut
+                        ? $booking->stays->max('actual_checkout_at')?->toDateTimeString()
+                        : null,
                 ];
             }
         }

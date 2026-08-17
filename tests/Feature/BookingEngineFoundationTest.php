@@ -6,6 +6,7 @@ use App\Enums\AssignmentStatus;
 use App\Enums\BookingStatus;
 use App\Enums\BookingType;
 use App\Enums\CustomerType;
+use App\Enums\FolioStatus;
 use App\Enums\PaymentMethod;
 use App\Enums\PaymentType;
 use App\Enums\PriceSource;
@@ -25,7 +26,6 @@ use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoomSeeder;
 use Database\Seeders\RoomTypeSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use App\Exceptions\OutstandingBalanceException;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
@@ -281,7 +281,10 @@ class BookingEngineFoundationTest extends TestCase
         $this->assertNotNull($checkedOut->actual_checkout_at);
     }
 
-    public function test_booking_does_not_finalize_checkout_when_balance_remains(): void
+    // docs/Prompt_2.txt mục IV — outstanding balance no longer blocks checkout
+    // (supersedes ADR-40): Booking/Stay still finalize normally, the Folio stays
+    // OPEN (not auto-closed), and the balance is preserved exactly, not zeroed.
+    public function test_booking_finalizes_checkout_with_outstanding_balance_preserved(): void
     {
         $assignment = $this->createSingleAssignment();
         $stay = app(StayService::class)->createStayFromAssignment($assignment);
@@ -291,9 +294,13 @@ class BookingEngineFoundationTest extends TestCase
         $checkedIn = $stayService->checkIn($stay, '2026-07-01 15:00:00');
         $this->travelTo('2026-07-02 11:00:00');
 
-        // ADR-40: outstanding balance blocks checkout — transaction rolls back entirely.
-        $this->expectException(OutstandingBalanceException::class);
-        $stayService->checkOut($checkedIn, '2026-07-02 11:00:00', true);
+        $checkedOut = $stayService->checkOut($checkedIn, '2026-07-02 11:00:00', true);
+
+        $booking = $assignment->booking->refresh();
+        $this->assertSame(StayStatus::CheckedOut, $checkedOut->status);
+        $this->assertSame(BookingStatus::CheckedOut, $booking->status);
+        $this->assertSame(FolioStatus::Open, $booking->folio()->first()->status);
+        $this->assertEquals(1800.0, app(BookingService::class)->paymentSummary($booking)['balance_due']);
     }
 
     public function test_assigning_conflicting_room_throws_validation_exception(): void

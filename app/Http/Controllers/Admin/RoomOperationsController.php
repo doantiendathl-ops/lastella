@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Admin;
 
 use App\Exceptions\FinalCheckoutConfirmationRequiredException;
-use App\Exceptions\OutstandingBalanceException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\RoomOperations\BulkCheckInRequest;
 use App\Http\Requests\RoomOperations\BulkCheckOutRequest;
@@ -16,6 +15,7 @@ use App\Models\Booking;
 use App\Models\ProductService;
 use App\Models\RoomAssignment;
 use App\Models\Stay;
+use App\Services\BookingService;
 use App\Services\RoomOperationsBoardService;
 use App\Services\RoomSwapService;
 use App\Services\StayService;
@@ -43,6 +43,7 @@ class RoomOperationsController extends Controller
         private readonly RoomOperationsBoardService $board,
         private readonly RoomSwapService $swaps,
         private readonly StayService $stays,
+        private readonly BookingService $bookings,
     ) {
     }
 
@@ -163,6 +164,11 @@ class RoomOperationsController extends Controller
         $confirmed = $request->boolean('confirmed', false);
         $errors = [];
         $needsConfirmation = [];
+        // docs/Prompt_2.txt mục VIII — keyed by stay_id (not booking_id) so
+        // CheckoutFlowDialogs.vue can label each pending room with its own
+        // booking's real posted balance, even when several bookings' final
+        // stays land in the same bulk selection.
+        $balancesByStay = [];
 
         foreach ($stays as $stay) {
             $this->authorize('checkOut', $stay);
@@ -171,15 +177,16 @@ class RoomOperationsController extends Controller
                 $this->stays->checkOut($stay, null, $confirmed);
             } catch (FinalCheckoutConfirmationRequiredException) {
                 $needsConfirmation[] = $stay->id;
-            } catch (OutstandingBalanceException $e) {
-                $errors["stay_{$stay->id}"] = "Phòng {$stay->room?->room_number}: còn dư nợ chưa thanh toán — vui lòng xử lý tại trang Booking.";
+                $balancesByStay[$stay->id] = $this->bookings->paymentSummary($stay->booking)['balance_due'];
             } catch (ValidationException $e) {
                 $errors["stay_{$stay->id}"] = "Phòng {$stay->room?->room_number}: ".implode(' ', $e->errors()['stay'] ?? ['Không thể trả phòng.']);
             }
         }
 
         if ($needsConfirmation !== []) {
-            return back()->with('final_checkout_confirmation_required', $needsConfirmation);
+            return back()
+                ->with('final_checkout_confirmation_required', $needsConfirmation)
+                ->with('final_checkout_balances', $balancesByStay);
         }
 
         if ($errors !== []) {

@@ -13,6 +13,7 @@ interface OutstandingRow {
     total_charges: number
     paid_total: number
     balance_due: number
+    checkout_at: string | null
 }
 
 interface DiscrepancyRow {
@@ -96,6 +97,15 @@ const formatCurrency = (value: number) =>
 const formatDate = (dateStr: string) => {
     const [y, m, d] = dateStr.split('-')
     return `${d}/${m}/${y}`
+}
+
+// docs/Prompt_2.txt mục VI — "checkout date" column; checkout_at is a
+// "YYYY-MM-DD HH:MM:SS" string (Stay.actual_checkout_at), null when the
+// booking hasn't actually checked out yet (e.g. a mid-stay discrepancy row).
+const formatCheckoutAt = (value: string | null) => {
+    if (!value) return '—'
+    const [datePart, timePart] = value.split(' ')
+    return `${formatDate(datePart)} ${timePart?.slice(0, 5) ?? ''}`.trim()
 }
 
 const discrepancyBadgeClass = (type: string) => {
@@ -221,6 +231,7 @@ const statusBadgeClass = (status: string) => {
                                 <th class="px-5 py-3">Khách hàng</th>
                                 <th class="px-5 py-3">Trạng thái</th>
                                 <th class="px-5 py-3">Folio</th>
+                                <th class="px-5 py-3">Ngày trả phòng</th>
                                 <th class="px-5 py-3 text-right">Tổng phí</th>
                                 <th class="px-5 py-3 text-right">Đã TT</th>
                                 <th class="px-5 py-3 text-right">Còn nợ</th>
@@ -252,6 +263,9 @@ const statusBadgeClass = (status: string) => {
                                 <td class="px-5 py-3 text-xs text-gray-500">
                                     {{ row.folio_status ? (FOLIO_STATUS_LABELS[row.folio_status] ?? row.folio_status) : '—' }}
                                 </td>
+                                <td class="px-5 py-3 text-xs text-gray-500">
+                                    {{ formatCheckoutAt(row.checkout_at) }}
+                                </td>
                                 <td class="px-5 py-3 text-right font-mono text-gray-700">
                                     {{ formatCurrency(row.total_charges) }}
                                 </td>
@@ -265,7 +279,7 @@ const statusBadgeClass = (status: string) => {
                         </tbody>
                         <tfoot class="border-t border-gray-200 bg-gray-50">
                             <tr>
-                                <td colspan="6" class="px-5 py-3 text-xs font-semibold uppercase tracking-wide text-steel">
+                                <td colspan="7" class="px-5 py-3 text-xs font-semibold uppercase tracking-wide text-steel">
                                     Tổng tồn nợ
                                 </td>
                                 <td class="px-5 py-3 text-right font-mono font-bold text-coral">

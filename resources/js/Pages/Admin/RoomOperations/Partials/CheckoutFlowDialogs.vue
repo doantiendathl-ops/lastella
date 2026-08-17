@@ -11,6 +11,12 @@ const emit = defineEmits(['cancel', 'dismiss-inspection-warning', 'skip-inspecti
 function roomLabel(rooms) {
     return rooms.length === 1 ? `phòng ${rooms[0].room_number}` : `${rooms.length} phòng đã chọn`;
 }
+
+// docs/Prompt_2.txt mục VIII — outstanding balance warning on the final
+// checkout dialog. Never implies the debt is forgiven; it stays trackable
+// in Đối soát after checkout.
+const formatCurrency = (value) => `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Number(value) || 0)} đ`;
+const roomsWithBalance = (rooms) => rooms.filter((r) => (r.balance_due ?? 0) > 0);
 </script>
 
 <template>
@@ -115,6 +121,11 @@ function roomLabel(rooms) {
                 <li>• Phí vận hành (minibar, giặt ủi, nhà hàng…) <strong>sẽ không thể thêm hoặc huỷ nữa.</strong></li>
                 <li>• Vui lòng đảm bảo tất cả phí phát sinh đã được nhập trước khi tiếp tục.</li>
             </ul>
+            <div v-if="roomsWithBalance(flow.finalRooms).length > 0" class="mt-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                <p v-for="r in roomsWithBalance(flow.finalRooms)" :key="r.room_id">
+                    Phòng {{ r.room_number }}: Booking còn công nợ <strong>{{ formatCurrency(r.balance_due) }}</strong>. Sau khi trả phòng, số tiền này sẽ tiếp tục được theo dõi trong Đối soát.
+                </p>
+            </div>
             <div class="mt-5 flex justify-end gap-2">
                 <button type="button" class="rounded border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-600 hover:text-gray-900" @click="emit('cancel')">
                     Quay lại

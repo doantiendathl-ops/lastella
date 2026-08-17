@@ -7,7 +7,6 @@ use App\Enums\BookingStatus;
 use App\Enums\ChargeType;
 use App\Enums\PaymentType;
 use App\Enums\StayStatus;
-use App\Exceptions\OutstandingBalanceException;
 use App\Exceptions\RequirementLockedAfterRoomChargeException;
 use App\Exceptions\RequirementReferencedByAssignmentException;
 use App\Models\Booking;
@@ -647,10 +646,17 @@ class BookingService
     /**
      * ADR-39/ADR-48: MUST be called within an existing DB::transaction. Does NOT open its own.
      * ADR-48: Caller MUST hold Booking::lockForUpdate() on $booking before calling.
-     * ADR-40: Outstanding balance throws OutstandingBalanceException and rolls back the entire transaction.
+     * ADR-40 (superseded — docs/Prompt_2.txt): outstanding balance no longer blocks checkout.
+     * A positive balance is preserved as-is and the Folio is left OPEN so it keeps accepting
+     * later payments (see BookingPaymentService::addPayment()'s post-checkout auto-close);
+     * the booking still transitions to CheckedOut. Zero/negative balance keeps the original
+     * ADR-40 behavior of auto-closing the Folio immediately.
      * ADR-41: Folio is auto-closed atomically; caller acquires Folio lock here.
+     *
+     * @return float the outstanding balance at the moment of checkout (0.0 or negative if fully
+     *                paid/overpaid) — returned so the caller can record it on the audit trail.
      */
-    public function finaliseBookingCheckout(Booking $booking, ?User $user = null): void
+    public function finaliseBookingCheckout(Booking $booking, ?User $user = null): float
     {
         /** @var User|null $actingUser */
         $actingUser = $user ?? Auth::user();
@@ -682,13 +688,16 @@ class BookingService
 
             $balanceDue = (float) bcsub((string) $totalCharges, (string) $paidTotal, 2);
 
-            // ADR-40: outstanding balance is a hard block — throws and rolls back checkout.
-            if ($balanceDue > 0) {
-                throw new OutstandingBalanceException($balanceDue);
+            // docs/Prompt_2.txt mục IV/V: outstanding balance no longer blocks checkout.
+            // It is preserved exactly as computed — never zeroed/"forgiven" — and the Folio
+            // stays OPEN so it can keep accepting payments after checkout (mục XI/XII).
+            // Only a fully-settled (<=0) balance auto-closes the Folio, same as before ADR-40.
+            if ($balanceDue <= 0) {
+                // ADR-41: auto-close folio atomically under the Folio lock already acquired.
+                $this->folios->autoCloseFolio($lockedFolio, $actingUser);
             }
-
-            // ADR-41: auto-close folio atomically under the Folio lock already acquired.
-            $this->folios->autoCloseFolio($lockedFolio, $actingUser);
+        } else {
+            $balanceDue = 0.0;
         }
 
         // Terminal status — Booking lock already held by caller (ADR-48).
@@ -696,6 +705,8 @@ class BookingService
             'status'     => BookingStatus::CheckedOut,
             'updated_by' => $actingUser?->id ?? Auth::id(),
         ]);
+
+        return $balanceDue;
     }
 
     public function paymentSummary(Booking $booking): array

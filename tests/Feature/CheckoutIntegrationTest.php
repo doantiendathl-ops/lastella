@@ -11,7 +11,6 @@ use App\Enums\PaymentType;
 use App\Enums\StayEventType;
 use App\Enums\StayStatus;
 use App\Exceptions\BookingTerminalException;
-use App\Exceptions\OutstandingBalanceException;
 use App\Models\Booking;
 use App\Models\Room;
 use App\Models\RoomAssignment;
@@ -100,20 +99,23 @@ class CheckoutIntegrationTest extends TestCase
         $this->assertSame(FolioStatus::Closed, $booking->folio()->first()->status);
     }
 
-    // ── ADR-40 ───────────────────────────────────────────────────────────────
+    // ── docs/Prompt_2.txt mục IV (supersedes ADR-40) ───────────────────────────
 
-    public function test_checkout_blocked_by_outstanding_balance(): void
+    public function test_checkout_succeeds_with_full_outstanding_balance(): void
     {
         [$booking, $stay] = $this->bookingWithCheckedInStay();
 
         // No payment — balance = 800 000 outstanding
-
-        $this->expectException(OutstandingBalanceException::class);
-
         app(StayService::class)->checkOut($stay, null, true);
+
+        $booking = $booking->fresh();
+        $this->assertSame(BookingStatus::CheckedOut, $booking->status);
+        $this->assertSame(StayStatus::CheckedOut, $stay->fresh()->status);
+        $this->assertSame(FolioStatus::Open, $booking->folio()->first()->status);
+        $this->assertEquals(800000.0, app(BookingService::class)->paymentSummary($booking)['balance_due']);
     }
 
-    public function test_checkout_blocked_with_partial_payment(): void
+    public function test_checkout_succeeds_with_partial_payment_remaining_balance(): void
     {
         [$booking, $stay] = $this->bookingWithCheckedInStay();
 
@@ -123,23 +125,26 @@ class CheckoutIntegrationTest extends TestCase
             'payment_at' => now()->toDateTimeString(),
         ]);
 
-        $this->expectException(OutstandingBalanceException::class);
-
         app(StayService::class)->checkOut($stay, null, true);
+
+        $booking = $booking->fresh();
+        $this->assertSame(BookingStatus::CheckedOut, $booking->status);
+        $this->assertSame(FolioStatus::Open, $booking->folio()->first()->status);
+        $this->assertEquals(300000.0, app(BookingService::class)->paymentSummary($booking)['balance_due']);
     }
 
-    public function test_checkout_blocked_leaves_booking_and_folio_unchanged(): void
+    public function test_checkout_with_balance_does_not_alter_charges_already_posted(): void
     {
         [$booking, $stay] = $this->bookingWithCheckedInStay();
 
-        try {
-            app(StayService::class)->checkOut($stay, null, true);
-        } catch (OutstandingBalanceException) {
-            // expected
-        }
+        $totalBefore = app(FolioService::class)->getFolioTotal($booking);
 
-        $this->assertNotSame(BookingStatus::CheckedOut, $booking->fresh()->status);
-        $this->assertSame(FolioStatus::Open, $booking->folio()->first()->status);
+        app(StayService::class)->checkOut($stay, null, true);
+
+        // docs/Prompt_2.txt mục V — the balance is preserved exactly, never
+        // zeroed/"forgiven" and never rewritten; the posted charge total is
+        // untouched by checkout itself.
+        $this->assertEquals($totalBefore, app(FolioService::class)->getFolioTotal($booking->fresh()));
     }
 
     // ── ADR-44: BookingTerminalException ─────────────────────────────────────
@@ -158,16 +163,49 @@ class CheckoutIntegrationTest extends TestCase
         ]);
     }
 
-    public function test_add_payment_blocked_on_terminal_booking(): void
+    // docs/Prompt_2.txt mục XI — supersedes the old blanket-terminal guard for
+    // this one payment path: a CheckedOut booking must still accept a general
+    // payment settling its outstanding balance. addDeposit()/addRefund()/
+    // deletePayment() are deliberately NOT relaxed — see the tests below.
+    public function test_add_payment_allowed_on_checked_out_booking(): void
     {
         $booking = $this->createBooking();
         $booking->update(['status' => BookingStatus::CheckedOut]);
+
+        $payment = app(BookingPaymentService::class)->addPayment($booking, [
+            'payment_type' => PaymentType::RoomPayment->value,
+            'amount' => 500000,
+            'payment_method' => PaymentMethod::Cash->value,
+            'payment_at' => now()->toDateTimeString(),
+        ]);
+
+        $this->assertNotNull($payment->id);
+    }
+
+    public function test_add_payment_still_blocked_on_cancelled_booking(): void
+    {
+        $booking = $this->createBooking();
+        $booking->update(['status' => BookingStatus::Cancelled]);
 
         $this->expectException(BookingTerminalException::class);
 
         app(BookingPaymentService::class)->addPayment($booking, [
             'payment_type' => PaymentType::RoomPayment->value,
             'amount' => 500000,
+            'payment_method' => PaymentMethod::Cash->value,
+            'payment_at' => now()->toDateTimeString(),
+        ]);
+    }
+
+    public function test_add_refund_still_blocked_on_checked_out_booking(): void
+    {
+        $booking = $this->createBooking();
+        $booking->update(['status' => BookingStatus::CheckedOut]);
+
+        $this->expectException(BookingTerminalException::class);
+
+        app(BookingPaymentService::class)->addRefund($booking, [
+            'amount' => 100000,
             'payment_method' => PaymentMethod::Cash->value,
             'payment_at' => now()->toDateTimeString(),
         ]);

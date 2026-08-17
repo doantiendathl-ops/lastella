@@ -158,15 +158,20 @@ class RoomOperationsInspectionGuardTest extends TestCase
      * checkout endpoint enforces the exact same server-side rule as Booking
      * Detail, regardless of what the frontend sends.
      */
-    public function test_forged_confirmed_true_does_not_bypass_outstanding_balance_guard(): void
+    // docs/Prompt_2.txt mục IV — outstanding balance is no longer a guard to
+    // bypass: checkout with confirmed=true now legitimately succeeds despite
+    // a positive balance (supersedes the old "forged confirmed=true still
+    // blocked by OBE" proof this slot used to hold — that guard is gone by
+    // design, not a regression).
+    public function test_confirmed_true_succeeds_with_outstanding_balance(): void
     {
         [, , $stay] = $this->checkedInStay(); // no payment made
 
         $this->post(route('admin.room-operations.check-out'), ['stay_ids' => [$stay->id], 'confirmed' => true])
             ->assertRedirect()
-            ->assertSessionHasErrors();
+            ->assertSessionHasNoErrors();
 
-        $this->assertNull($stay->fresh()->actual_checkout_at, 'Outstanding balance must still block checkout even with confirmed=true forged.');
+        $this->assertNotNull($stay->fresh()->actual_checkout_at);
     }
 
     /**
