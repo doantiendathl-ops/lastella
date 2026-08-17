@@ -122,17 +122,35 @@ class RoomChargePostingJob implements PostingJob
      * updated by a room move, so it — not $stay->room->room_type_id — is the
      * correct key. Falls back to the physical room's type only when no
      * RoomAssignment link exists, preserving prior behavior for that case.
+     *
+     * docs/yeucaumoi.txt mục 20-22 — Multiple Requirement Groups / Room Rate
+     * Snapshot: when the assignment is linked to a SPECIFIC requirement line
+     * (RoomAssignment.booking_requirement_id — the exact commercial group it
+     * was allocated against), that line's own rate is authoritative. Without
+     * this, two BookingRequirement rows sharing one room_type_id (e.g. 10
+     * Twin @ 650,000 "Normal" + 1 Twin @ 300,000 "Internal Driver") would all
+     * resolve to whichever row bookingRequirements->firstWhere() happens to
+     * return first — silently overcharging or undercharging every assignment
+     * that isn't that first row. Falls back to the room-type match only when
+     * the assignment predates this link (legacy rows — same fallback the
+     * migration itself documents).
      */
     private function resolveUnitPrice(PostingContext $context): string
     {
         $stay = $context->stay;
-        $stay->loadMissing(['room', 'roomAssignment']);
+        $stay->loadMissing(['room', 'roomAssignment.bookingRequirement']);
 
         if ($stay->room === null) {
             return '0.00';
         }
 
-        $roomTypeId = $stay->roomAssignment?->room_type_id ?? $stay->room->room_type_id;
+        $assignment = $stay->roomAssignment;
+
+        if ($assignment?->bookingRequirement !== null) {
+            return (string) $assignment->bookingRequirement->room_price;
+        }
+
+        $roomTypeId = $assignment?->room_type_id ?? $stay->room->room_type_id;
 
         $context->booking->loadMissing('bookingRequirements');
 

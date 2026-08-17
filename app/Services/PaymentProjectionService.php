@@ -24,7 +24,7 @@ class PaymentProjectionService
 
     public function project(Booking $booking): array
     {
-        $booking->loadMissing(['stays.room', 'stays.roomAssignment', 'bookingRequirements', 'folio.folioEntries', 'bookingPayments']);
+        $booking->loadMissing(['stays.room', 'stays.roomAssignment.bookingRequirement', 'bookingRequirements', 'folio.folioEntries', 'bookingPayments']);
 
         $stayBreakdown = $this->projectStayRoomCharges($booking);
         $roomTotal = array_sum(array_column($stayBreakdown, 'subtotal'));
@@ -82,7 +82,7 @@ class PaymentProjectionService
         return $activeStays->map(function (Stay $stay) use ($booking): array {
             [$start, $end] = $this->effectiveStayRange($stay);
             $nights = $this->nightsBetween($start, $end);
-            $unitPrice = $this->resolveUnitPrice($booking, $this->commercialRoomTypeId($stay));
+            $unitPrice = $this->resolveUnitPrice($booking, $stay);
 
             return [
                 'stay_id' => $stay->id,
@@ -165,9 +165,24 @@ class PaymentProjectionService
      * already-resolved BookingRequirement.room_price, never a live RoomRate
      * lookup — so the projection never diverges from what Night Audit will
      * actually post.
+     *
+     * docs/yeucaumoi.txt mục 20-22 — when the Stay's assignment is linked to
+     * a SPECIFIC requirement line (RoomAssignment.booking_requirement_id),
+     * that line's own rate is authoritative, exactly like the posting job —
+     * otherwise a booking with two same-room-type requirement groups (e.g.
+     * 10 Twin @ 650,000 + 1 Twin @ 300,000 "internal driver") would project
+     * every Stay at whichever group firstWhere() happens to return first.
      */
-    private function resolveUnitPrice(Booking $booking, ?int $roomTypeId): float
+    private function resolveUnitPrice(Booking $booking, Stay $stay): float
     {
+        $requirement = $stay->roomAssignment?->bookingRequirement;
+
+        if ($requirement !== null) {
+            return (float) $requirement->room_price;
+        }
+
+        $roomTypeId = $this->commercialRoomTypeId($stay);
+
         if ($roomTypeId === null) {
             return 0.0;
         }
