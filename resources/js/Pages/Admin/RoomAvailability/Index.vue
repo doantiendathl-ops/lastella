@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue';
+import { readableTextClass } from '@/Support/colorContrast';
 import { roomStatusBadge } from '@/Support/roomStatusBadges';
 import { router } from '@inertiajs/vue3';
 import { ref } from 'vue';
@@ -91,8 +92,32 @@ const availabilityStyles = {
     },
 };
 
-function cardClass(availability) {
-    return availabilityStyles[availability]?.card ?? 'border-gray-200 bg-white';
+// docs/yeucaumoi.txt mục 7 — when exactly one Booking accounts for the
+// room's status (reserved/occupied/overstay), its own color becomes the
+// tile's primary background; the semantic state moves to a border-only
+// accent instead of owning the background. multi_booking/overlap have no
+// single Booking to color by, and available/out_of_order/cleaning aren't
+// about a Booking at all — those keep their existing full-tile treatment.
+const SINGLE_BOOKING_STATES = ['reserved', 'occupied', 'overstay'];
+const SINGLE_BOOKING_BORDER = {
+    reserved: 'border-blue-400',
+    occupied: 'border-orange-500',
+    overstay: 'border-red-600',
+};
+
+function hasSingleBookingColor(room) {
+    return SINGLE_BOOKING_STATES.includes(room.availability) && !!room.primary_color && room.booking_count === 1;
+}
+
+function cardClass(room) {
+    if (hasSingleBookingColor(room)) {
+        return `${SINGLE_BOOKING_BORDER[room.availability]} cursor-pointer ${readableTextClass(room.primary_color)}`;
+    }
+    return availabilityStyles[room.availability]?.card ?? 'border-gray-200 bg-white';
+}
+
+function cardStyle(room) {
+    return hasSingleBookingColor(room) ? { backgroundColor: room.primary_color } : {};
 }
 
 function badgeClass(badge) {
@@ -186,7 +211,8 @@ function badgeClass(badge) {
                     :key="room.room_id"
                     type="button"
                     class="relative shrink-0 min-w-[80px] border p-2 text-left transition"
-                    :class="cardClass(room.availability)"
+                    :class="cardClass(room)"
+                    :style="cardStyle(room)"
                     @click="selectRoom(room)"
                 >
                     <div class="flex items-start justify-between gap-1">
@@ -199,9 +225,11 @@ function badgeClass(badge) {
                         class="mt-1 inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
                         title="Yêu cầu đặc biệt đang chờ"
                     >{{ pendingRequestCounts[room.room_id] }} yc</div>
-                    <div class="mt-0.5 truncate text-xs text-steel">{{ room.room_type_code }}</div>
+                    <div class="mt-0.5 truncate text-xs" :class="hasSingleBookingColor(room) ? 'opacity-80' : 'text-steel'">{{ room.room_type_code }}</div>
+                    <!-- multi_booking/overlap have no single Booking to color the whole
+                         tile by (mục 7) — a color hint bar is the fallback for those. -->
                     <div
-                        v-if="room.primary_color && room.availability !== 'available' && room.availability !== 'out_of_order' && room.availability !== 'cleaning'"
+                        v-if="room.primary_color && !hasSingleBookingColor(room) && room.availability !== 'available' && room.availability !== 'out_of_order' && room.availability !== 'cleaning'"
                         class="mt-1.5 h-1 w-full rounded-full"
                         :style="{ backgroundColor: room.primary_color }"
                     ></div>
