@@ -1,9 +1,10 @@
 <script setup>
+import RoomFloorGrid from '@/Components/RoomBoard/RoomFloorGrid.vue';
+import RoomTile from '@/Components/RoomBoard/RoomTile.vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import { readableTextClass } from '@/Support/colorContrast';
 import { roomStatusBadge } from '@/Support/roomStatusBadges';
 import { router } from '@inertiajs/vue3';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 
 const props = defineProps({
     availability: Object,
@@ -38,10 +39,26 @@ function search() {
 
 const selectedRoom = ref(null);
 
+function isInteractive(room) {
+    return room.availability !== 'out_of_order' && room.availability !== 'cleaning';
+}
+
 function selectRoom(room) {
-    if (room.availability === 'out_of_order' || room.availability === 'cleaning') return;
+    if (!isInteractive(room)) return;
     selectedRoom.value = room;
 }
+
+// docs/yeucaumoi.txt mục 6 — same shared RoomTile/RoomFloorGrid shell as Sơ đồ
+// thao tác; this screen only needs floor.id/floor.name (the backend payload
+// still uses floor_id/floor_name), so map it once instead of touching the
+// backend response shape.
+const mappedFloors = computed(() =>
+    (props.availability.floors ?? []).map((floor) => ({
+        id: floor.floor_id,
+        name: floor.floor_name,
+        rooms: floor.rooms,
+    })),
+);
 
 function closeDetail() {
     selectedRoom.value = null;
@@ -109,15 +126,18 @@ function hasSingleBookingColor(room) {
     return SINGLE_BOOKING_STATES.includes(room.availability) && !!room.primary_color && room.booking_count === 1;
 }
 
-function cardClass(room) {
-    if (hasSingleBookingColor(room)) {
-        return `${SINGLE_BOOKING_BORDER[room.availability]} cursor-pointer ${readableTextClass(room.primary_color)}`;
-    }
+// Fed to RoomTile's `vacant-class` prop — only applies when there's no
+// bookingColor (i.e. NOT hasSingleBookingColor); RoomTile itself owns the
+// booking_color background + auto-contrast text for the single-booking case.
+function vacantClassFor(room) {
+    if (hasSingleBookingColor(room)) return '';
     return availabilityStyles[room.availability]?.card ?? 'border-gray-200 bg-white';
 }
 
-function cardStyle(room) {
-    return hasSingleBookingColor(room) ? { backgroundColor: room.primary_color } : {};
+// multi_booking/overlap have no single Booking to color the whole tile by
+// (mục 7) — a color hint bar is the fallback for those.
+function showColorHint(room) {
+    return !!room.primary_color && !hasSingleBookingColor(room) && room.availability !== 'available' && room.availability !== 'out_of_order' && room.availability !== 'cleaning';
 }
 
 function badgeClass(badge) {
@@ -197,45 +217,43 @@ function badgeClass(badge) {
             <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-amber-500"></span>Đang dọn</span>
         </div>
 
-        <!-- Floor map -->
-        <div v-if="availability.floors.length === 0" class="border border-gray-200 bg-white p-8 text-center text-sm text-steel">
-            Chưa có tầng hoặc phòng nào được cấu hình.
-        </div>
-        <div v-else class="space-y-1.5">
-            <div v-for="floor in availability.floors" :key="floor.floor_id" class="flex flex-nowrap items-center gap-2 overflow-x-auto border border-gray-200 bg-white px-3 py-2">
-                <div class="shrink-0 w-14 border-r border-gray-200 pr-2 text-xs font-semibold uppercase tracking-wide text-steel">
-                    {{ floor.floor_name }}
-                </div>
-                <button
-                    v-for="room in floor.rooms"
-                    :key="room.room_id"
-                    type="button"
-                    class="relative shrink-0 min-w-[80px] border p-2 text-left transition"
-                    :class="cardClass(room)"
-                    :style="cardStyle(room)"
+        <!-- Floor map — docs/yeucaumoi.txt mục 6: same shared RoomTile/RoomFloorGrid
+             shell as Sơ đồ thao tác, so this screen renders with the same visual
+             identity instead of its own bespoke tile markup. -->
+        <RoomFloorGrid :floors="mappedFloors" empty-message="Chưa có tầng hoặc phòng nào được cấu hình.">
+            <template #card="{ room }">
+                <RoomTile
+                    :room-number="room.room_number"
+                    :room-type-label="room.room_type_code"
+                    :booking-color="hasSingleBookingColor(room) ? room.primary_color : null"
+                    :vacant-class="vacantClassFor(room)"
+                    :conflict="room.has_overlap"
+                    conflict-label="Trùng phòng"
+                    :class="isInteractive(room) ? 'cursor-pointer' : 'cursor-default'"
+                    :role="isInteractive(room) ? 'button' : undefined"
+                    :tabindex="isInteractive(room) ? 0 : undefined"
                     @click="selectRoom(room)"
+                    @keydown.enter="selectRoom(room)"
+                    @keydown.space.prevent="selectRoom(room)"
                 >
-                    <div class="flex items-start justify-between gap-1">
-                        <span class="text-sm font-semibold leading-tight">{{ room.room_number }}</span>
-                        <span v-if="room.has_overlap" class="shrink-0 text-xs leading-tight">🚨</span>
-                        <span v-else-if="room.booking_count > 1" class="shrink-0 text-xs font-bold leading-tight text-amber-700">×{{ room.booking_count }}</span>
-                    </div>
-                    <div
-                        v-if="pendingRequestCounts[room.room_id] > 0"
-                        class="mt-1 inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
-                        title="Yêu cầu đặc biệt đang chờ"
-                    >{{ pendingRequestCounts[room.room_id] }} yc</div>
-                    <div class="mt-0.5 truncate text-xs" :class="hasSingleBookingColor(room) ? 'opacity-80' : 'text-steel'">{{ room.room_type_code }}</div>
-                    <!-- multi_booking/overlap have no single Booking to color the whole
-                         tile by (mục 7) — a color hint bar is the fallback for those. -->
-                    <div
-                        v-if="room.primary_color && !hasSingleBookingColor(room) && room.availability !== 'available' && room.availability !== 'out_of_order' && room.availability !== 'cleaning'"
-                        class="mt-1.5 h-1 w-full rounded-full"
-                        :style="{ backgroundColor: room.primary_color }"
-                    ></div>
-                </button>
-            </div>
-        </div>
+                    <template v-if="room.has_overlap" #conflict-icon>
+                        <span aria-hidden="true">🚨</span>
+                    </template>
+
+                    <template #body>
+                        <div class="flex flex-wrap items-center gap-1">
+                            <span v-if="room.booking_count > 1 && !room.has_overlap" class="text-xs font-bold text-amber-700">×{{ room.booking_count }}</span>
+                            <span
+                                v-if="pendingRequestCounts[room.room_id] > 0"
+                                class="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
+                                title="Yêu cầu đặc biệt đang chờ"
+                            >{{ pendingRequestCounts[room.room_id] }} yc</span>
+                        </div>
+                        <div v-if="showColorHint(room)" class="mt-1 h-1 w-full rounded-full" :style="{ backgroundColor: room.primary_color }"></div>
+                    </template>
+                </RoomTile>
+            </template>
+        </RoomFloorGrid>
 
         <!-- Room detail modal -->
         <div

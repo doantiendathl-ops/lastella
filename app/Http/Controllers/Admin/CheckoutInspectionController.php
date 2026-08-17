@@ -27,7 +27,7 @@ class CheckoutInspectionController extends Controller
 
         $stays = Stay::query()
             ->where('status', StayStatus::CheckedIn)
-            ->with(['room.floor', 'room.roomType', 'booking', 'checkoutInspection'])
+            ->with(['room.floor', 'room.roomType', 'booking:id,booking_code,customer_name,booking_color,status', 'checkoutInspection'])
             ->get();
 
         $floors = Floor::query()
@@ -127,6 +127,10 @@ class CheckoutInspectionController extends Controller
             'room_number' => $stay->room?->room_number,
             'room_type' => $stay->room?->roomType?->code,
             'guest_name' => $stay->booking?->customer_name,
+            // docs/yeucaumoi.txt mục 7 — same booking_color as the other 3 Room Map
+            // screens, so this one renders with the shared RoomTile visual identity
+            // (background color) instead of only the inspection-status border/badge.
+            'booking_color' => $stay->booking?->booking_color,
             // Inspection Financial Correction Mục XII: canonical room-standard-occupancy
             // source for the water complimentary display — RoomType.standard_adults,
             // never a hardcoded constant, never Booking.adults.

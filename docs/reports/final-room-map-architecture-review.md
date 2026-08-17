@@ -26,6 +26,8 @@ Theo đúng mục 6's dòng cuối ("Không ép mọi màn hình giống nghiệ
 - **Selected/Conflict** → viền (ring), không dùng nền — đã đúng từ trước ở Sơ đồ thao tác và Booking Selection, giữ nguyên.
 - Không migrate BẮT BUỘC tất cả 4 màn sang `RoomBoardGrid.vue` — layout wrapper không phải trọng tâm mục 7-9; chỉ migrate phần NỘI DUNG THẺ (visual language) từng màn theo đúng bản chất nghiệp vụ của nó.
 
+**Cập nhật (cùng ngày, sau xác nhận trực tiếp của người dùng):** người dùng hỏi thẳng liệu 4 màn có QUY VỀ MỘT cách hiển thị (không chỉ cùng nguyên tắc màu) hay chưa — câu trả lời trung thực tại thời điểm đó là CHƯA (3/4 màn dùng 3 component thẻ riêng, kích thước khác nhau). Sau khi người dùng xác nhận muốn làm tiếp, quyết định ở mục này được MỞ RỘNG: trích `RoomTile.vue`/`RoomFloorGrid.vue` làm shell + layout dùng chung thật sự (không chỉ nguyên tắc), migrate cả 4 màn (bao gồm Kiểm đồ, xem mục 5) vào cùng 2 component này. Quyết định gốc "không gộp backend service" ở trên vẫn giữ nguyên — chỉ tầng hiển thị được gộp thêm một bậc.
+
 ## 4. Phát hiện quan trọng ngoài dự kiến — Room Charge / Multi-Rate Group
 
 Khi audit mục 20-23, phát hiện kiến trúc CẦN THIẾT đã **tồn tại sẵn từ phase trước** ("Room Demand/Room Board Unification"):
@@ -38,7 +40,7 @@ Khi audit mục 20-23, phát hiện kiến trúc CẦN THIẾT đã **tồn tạ
 
 ## 5. Phạm vi chủ động KHÔNG làm trong lượt này (và lý do)
 
-- **Kiểm đồ trả phòng (mục 18)**: không migrate sang `booking_color` — bản chất màn hình là trạng thái KIỂM ĐỒ (draft/completed/none), không phải "ai đang ở phòng nào"; đúng cảnh báo của chính mục 18 ("KHÔNG rewrite nghiệp vụ kiểm phòng ổn định"). Cần backend bổ sung `booking_color` vào payload nếu làm sau.
+- **Kiểm đồ trả phòng (mục 18)** — ĐÃ LÀM sau cập nhật ở mục 3: `booking_color` đã thêm vào payload (`CheckoutInspectionController::mapStay()`), migrate sang `RoomTile`/`RoomFloorGrid`. Trạng thái KIỂM ĐỒ (draft/completed/none) KHÔNG bị mất — chuyển vào badge trong dải trạng thái (status-row slot) thay vì chiếm nền/viền thẻ, đúng cảnh báo gốc của mục 18 ("không rewrite NGHIỆP VỤ kiểm phòng") vì luồng nghiệp vụ (`CheckoutInspectionService`, modal, draft/complete/edit) hoàn toàn không đổi — chỉ đổi VỎ hiển thị.
 - **Service Icon admin-configurable (mục 14)**: cần cột DB mới trên `services` + UI admin + render trên Room Tile — CHƯA làm, việc còn lại.
 - **Historical Room Reassignment reconstruction (mục 24)**: `RoomAssignment` hiện tại lưu 1 room_id CUỐI CÙNG cho toàn bộ interval — đổi phòng giữa chừng (Change Room) không để lại vệt lịch sử phòng-cũ/phòng-mới riêng biệt trong chính bảng này. Dữ liệu additive AN TOÀN đã tồn tại (`StayEvent(RoomMove)` ghi room cũ/mới/thời điểm) nhưng CHƯA được dùng để tái dựng interval lịch sử cho Room Map — việc còn lại, rủi ro thấp (audit trail, không phải tài chính) nhưng cần thời gian riêng để làm đúng.
 - **Historical Night Audit catch-up (mục 27)**: đã biết từ các phase trước — Night Audit chỉ chạy thủ công trên production, chưa có lịch tự động. KHÔNG rewrite Night Audit trong lượt này theo đúng chỉ dẫn ("ghi nhận nhưng không rewrite Night Audit mù"). Bản thân occupancy resolver mới của Sơ đồ thao tác ĐÃ dùng chung `BusinessDateService` với Night Audit (nhất quán "today"), nhưng catch-up logic của chính Night Audit chưa được đại tu.

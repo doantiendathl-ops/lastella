@@ -1,5 +1,5 @@
 <script setup>
-import { readableTextClass } from '@/Support/colorContrast';
+import RoomTile from '@/Components/RoomBoard/RoomTile.vue';
 import {
     AlertTriangle,
     BedDouble,
@@ -51,25 +51,15 @@ function saveNote() {
 
 // docs/yeucaumoi.txt mục 7 — when the room belongs to a Booking at the
 // selected date/time, the Booking's own color is the Room Tile's PRIMARY
-// background — not a second, semantic 5-state palette. Reuses
-// BookingColorService's stored HEX exactly as-is (no new palette).
-// Vacant rooms (no booking to color by) keep a plain neutral/status tint —
-// there's nothing to auto-contrast against, so no booking-color logic
-// applies to them.
+// background — RoomTile.vue (shared shell) owns the actual styling; this
+// component only resolves WHICH color/vacant-class applies.
 const VACANT_THEME = {
     unavailable: 'border-gray-500 bg-gray-300',
     vacant_clean: 'border-green-500 bg-green-200',
     vacant_dirty: 'border-amber-500 bg-amber-200',
 };
 const bookingColor = computed(() => props.room.occupant?.booking_color ?? null);
-const cardThemeClass = computed(() => {
-    if (bookingColor.value) return 'border-gray-300';
-    return VACANT_THEME[props.room.status_theme] ?? 'border-gray-200 bg-white';
-});
-const cardStyle = computed(() => (bookingColor.value ? { backgroundColor: bookingColor.value } : {}));
-// mục 7 — auto contrast: light booking color → dark text, dark → light text.
-// Never hard-coded to one color for every booking.
-const cardTextClass = computed(() => (bookingColor.value ? readableTextClass(bookingColor.value) : 'text-gray-900'));
+const vacantClass = computed(() => VACANT_THEME[props.room.status_theme] ?? 'border-gray-200 bg-white');
 
 // Mục XV-XXVI: one compact icon-only status row, five groups, each with an
 // exact tooltip/aria-label — canonical sources unchanged (only the display
@@ -126,6 +116,11 @@ const inspectionClass = computed(() => (occupant.value?.inspection_status === 'c
 // 5-state status tint and the icon row, since this represents a data
 // conflict on the room itself, not a fact about the currently-displayed
 // occupant.
+const conflictLabel = computed(() => {
+    if (!props.room.has_room_conflict) return '';
+    const codes = (props.room.conflicting_bookings ?? []).map((b) => b.booking_code).filter(Boolean).join(', ');
+    return `Trùng phòng — ${codes || 'booking khác'}`;
+});
 const conflictTooltip = computed(() => {
     if (!props.room.has_room_conflict) return '';
     const codes = (props.room.conflicting_bookings ?? []).map((b) => b.booking_code).filter(Boolean).join(', ');
@@ -134,146 +129,138 @@ const conflictTooltip = computed(() => {
 </script>
 
 <template>
-    <div
-        class="relative flex w-64 shrink-0 flex-col gap-1.5 rounded-lg border p-2.5 text-xs shadow-sm transition hover:shadow-md"
-        :class="[
-            cardThemeClass,
-            cardTextClass,
-            room.has_room_conflict ? 'ring-[3px] ring-red-600 ring-offset-2' : (selected ? 'ring-[3px] ring-indigo-600 ring-offset-2' : ''),
-        ]"
-        :style="cardStyle"
+    <RoomTile
+        :room-number="room.room_number"
+        :room-type-label="room.room_type"
+        :booking-color="bookingColor"
+        :vacant-class="vacantClass"
+        :selected="selected"
+        :conflict="room.has_room_conflict"
+        :conflict-label="conflictLabel"
     >
-        <div v-if="selected" class="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-white shadow">
-            <CheckCircle2 class="h-3.5 w-3.5" />
-        </div>
+        <template #conflict-icon>
+            <AlertTriangle :title="conflictTooltip" :aria-label="conflictTooltip" class="h-3 w-3 shrink-0" />
+        </template>
 
-        <div
-            v-if="room.has_room_conflict"
-            :title="conflictTooltip"
-            :aria-label="conflictTooltip"
-            class="flex items-center gap-1 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold text-white"
-        >
-            <AlertTriangle class="h-3 w-3 shrink-0" />
-            <span class="truncate">Trùng phòng — {{ (room.conflicting_bookings ?? []).map((b) => b.booking_code).filter(Boolean).join(', ') || 'booking khác' }}</span>
-        </div>
+        <template #checkbox>
+            <input
+                type="checkbox"
+                class="h-3.5 w-3.5 rounded border-gray-300"
+                :checked="selected"
+                @change="emit('toggle-select', room.id)"
+            />
+        </template>
 
-        <div class="flex items-center justify-between">
-            <label class="flex cursor-pointer items-center gap-1.5">
-                <input
-                    type="checkbox"
-                    class="h-3.5 w-3.5 rounded border-gray-300"
-                    :checked="selected"
-                    @change="emit('toggle-select', room.id)"
-                />
-                <span class="font-semibold">{{ room.room_number }}</span>
-            </label>
-            <span class="rounded bg-white/90 px-1.5 py-0.5 text-[10px] font-medium text-gray-700">{{ room.room_type }}</span>
-        </div>
-
-        <div v-if="occupant" class="space-y-1">
-            <div class="flex items-start justify-between gap-1">
-                <button
-                    type="button"
-                    class="block text-left font-medium leading-snug underline decoration-dotted underline-offset-2 hover:decoration-solid"
-                    style="overflow-wrap: anywhere;"
-                    @click="emit('view-booking', occupant.booking_id)"
-                >
-                    {{ occupant.customer_name }}
-                </button>
-                <!-- docs/yeucaumoi.txt mục 12 — select every room this Booking
-                     currently occupies, without clicking each one. -->
-                <button
-                    type="button"
-                    title="Chọn tất cả phòng của booking này"
-                    aria-label="Chọn tất cả phòng của booking này"
-                    class="shrink-0 rounded border border-current/40 p-0.5 opacity-80 hover:opacity-100"
-                    @click="emit('select-booking-rooms', occupant.booking_id)"
-                >
-                    <CheckCircle2 class="h-3 w-3" />
-                </button>
+        <template #body>
+            <div v-if="occupant" class="space-y-1">
+                <div class="flex items-start justify-between gap-1">
+                    <button
+                        type="button"
+                        class="block text-left font-medium leading-snug underline decoration-dotted underline-offset-2 hover:decoration-solid"
+                        style="overflow-wrap: anywhere;"
+                        @click="emit('view-booking', occupant.booking_id)"
+                    >
+                        {{ occupant.customer_name }}
+                    </button>
+                    <!-- docs/yeucaumoi.txt mục 12 — select every room this Booking
+                         currently occupies, without clicking each one. -->
+                    <button
+                        type="button"
+                        title="Chọn tất cả phòng của booking này"
+                        aria-label="Chọn tất cả phòng của booking này"
+                        class="shrink-0 rounded border border-current/40 p-0.5 opacity-80 hover:opacity-100"
+                        @click="emit('select-booking-rooms', occupant.booking_id)"
+                    >
+                        <CheckCircle2 class="h-3 w-3" />
+                    </button>
+                </div>
+                <div class="text-[10px] opacity-80">
+                    {{ occupant.start_at?.slice(5, 16) }} → {{ occupant.end_at?.slice(5, 16) }}
+                </div>
             </div>
-            <div class="text-[10px] opacity-80">
-                {{ occupant.start_at?.slice(5, 16) }} → {{ occupant.end_at?.slice(5, 16) }}
-            </div>
-        </div>
-        <div v-else class="text-[11px] italic text-gray-500">Phòng trống</div>
+            <div v-else class="text-[11px] italic text-gray-500">Phòng trống</div>
+        </template>
 
-        <!--
-            Mục XVI-XXVI: one compact icon-only row, five status groups, never wraps.
-            docs/yeucaumoi.txt mục 8 — this row IS the "status strip": a light backing
-            band that keeps every operational icon legible regardless of the Booking
-            color behind the tile, without letting any single state (DoorClosed/
-            DoorOpen/LogOut included) take over the tile's own background.
-        -->
-        <div class="flex flex-nowrap items-center gap-2 rounded bg-white/75 px-1 py-1 text-gray-900">
-            <span :title="housekeepingTooltip" :aria-label="housekeepingTooltip" class="shrink-0">
-                <component :is="housekeepingIcon" class="h-4 w-4" :class="housekeepingClass" />
-            </span>
+        <template #status-row>
+            <!--
+                Mục XVI-XXVI: one compact icon-only row, five status groups, never wraps.
+                docs/yeucaumoi.txt mục 8 — this row IS the "status strip": a light backing
+                band that keeps every operational icon legible regardless of the Booking
+                color behind the tile, without letting any single state (DoorClosed/
+                DoorOpen/LogOut included) take over the tile's own background.
+            -->
+            <div class="flex flex-nowrap items-center gap-2 rounded bg-white/75 px-1 py-1 text-gray-900">
+                <span :title="housekeepingTooltip" :aria-label="housekeepingTooltip" class="shrink-0">
+                    <component :is="housekeepingIcon" class="h-4 w-4" :class="housekeepingClass" />
+                </span>
 
-            <span v-if="occupant" :title="occupancyTooltip" :aria-label="occupancyTooltip" class="shrink-0">
-                <component :is="occupancyIcon" class="h-4 w-4" :class="occupancyClass" />
-            </span>
+                <span v-if="occupant" :title="occupancyTooltip" :aria-label="occupancyTooltip" class="shrink-0">
+                    <component :is="occupancyIcon" class="h-4 w-4" :class="occupancyClass" />
+                </span>
 
-            <span v-if="occupant?.bed_join" :title="bedJoinTooltip" :aria-label="bedJoinTooltip" class="shrink-0">
-                <BedDouble class="h-4 w-4 text-orange-600" />
-            </span>
+                <span v-if="occupant?.bed_join" :title="bedJoinTooltip" :aria-label="bedJoinTooltip" class="shrink-0">
+                    <BedDouble class="h-4 w-4 text-orange-600" />
+                </span>
 
-            <span
-                v-if="occupant?.extra_bed_quantity > 0"
-                :title="`Giường phụ x${occupant.extra_bed_quantity}`"
-                :aria-label="`Giường phụ x${occupant.extra_bed_quantity}`"
-                class="shrink-0"
-            >
-                <BedSingle class="h-4 w-4 text-cyan-600" />
-            </span>
-
-            <span v-if="occupant" :title="inspectionTooltip" :aria-label="inspectionTooltip" class="shrink-0">
-                <component :is="inspectionIcon" class="h-4 w-4" :class="inspectionClass" />
-            </span>
-        </div>
-
-        <!-- Mục XVIII/XXVII: quick note is shown in FULL — no truncate/line-clamp/max-height,
-             wraps across as many lines as needed. -->
-        <div class="pt-1">
-            <div v-if="!editingNote" class="flex items-start gap-1 rounded bg-white/75 px-1 py-1">
-                <MessageSquare class="mt-0.5 h-3 w-3 shrink-0 text-gray-500" />
-                <button
-                    v-if="canEditNote && occupant"
-                    type="button"
-                    class="flex-1 text-left text-[10px] leading-snug text-gray-700 hover:text-indigo-600"
-                    style="white-space: normal; overflow-wrap: anywhere;"
-                    @click="startEditNote"
-                >
-                    {{ occupant.quick_note || 'Thêm ghi chú nhanh…' }}
-                </button>
                 <span
-                    v-else
-                    class="flex-1 text-[10px] leading-snug text-gray-600"
-                    style="white-space: normal; overflow-wrap: anywhere;"
+                    v-if="occupant?.extra_bed_quantity > 0"
+                    :title="`Giường phụ x${occupant.extra_bed_quantity}`"
+                    :aria-label="`Giường phụ x${occupant.extra_bed_quantity}`"
+                    class="shrink-0"
                 >
-                    {{ occupant?.quick_note || '—' }}
+                    <BedSingle class="h-4 w-4 text-cyan-600" />
+                </span>
+
+                <span v-if="occupant" :title="inspectionTooltip" :aria-label="inspectionTooltip" class="shrink-0">
+                    <component :is="inspectionIcon" class="h-4 w-4" :class="inspectionClass" />
                 </span>
             </div>
-            <div v-else class="space-y-1">
-                <textarea
-                    v-model="noteDraft"
-                    rows="3"
-                    maxlength="100"
-                    class="w-full rounded border border-gray-300 bg-white p-1 text-[10px]"
-                    placeholder="Ghi chú nhanh (tối đa 100 ký tự)"
-                />
-                <div class="flex items-center justify-between text-[10px]">
-                    <span :class="noteError ? 'text-red-600' : 'text-gray-500'">{{ noteError || `${noteDraft?.length ?? 0}/100` }}</span>
-                    <div class="flex gap-1">
-                        <button type="button" class="text-gray-600 hover:underline" @click="cancelEditNote">Hủy</button>
-                        <button type="button" class="font-medium text-indigo-600 hover:underline" @click="saveNote">Lưu</button>
+        </template>
+
+        <template #footer>
+            <!-- Mục XVIII/XXVII: quick note is shown in FULL — no truncate/line-clamp/max-height,
+                 wraps across as many lines as needed. -->
+            <div class="pt-1">
+                <div v-if="!editingNote" class="flex items-start gap-1 rounded bg-white/75 px-1 py-1">
+                    <MessageSquare class="mt-0.5 h-3 w-3 shrink-0 text-gray-500" />
+                    <button
+                        v-if="canEditNote && occupant"
+                        type="button"
+                        class="flex-1 text-left text-[10px] leading-snug text-gray-700 hover:text-indigo-600"
+                        style="white-space: normal; overflow-wrap: anywhere;"
+                        @click="startEditNote"
+                    >
+                        {{ occupant.quick_note || 'Thêm ghi chú nhanh…' }}
+                    </button>
+                    <span
+                        v-else
+                        class="flex-1 text-[10px] leading-snug text-gray-600"
+                        style="white-space: normal; overflow-wrap: anywhere;"
+                    >
+                        {{ occupant?.quick_note || '—' }}
+                    </span>
+                </div>
+                <div v-else class="space-y-1">
+                    <textarea
+                        v-model="noteDraft"
+                        rows="3"
+                        maxlength="100"
+                        class="w-full rounded border border-gray-300 bg-white p-1 text-[10px]"
+                        placeholder="Ghi chú nhanh (tối đa 100 ký tự)"
+                    />
+                    <div class="flex items-center justify-between text-[10px]">
+                        <span :class="noteError ? 'text-red-600' : 'text-gray-500'">{{ noteError || `${noteDraft?.length ?? 0}/100` }}</span>
+                        <div class="flex gap-1">
+                            <button type="button" class="text-gray-600 hover:underline" @click="cancelEditNote">Hủy</button>
+                            <button type="button" class="font-medium text-indigo-600 hover:underline" @click="saveNote">Lưu</button>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <div v-if="room.pending_special_requests > 0" class="rounded bg-white/75 px-1 py-0.5 text-[10px] font-medium text-red-700">
-            {{ room.pending_special_requests }} yêu cầu đặc biệt chờ xử lý
-        </div>
-    </div>
+            <div v-if="room.pending_special_requests > 0" class="rounded bg-white/75 px-1 py-0.5 text-[10px] font-medium text-red-700">
+                {{ room.pending_special_requests }} yêu cầu đặc biệt chờ xử lý
+            </div>
+        </template>
+    </RoomTile>
 </template>

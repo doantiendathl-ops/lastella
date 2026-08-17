@@ -1,6 +1,6 @@
 # Final Room Map Implementation Report
 
-**Ngày:** 2026-08-17 · **Nhánh:** `phase-3` · 5 commit trên `phase-3` (chưa push)
+**Ngày:** 2026-08-17 · **Nhánh:** `phase-3` · 5 commit trên `phase-3` (chưa push) + 1 commit bổ sung "true shared component" (xem mục cuối)
 
 ## Files Changed
 
@@ -56,10 +56,22 @@ Không có.
 
 Xem `final-room-map-regression-review.md` cho số liệu đầy đủ trước/sau toàn bộ suite.
 
+## Commit bổ sung — True Shared Component (sau khi user xác nhận yêu cầu "quy về MỘT cách hiển thị", không chỉ cùng nguyên tắc màu)
+
+Phát hiện qua câu hỏi trực tiếp của người dùng: 3/4 màn hình ở trên áp dụng ĐÚNG nguyên tắc màu (mục 7) nhưng qua 3 component thẻ RIÊNG BIỆT (kích thước/layout khác nhau), không phải MỘT component dùng chung thật sự. Đã sửa:
+
+- **`resources/js/Components/RoomBoard/RoomTile.vue`** (MỚI) — shell dùng chung: nền = `booking_color` khi có, auto-contrast text (`colorContrast.js`), viền chọn/xung đột (ring, không dùng nền), banner conflict. Toàn bộ nội dung nghiệp vụ (checkbox, thân thẻ, dải trạng thái, footer) là slot — không ép các màn khác nhau về cùng một layout nghiệp vụ, chỉ ép về cùng một VỎ hiển thị (đúng dòng cuối mục 6).
+- **`resources/js/Components/RoomBoard/RoomFloorGrid.vue`** (MỚI) — layout tầng/scroll ngang dùng chung, trích xuất y hệt từ Sơ đồ thao tác (màn tham chiếu). Khác `RoomBoardGrid.vue` cũ (wrapping-grid, vẫn dùng riêng cho Housekeeping/Rooms — không đổi).
+- **`RoomOperationsCell.vue`/`RoomOperationsBoard.vue`** (Sơ đồ thao tác — màn tham chiếu): viết lại để dùng `RoomTile`/`RoomFloorGrid` thay vì tự vẽ; toàn bộ logic nghiệp vụ (housekeeping/occupancy/ghép giường/giường phụ/kiểm đồ/quick-note/pending-requests) giữ nguyên, chỉ chuyển vào slot.
+- **`Bookings/Show.vue`** (Sơ đồ chọn phòng): thay lưới thẻ tự vẽ (`h-16 w-20`, khác kích thước hẳn) bằng `RoomFloorGrid`/`RoomTile` — cùng kích thước/layout với Sơ đồ thao tác. Không dùng `conflict` prop cho trạng thái "phòng thuộc booking khác" (khác bản chất với xung đột dữ liệu ở Sơ đồ thao tác — đây chỉ là thông tin, không phải cảnh báo).
+- **`RoomAvailability/Index.vue`** (Sơ đồ Check phòng): thay nút tự vẽ bằng `RoomFloorGrid`/`RoomTile`; giữ nguyên toàn bộ logic nghiệp vụ (`hasSingleBookingColor`, color-hint bar cho multi_booking/overlap, badge yêu cầu đặc biệt).
+- **`app/Http/Controllers/Admin/CheckoutInspectionController.php`** + **`CheckoutInspections/Index.vue`** (Sơ đồ Kiểm đồ — màn DUY NHẤT chưa từng được sửa ở 5 commit trước): thêm `booking_color` vào payload (`mapStay()`, eager-load `booking:id,booking_code,customer_name,booking_color,status`); chuyển từ `RoomBoardGrid.vue` (layout khác — wrapping grid) sang `RoomFloorGrid`/`RoomTile`. Trạng thái kiểm đồ (draft/completed/none) chuyển vào badge trong dải trạng thái (status-row), không còn chiếm nền/viền thẻ — đúng nguyên tắc mục 9 áp dụng nhất quán cho cả 4 màn.
+
+**Kết quả:** cả 4 màn hình giờ dùng chung MỘT component vỏ (`RoomTile`) và MỘT component layout (`RoomFloorGrid`) — cùng kích thước thẻ, cùng vị trí số phòng/loại phòng/checkbox/dải trạng thái/footer, cùng quy tắc màu nền/viền. Khác biệt duy nhất giữa 4 màn là NỘI DUNG nghiệp vụ bên trong slot (đúng bản chất từng màn), không còn khác biệt về KIẾN TRÚC HIỂN THỊ.
+
 ## Phạm vi CHƯA hoàn thành (minh bạch, không tính là COMPLETE)
 
 - Service Icon admin-configurable (mục 14) — cần cột DB + UI admin + render trên tile.
-- Sơ đồ Kiểm đồ trả phòng chưa migrate sang `booking_color` (mục 18) — deprioritized theo đúng cảnh báo của chính mục 18.
 - Historical Room Reassignment reconstruction từ `StayEvent` (mục 24).
 - Night Audit historical catch-up rewrite (mục 27) — ngoài phạm vi theo chỉ dẫn, chỉ ghi nhận.
 - Folio traceability qua FK sạch thay vì `posting_key` string (mục 3).

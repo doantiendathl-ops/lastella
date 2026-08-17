@@ -6,7 +6,9 @@ Báo cáo tổng hợp toàn bộ yêu cầu người dùng đã giao trong chu�
 
 ## Implementation Status: **PARTIAL**
 
-Lý do không ghi COMPLETE: một số mục ở phần Room Map (icon dịch vụ có thể cấu hình, migrate Sơ đồ Kiểm đồ, tái dựng lịch sử đổi phòng, Night Audit historical catch-up, Folio traceability qua FK sạch) chưa được thực hiện trong lượt này — xem chi tiết lý do từng mục trong `final-room-map-architecture-review.md` mục 5. Đây là các mục có rủi ro thấp/trung bình, không phải business blocker, nhưng thực hiện vội trong cùng lượt sẽ đánh đổi chất lượng kiểm thử mà các phần tài chính khác trong lượt này đã có.
+Lý do không ghi COMPLETE: một số mục (icon dịch vụ có thể cấu hình, tái dựng lịch sử đổi phòng, Night Audit historical catch-up, Folio traceability qua FK sạch) chưa được thực hiện trong lượt này — xem chi tiết lý do từng mục trong `final-room-map-architecture-review.md` mục 5. Đây là các mục có rủi ro thấp/trung bình, không phải business blocker, nhưng thực hiện vội trong cùng lượt sẽ đánh đổi chất lượng kiểm thử mà các phần tài chính khác trong lượt này đã có.
+
+**Cập nhật cùng ngày:** Unified Room Map đã hoàn thành đầy đủ 4/4 màn (bao gồm Sơ đồ Kiểm đồ, trước đó CHƯA migrate) sau khi người dùng xác nhận muốn quy về THẬT SỰ một cách hiển thị dùng chung (`RoomTile.vue`/`RoomFloorGrid.vue`), không chỉ cùng nguyên tắc màu áp dụng độc lập từng màn như lượt đầu. Xem mục "Unified Room Map" bên dưới.
 
 ## Unified Services
 
@@ -14,7 +16,7 @@ Lý do không ghi COMPLETE: một số mục ở phần Room Map (icon dịch v�
 
 ## Unified Room Map
 
-**Status: PARTIAL — 3/4 màn hình đã áp dụng visual language dùng chung** (booking_color nền chính, status strip, viền chọn/conflict): Sơ đồ thao tác, Sơ đồ chọn phòng (Đặt phòng), Sơ đồ Check phòng. Sơ đồ Kiểm đồ trả phòng CHƯA migrate (deprioritized có chủ đích, xem lý do trong architecture review).
+**Status: COMPLETE — 4/4 màn hình dùng chung MỘT component vỏ (`RoomTile.vue`) và MỘT component layout (`RoomFloorGrid.vue`)**, không chỉ cùng nguyên tắc màu: Sơ đồ thao tác (màn tham chiếu), Sơ đồ chọn phòng, Sơ đồ Check phòng, và Sơ đồ Kiểm đồ trả phòng (migrate bổ sung sau xác nhận của người dùng, cần thêm `booking_color` vào payload backend vì màn này trước đó chưa có field này). Cùng kích thước thẻ, cùng vị trí thông tin (số phòng/loại phòng/checkbox/dải trạng thái/footer), cùng quy tắc: `booking_color` = nền chính, trạng thái vận hành/kiểm đồ = dải trạng thái nhỏ (không chiếm nền), chọn/xung đột = viền (ring). Khác biệt còn lại giữa 4 màn chỉ là nội dung nghiệp vụ bên trong slot — đúng bản chất từng màn, không phải khác biệt kiến trúc hiển thị.
 
 ## Historical Occupancy
 
@@ -30,7 +32,7 @@ Lý do không ghi COMPLETE: một số mục ở phần Room Map (icon dịch v�
 
 ## Room Inspection
 
-**Status: không đổi, đúng như quyết định trước đó.** `CheckoutInspectionService`/`ProductService` giữ nguyên workflow, không rewrite. Room Map riêng của màn hình Kiểm đồ chưa migrate visual language.
+**Status: workflow không đổi, visual đã migrate.** `CheckoutInspectionService`/`ProductService` giữ nguyên hoàn toàn (không rewrite nghiệp vụ) — 36/36 test liên quan PASS. Room Map riêng của màn hình Kiểm đồ đã migrate sang `RoomTile`/`RoomFloorGrid` cùng 3 màn còn lại; trạng thái kiểm đồ chuyển vào badge dải trạng thái thay vì chiếm nền/viền thẻ.
 
 ## Booking Colors
 
@@ -53,9 +55,10 @@ Lý do không ghi COMPLETE: một số mục ở phần Room Map (icon dịch v�
 | | Failed | Passed | Assertions |
 |---|---|---|---|
 | Trước lượt này (HEAD `ee0d1aa`) | 28 | 1344 | 5156 |
-| Sau lượt này (5 commit) | 28 (giống hệt danh sách cũ) | 1350 | 5173 |
+| Sau 5 commit đầu | 28 (giống hệt danh sách cũ) | 1350 | 5173 |
+| Sau commit bổ sung (True Shared Component, 4/4 màn) | 28 (giống hệt danh sách cũ) | 1350 | 5172 |
 
-0 lỗi mới. +6 test mới (historical occupancy ×3, multi-rate-group ×3). Chi tiết đầy đủ: `final-room-map-regression-review.md`.
+0 lỗi mới xuyên suốt toàn bộ lượt (kể cả sau khi migrate Sơ đồ Check phòng và Sơ đồ Kiểm đồ). +6 test mới (historical occupancy ×3, multi-rate-group ×3); `BookingManagementUiTest`/`RoomAvailabilityCheckerTest` đối chiếu trực tiếp qua `git stash` với bản gốc — cùng số lỗi, cùng tên test. Chi tiết đầy đủ: `final-room-map-regression-review.md`.
 
 ## Build
 
@@ -78,20 +81,19 @@ Không có action nào cần chạy trên production ở bước này — mọi 
 1. **Night Audit historical catch-up** chưa được sửa — rủi ro đã biết từ các phase trước (Night Audit chỉ chạy thủ công trên production).
 2. **Historical Room Reassignment** (đổi phòng giữa chừng) chưa tái dựng interval lịch sử chính xác trên bất kỳ Room Map nào — dữ liệu nguồn (`StayEvent`) đã có, việc dùng nó thì chưa làm.
 3. **Service Icon cấu hình** chưa có — icon trên Room Tile vẫn hard-code theo tính năng, không phải qua Service Catalog.
-4. **Sơ đồ Kiểm đồ trả phòng** chưa migrate visual language dùng chung.
-5. **Folio traceability** qua `posting_key` string, chưa phải FK sạch tới `BookingService`.
+4. **Folio traceability** qua `posting_key` string, chưa phải FK sạch tới `BookingService`.
 
-Không có risk nào trong 5 mục trên là business blocker theo định nghĩa mục 46 (đều là technical/architecture, có giải pháp additive/reversible, không ảnh hưởng tiền/dữ liệu/quyền ngay lập tức).
+Không có risk nào trong 4 mục trên là business blocker theo định nghĩa mục 46 (đều là technical/architecture, có giải pháp additive/reversible, không ảnh hưởng tiền/dữ liệu/quyền ngay lập tức).
 
 ---
 
-`ALL REQUESTED FEATURES = PARTIAL`
+`ALL REQUESTED FEATURES = PARTIAL` (Unified Room Map nay COMPLETE; Service Icon config, Historical Reassignment, Night Audit catch-up, Folio FK traceability vẫn còn lại — không phải business blocker)
 
-`READY FOR COMMIT = YES` (đã commit cả 5, mỗi commit tự đứng vững, test xanh)
+`READY FOR COMMIT = YES` (đã commit cả 6 — 5 commit gốc + 1 commit True Shared Component — mỗi commit tự đứng vững, test xanh)
 
 `READY FOR PRODUCTION MIGRATION = NO`
 
-`READY FOR PILOT ACCEPTANCE TEST = YES, với ghi chú` — các phần COMPLETE (Unified Services, Booking Colors, Unpaid Checkout, 3/4 Room Map, Room Charge multi-rate-group) đã sẵn sàng để người dùng test thủ công trên local; 5 mục ở "Remaining Risks" nên được người dùng xác nhận có cần ưu tiên tiếp hay chấp nhận as-is trước khi coi toàn bộ chuỗi yêu cầu là kết thúc.
+`READY FOR PILOT ACCEPTANCE TEST = YES, với ghi chú` — các phần COMPLETE (Unified Services, Booking Colors, Unpaid Checkout, Unified Room Map 4/4, Room Charge multi-rate-group) đã sẵn sàng để người dùng test thủ công trên local; 4 mục ở "Remaining Risks" nên được người dùng xác nhận có cần ưu tiên tiếp hay chấp nhận as-is trước khi coi toàn bộ chuỗi yêu cầu là kết thúc.
 
 ---
 

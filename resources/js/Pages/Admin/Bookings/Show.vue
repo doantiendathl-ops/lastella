@@ -1,9 +1,10 @@
 ﻿<script setup>
 import AppLayout from '@/Layouts/AppLayout.vue';
+import RoomFloorGrid from '@/Components/RoomBoard/RoomFloorGrid.vue';
+import RoomTile from '@/Components/RoomBoard/RoomTile.vue';
 import FolioPanel from './Partials/FolioPanel.vue';
 import RoomBoardPanel from './Partials/RoomBoardPanel.vue';
 import { labelFor } from '@/Support/vietnameseLabels';
-import { readableSurfaceClass, readableTextClass } from '@/Support/colorContrast';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import { BedDouble, CheckCircle, Pencil, Plus, RotateCcw, Trash2, X, XCircle } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
@@ -503,76 +504,33 @@ const toggleRoomSelection = (room) => {
     selectedRoomIds.value = [...selectedRoomIds.value, roomId];
 };
 
-const roomCardClass = (room) => {
-    if (isRoomSelected(room)) {
-        // Mục V.4 — Auto Text Contrast: the tile's background becomes the
-        // Booking's own color when selected, so the text color must be
-        // derived from it too. A hard-coded text-white here would go
-        // unreadable the moment someone picks a pale/white booking color.
-        const textClass = readableTextClass(props.booking.booking_color);
-        return `border-transparent ${textClass} shadow-sm ring-2 ring-pine/20 ring-offset-1`;
+// docs/yeucaumoi.txt mục 6/7 — shared RoomTile shell (giống hệt Sơ đồ thao
+// tác): nền chính = màu booking khi phòng thực sự thuộc về MỘT booking xác
+// định. "selected" (đang chọn mới) và "current_booking" (đã phân từ trước)
+// cùng dùng màu của CHÍNH booking đang sửa; "conflict" dùng màu của booking
+// KHÁC đang giữ phòng đó — không dùng chung một màu xám mờ như trước nữa,
+// để nhất quán với cách Sơ đồ thao tác hiển thị bất kỳ booking nào đang giữ
+// phòng. RoomTile tự lo auto-contrast, không cần tính text-class ở đây nữa.
+const roomBookingColor = (room) => {
+    if (isRoomSelected(room) || room.availability_status === 'current_booking') {
+        return props.booking.booking_color;
     }
-
     if (room.availability_status === 'conflict') {
-        return 'cursor-pointer border-gray-200 bg-gray-100';
+        return room.conflict_booking?.booking_color ?? null;
     }
+    return null;
+};
 
-    if (room.availability_status === 'current_booking') {
-        return 'cursor-pointer border-transparent text-ink shadow-sm';
-    }
-
+// Chỉ dùng khi phòng KHÔNG thuộc booking nào cụ thể (available/unavailable/
+// sai loại phòng yêu cầu) — RoomTile bỏ qua prop này nếu có booking-color.
+const roomVacantClass = (room) => {
     if (room.availability_status === 'unavailable') {
         return 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400';
     }
-
     if (!room.matches_requirement) {
         return 'border-amber-300 bg-amber-50 text-ink hover:border-amber-400 hover:shadow-sm';
     }
-
     return 'border-gray-200 bg-white text-ink hover:border-pine hover:shadow-sm';
-};
-
-const hexToRgb = (hex) => {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return `${r}, ${g}, ${b}`;
-};
-
-const roomCardStyle = (room) => {
-    const color = props.booking.booking_color;
-    if (isRoomSelected(room)) {
-        return { backgroundColor: color, borderColor: color };
-    }
-    if (room.availability_status === 'current_booking' && color) {
-        const rgb = hexToRgb(color);
-        return { backgroundColor: `rgba(${rgb}, 0.15)`, borderColor: `rgba(${rgb}, 0.4)` };
-    }
-    return {};
-};
-
-const roomStatusDotClass = (room) => {
-    if (isRoomSelected(room)) {
-        return readableSurfaceClass(props.booking.booking_color);
-    }
-
-    if (room.availability_status === 'current_booking') {
-        return 'bg-pine';
-    }
-
-    if (room.availability_status === 'conflict') {
-        return 'bg-gray-400';
-    }
-
-    if (room.availability_status === 'unavailable') {
-        return 'bg-coral';
-    }
-
-    if (!room.matches_requirement) {
-        return 'bg-amber-500';
-    }
-
-    return 'bg-pine';
 };
 
 // docs/yeucaumoi.txt mục 17 — no legacy popup/tab on hover (it blocked
@@ -1355,55 +1313,34 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                         </div>
                     </div>
 
-                    <!-- Sơ đồ phòng — giữ nguyên y hệt layout gốc (hàng ngang không xuống dòng). Chỉ
-                         MOBILE (< sm) mới bọc khung cuộn ngang riêng, để cả trang không bị vỡ layout;
-                         từ sm trở lên `sm:overflow-visible sm:pb-0` hủy cả overflow lẫn padding, trả về
-                         chính xác 100% hành vi gốc (không có gì khác trước đây trên desktop).
-                         `pb-72` trên mobile không phải giá trị thẩm mỹ — đây là khoảng đệm để tooltip
-                         hover `absolute top-full` của các phòng ở tầng CUỐI vẫn còn đủ chỗ hiển thị
-                         trong vùng cuộn thay vì bị cắt (overflow-x-auto bắt buộc overflow-y cũng thành
-                         auto theo spec CSS, nên vùng cuộn phải "dư" chiều cao để chứa tooltip cao nhất). -->
-                    <div class="overflow-x-auto pb-72 sm:overflow-visible sm:pb-0">
-                    <div class="space-y-1.5">
-                        <section v-for="floor in roomBoard.floors" :key="floor.id" class="flex flex-nowrap items-center gap-2">
-                            <div class="shrink-0 w-16 border-r border-gray-100 pr-2">
-                                <div class="text-sm font-semibold leading-tight">{{ floor.code === 'B1' ? 'B1' : `Tầng ${floor.code}` }}</div>
-                                <div class="text-[10px] text-steel">{{ floor.rooms.length }} phòng</div>
-                            </div>
-                            <div
-                                v-for="room in floor.rooms"
-                                    :key="room.id"
-                                    role="button"
-                                    class="relative shrink-0 h-16 w-20 cursor-pointer border px-2 py-1.5 text-center text-xs transition focus:outline-none focus:ring-2 focus:ring-pine/40"
-                                    :class="roomCardClass(room)"
-                                    :style="roomCardStyle(room)"
-                                    :title="roomTooltip(room)"
-                                    :aria-disabled="!canSelectRoom(room) && room.availability_status !== 'conflict' && room.availability_status !== 'current_booking'"
-                                    :tabindex="canSelectRoom(room) || room.availability_status === 'conflict' || room.availability_status === 'current_booking' ? 0 : -1"
-                                    @click="toggleRoomSelection(room)"
-                                    @keydown.enter="toggleRoomSelection(room)"
-                                    @keydown.space.prevent="toggleRoomSelection(room)"
-                                >
-                                    <!-- Conflict booking color strip -->
-                                    <div
-                                        v-if="room.availability_status === 'conflict' && room.conflict_booking?.booking_color"
-                                        class="absolute left-0 right-0 top-0 h-[5px]"
-                                        :style="{ backgroundColor: room.conflict_booking.booking_color }"
-                                    />
-
-                                    <div
-                                        class="flex h-full flex-col items-center justify-center gap-0.5"
-                                        :class="room.availability_status === 'conflict' ? 'opacity-45 text-gray-600' : ''"
-                                    >
-                                        <div class="text-base font-semibold leading-none">{{ room.room_number }}</div>
-                                        <div class="max-w-full truncate text-[10px] font-semibold uppercase leading-tight">{{ shortRoomTypeCode(room) }}</div>
-                                        <span class="mt-0.5 h-2 w-2 rounded-full" :class="roomStatusDotClass(room)" />
+                    <!-- docs/yeucaumoi.txt mục 6/17 — cùng RoomTile/RoomFloorGrid dùng chung với
+                         Sơ đồ thao tác, thay cho ô nhỏ tự vẽ trước đây. Click/keyboard giữ nguyên
+                         hành vi cũ (toggleRoomSelection) qua attribute fallthrough của Vue. -->
+                    <RoomFloorGrid :floors="roomBoard.floors" empty-message="Không có phòng nào.">
+                        <template #card="{ room }">
+                            <RoomTile
+                                role="button"
+                                class="cursor-pointer focus:outline-none focus:ring-2 focus:ring-pine/40"
+                                :room-number="room.room_number"
+                                :room-type-label="shortRoomTypeCode(room)"
+                                :booking-color="roomBookingColor(room)"
+                                :vacant-class="roomVacantClass(room)"
+                                :selected="isRoomSelected(room)"
+                                :title="roomTooltip(room)"
+                                :aria-disabled="!canSelectRoom(room) && room.availability_status !== 'conflict' && room.availability_status !== 'current_booking'"
+                                :tabindex="canSelectRoom(room) || room.availability_status === 'conflict' || room.availability_status === 'current_booking' ? 0 : -1"
+                                @click="toggleRoomSelection(room)"
+                                @keydown.enter="toggleRoomSelection(room)"
+                                @keydown.space.prevent="toggleRoomSelection(room)"
+                            >
+                                <template #body>
+                                    <div v-if="room.availability_status === 'conflict' && room.conflict_booking" class="truncate text-[10px] opacity-80">
+                                        {{ room.conflict_booking.code }}
                                     </div>
-
-                                </div>
-                        </section>
-                    </div>
-                    </div>
+                                </template>
+                            </RoomTile>
+                        </template>
+                    </RoomFloorGrid>
                 </form>
 
                 <!-- Room Demand/Room Board Unification M3 — Room-Board-first reverse sync.

@@ -36,6 +36,19 @@ php artisan test
 
 Không phát hiện HIGH/CRITICAL nào cần sửa trước khi commit.
 
+## Cập nhật — True Shared Component (RoomTile/RoomFloorGrid, 4/4 màn)
+
+Sau khi người dùng xác nhận muốn quy 4 màn Room Map về THẬT SỰ một cách hiển thị (không chỉ nguyên tắc màu), đã trích `RoomTile.vue`/`RoomFloorGrid.vue` và migrate cả 4 màn (Sơ đồ thao tác, Sơ đồ chọn phòng, Sơ đồ Check phòng, và **Sơ đồ Kiểm đồ trả phòng** — màn còn lại duy nhất) vào cùng 2 component. Kiểm chứng riêng cho vòng này:
+
+- `php artisan test --filter="BookingManagementUiTest"` (sau khi migrate Sơ đồ chọn phòng): **11 failed / 157 passed** — đối chiếu trực tiếp với `git stash` bản gốc (chưa migrate): cũng **11 failed / 157 passed**, cùng tên test. 0 hồi quy mới.
+- `php artisan test --filter="RoomAvailabilityCheckerTest"` (sau khi migrate Sơ đồ Check phòng): **13 failed / 13 passed** — đối chiếu `git stash` bản gốc: cũng **13 failed / 13 passed**. 0 hồi quy mới.
+- `php artisan test --filter="CheckoutInspection"` (sau khi thêm `booking_color` + migrate Sơ đồ Kiểm đồ): **36 passed, 0 failed** — toàn bộ luồng nghiệp vụ (draft/complete/edit/skip/idempotency/folio) không đổi.
+- `npm run build`: sạch, 2389 module, không lỗi biên dịch, sau mỗi bước migrate.
+- Xác minh trực tiếp qua trình duyệt (Chrome, tab đã đăng nhập sẵn) cho cả 3 màn vừa đổi: Sơ đồ chọn phòng (chọn/bỏ chọn phòng 202, màu nền đúng, ring đúng), Sơ đồ Check phòng (khoảng ngày 2026-08-01 → 2026-09-01: màu nền/badge nhiều-booking/gạch màu/modal chi tiết đều đúng), Sơ đồ Kiểm đồ (màu nền đúng theo booking, badge trạng thái kiểm đồ đúng, modal "Kiểm đồ phòng 201" mở đúng khách/dữ liệu).
+- **Full suite sau khi migrate cả 3 màn còn lại:** `php artisan test` → **28 failed, 1350 passed (5172 assertions)** — cùng 28 failed/1350 passed như baseline "5 commit" ở trên (chênh 1 assertion so với 5173, không đổi failed/passed count — trong biên độ nhiễu bình thường của suite, không phải hồi quy).
+
+**Không có hồi quy mới ở bất kỳ bước nào của vòng migrate bổ sung này.**
+
 ## READY FOR COMMIT = YES (đã commit)
 
 ## READY FOR PRODUCTION MIGRATION = NO
