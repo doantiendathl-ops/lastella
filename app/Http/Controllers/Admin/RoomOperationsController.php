@@ -6,6 +6,8 @@ namespace App\Http\Controllers\Admin;
 
 use App\Exceptions\FinalCheckoutConfirmationRequiredException;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Booking\UpdateActualCheckInRequest;
+use App\Http\Requests\Booking\UpdateActualCheckOutRequest;
 use App\Http\Requests\RoomOperations\BulkCheckInRequest;
 use App\Http\Requests\RoomOperations\BulkCheckOutRequest;
 use App\Http\Requests\RoomOperations\SwapExecuteRequest;
@@ -76,6 +78,12 @@ class RoomOperationsController extends Controller
                 'overrideCheckoutInspection' => $user->can('checkout_inspection.override'),
                 'clean' => $user->can('room.cleaning.update'),
                 'viewBooking' => $user->can('viewAny', Booking::class),
+                // User request (2026-08-18 chat) — same ADMIN-only actual-time
+                // override already on the booking-detail page (BookingController::
+                // permissions()), now also on the board: check-in/check-out ask for
+                // the real time instead of always defaulting to now(), and an
+                // already-recorded time can be corrected afterward.
+                'adjustActualTime' => $user->hasRole('ADMIN'),
             ],
         ]);
     }
@@ -134,13 +142,14 @@ class RoomOperationsController extends Controller
     public function checkIn(BulkCheckInRequest $request): RedirectResponse
     {
         $stays = Stay::whereIn('id', $request->validated('stay_ids'))->get();
+        $actualCheckinAt = $request->validated('actual_checkin_at');
         $errors = [];
 
         foreach ($stays as $stay) {
             $this->authorize('checkIn', $stay);
 
             try {
-                $this->stays->checkIn($stay);
+                $this->stays->checkIn($stay, $actualCheckinAt);
             } catch (ValidationException $e) {
                 $errors["stay_{$stay->id}"] = "Phòng {$stay->room?->room_number}: ".implode(' ', $e->errors()['stay'] ?? ['Không thể nhận phòng.']);
             }
@@ -162,6 +171,7 @@ class RoomOperationsController extends Controller
     {
         $stays = Stay::whereIn('id', $request->validated('stay_ids'))->get();
         $confirmed = $request->boolean('confirmed', false);
+        $actualCheckoutAt = $request->validated('actual_checkout_at');
         $errors = [];
         $needsConfirmation = [];
         // docs/Prompt_2.txt mục VIII — keyed by stay_id (not booking_id) so
@@ -174,7 +184,7 @@ class RoomOperationsController extends Controller
             $this->authorize('checkOut', $stay);
 
             try {
-                $this->stays->checkOut($stay, null, $confirmed);
+                $this->stays->checkOut($stay, $actualCheckoutAt, $confirmed);
             } catch (FinalCheckoutConfirmationRequiredException) {
                 $needsConfirmation[] = $stay->id;
                 $balancesByStay[$stay->id] = $this->bookings->paymentSummary($stay->booking)['balance_due'];
@@ -194,6 +204,32 @@ class RoomOperationsController extends Controller
         }
 
         return back()->with('success', 'Đã trả phòng.');
+    }
+
+    /**
+     * ADMIN-only: correct an already-recorded actual check-in time, from the
+     * board itself (mirrors StayController::updateActualCheckIn() — same
+     * ADMIN-only FormRequest/Policy/StayService call — but redirects back()
+     * to the board instead of the Booking Show page, matching this
+     * controller's own checkIn()/checkOut() pattern above).
+     */
+    public function updateActualCheckIn(UpdateActualCheckInRequest $request, Stay $stay): RedirectResponse
+    {
+        $this->authorize('updateActualCheckIn', $stay);
+
+        $this->stays->updateActualCheckIn($stay, $request->date('actual_checkin_at'), $request->user());
+
+        return back()->with('success', 'Đã cập nhật thời gian nhận phòng thực tế.');
+    }
+
+    /** ADMIN-only: correct an already-recorded actual check-out time, from the board — see updateActualCheckIn() above. */
+    public function updateActualCheckOut(UpdateActualCheckOutRequest $request, Stay $stay): RedirectResponse
+    {
+        $this->authorize('updateActualCheckOut', $stay);
+
+        $this->stays->updateActualCheckOut($stay, $request->date('actual_checkout_at'), $request->user());
+
+        return back()->with('success', 'Đã cập nhật thời gian trả phòng thực tế.');
     }
 
     private function authorizeView(Request $request): void

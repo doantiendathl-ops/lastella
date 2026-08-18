@@ -266,6 +266,20 @@ class BookingService
 
             $booking->fill($data)->save();
 
+            // User request (2026-08-18 chat) — supersedes the original Quick Note
+            // Lifecycle addendum's "copy-on-assignment only, never live-synced"
+            // design (see RoomAssignmentService::lockRoomRecheckAndCreateAssignment()'s
+            // docblock): editing the booking's quick_note via "Sửa booking" must now
+            // OVERWRITE every currently active room's note on Sơ đồ thao tác, so staff
+            // who mistype/forget a note the first time can fix it from the booking edit
+            // screen and see it reflected on the board. Only fires when quick_note
+            // actually changed, and only touches ACTIVE assignments (Assigned/CheckedIn)
+            // — the ones the board actually displays; CheckedOut/Released/Cancelled rows
+            // are no longer shown there, so touching them would be pointless.
+            if ($booking->wasChanged('quick_note')) {
+                $this->propagateQuickNoteToActiveAssignments($booking);
+            }
+
             if (is_array($requirements)) {
                 $booking->bookingRequirements()->delete();
 
@@ -278,6 +292,13 @@ class BookingService
 
             return $booking->refresh()->load(['bookingRequirements.roomType']);
         });
+    }
+
+    private function propagateQuickNoteToActiveAssignments(Booking $booking): void
+    {
+        $booking->roomAssignments()
+            ->whereIn('status', [AssignmentStatus::Assigned, AssignmentStatus::CheckedIn])
+            ->update(['quick_note' => $booking->quick_note]);
     }
 
     private function validateTimeChange(Booking $booking, array $data): void

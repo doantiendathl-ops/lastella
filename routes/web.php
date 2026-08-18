@@ -111,6 +111,10 @@ Route::middleware('auth')->group(function (): void {
             Route::patch('assignments/{assignment}/quick-note', [RoomOperationsController::class, 'updateQuickNote'])->name('assignments.quick-note');
             Route::post('check-in', [RoomOperationsController::class, 'checkIn'])->name('check-in');
             Route::post('check-out', [RoomOperationsController::class, 'checkOut'])->name('check-out');
+            // ADMIN-only: correct an already-recorded actual time without leaving
+            // the board (see StayController's equivalent, booking-scoped routes).
+            Route::patch('stays/{stay}/actual-check-in', [RoomOperationsController::class, 'updateActualCheckIn'])->name('stays.actual-check-in');
+            Route::patch('stays/{stay}/actual-check-out', [RoomOperationsController::class, 'updateActualCheckOut'])->name('stays.actual-check-out');
         });
 
         Route::prefix('checkout-inspections')->name('checkout-inspections.')->group(function (): void {

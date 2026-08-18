@@ -12,6 +12,7 @@ import {
     DoorOpen,
     LogOut,
     MessageSquare,
+    Pencil,
 } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
 
@@ -19,9 +20,13 @@ const props = defineProps({
     room: { type: Object, required: true },
     selected: { type: Boolean, default: false },
     canEditNote: { type: Boolean, default: false },
+    // User request (2026-08-18 chat) — ADMIN-only, same as RoomBoardPanel.vue
+    // on the booking-detail page: shows a pencil to correct an already-
+    // recorded actual check-in/check-out time.
+    canAdjustActualTime: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['toggle-select', 'view-booking', 'save-note', 'select-booking-rooms']);
+const emit = defineEmits(['toggle-select', 'view-booking', 'save-note', 'select-booking-rooms', 'edit-check-in', 'edit-check-out']);
 
 const occupant = computed(() => props.room.occupant);
 
@@ -197,6 +202,29 @@ const conflictTooltip = computed(() => {
                 <span v-if="occupant" :title="occupancyTooltip" :aria-label="occupancyTooltip" class="shrink-0">
                     <component :is="occupancyIcon" class="h-4 w-4" :class="occupancyClass" />
                 </span>
+
+                <!-- User request (2026-08-18 chat) — ADMIN-only: correct an
+                     already-recorded actual time without leaving the board. -->
+                <button
+                    v-if="canAdjustActualTime && occupant?.is_checked_in"
+                    type="button"
+                    title="Sửa thời gian nhận phòng thực tế"
+                    aria-label="Sửa thời gian nhận phòng thực tế"
+                    class="shrink-0 text-gray-500 hover:text-indigo-600"
+                    @click="emit('edit-check-in', room)"
+                >
+                    <Pencil class="h-3 w-3" />
+                </button>
+                <button
+                    v-if="canAdjustActualTime && occupant?.is_checked_out"
+                    type="button"
+                    title="Sửa thời gian trả phòng thực tế"
+                    aria-label="Sửa thời gian trả phòng thực tế"
+                    class="shrink-0 text-gray-500 hover:text-indigo-600"
+                    @click="emit('edit-check-out', room)"
+                >
+                    <Pencil class="h-3 w-3" />
+                </button>
 
                 <span v-if="occupant?.bed_join" :title="bedJoinTooltip" :aria-label="bedJoinTooltip" class="shrink-0">
                     <BedDouble class="h-4 w-4 text-orange-600" />

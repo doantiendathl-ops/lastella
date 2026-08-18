@@ -301,6 +301,12 @@ class RoomOperationsBoardService
                 'assignment_status' => $primary->status->value,
                 'is_checked_in' => $stay?->actual_checkin_at !== null,
                 'is_checked_out' => $stay?->actual_checkout_at !== null,
+                // User request (2026-08-18 chat) — raw values so the board's
+                // ADMIN-only "edit already-recorded actual time" dialog can
+                // pre-fill, same convention (Y-m-d H:i) RoomBoardPanel.vue
+                // already uses for the identical field on the booking-detail page.
+                'actual_checkin_at' => $stay?->actual_checkin_at?->format('Y-m-d H:i'),
+                'actual_checkout_at' => $stay?->actual_checkout_at?->format('Y-m-d H:i'),
                 'bed_join' => $bedJoinRequest,
                 'extra_bed_quantity' => $primary->extra_bed_quantity,
                 'inspection_status' => $inspectionStatus,

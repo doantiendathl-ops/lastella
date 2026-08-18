@@ -69,13 +69,20 @@ class RoomAssignmentService
      *
      * Quick Note Lifecycle addendum (Mục B) — COPY-ON-ASSIGNMENT: a brand new
      * assignment with no explicit quick_note of its own defaults to the
-     * booking's CURRENT quick_note at creation time. This is a one-time copy,
-     * not a live sync (Mục C) — nothing here or anywhere else re-reads
-     * booking.quick_note after this row is created, so editing the booking's
-     * quick_note later never overwrites an already-assigned room's note.
-     * Because this is the single shared creation path, every future
-     * assignment picks up whatever the booking's quick_note is AT THAT TIME
-     * (Mục D) with no separate handling needed per call site.
+     * booking's CURRENT quick_note at creation time. Because this is the
+     * single shared creation path, every future assignment picks up whatever
+     * the booking's quick_note is AT THAT TIME (Mục D) with no separate
+     * handling needed per call site.
+     *
+     * UPDATED (2026-08-18 chat request): this copy is no longer "one-time
+     * only" — BookingService::updateBooking() now ALSO overwrites every
+     * currently active assignment's quick_note whenever the booking's own
+     * quick_note is edited via "Sửa booking" (see
+     * BookingService::propagateQuickNoteToActiveAssignments()), so a note
+     * fixed after the fact does reach the Room Operations Board. This
+     * creation-time copy still matters for assignments that don't exist yet
+     * at edit time — they simply pick up the latest value here, same as
+     * before.
      */
     private function lockRoomRecheckAndCreateAssignment(
         Booking $booking,

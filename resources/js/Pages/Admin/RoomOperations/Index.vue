@@ -1,6 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue';
-import { router } from '@inertiajs/vue3';
+import { router, useForm } from '@inertiajs/vue3';
 import axios from 'axios';
 import { computed, ref, watch } from 'vue';
 import CheckoutInspectionModal from '@/Pages/Admin/CheckoutInspections/Partials/CheckoutInspectionModal.vue';
@@ -131,17 +131,68 @@ function saveNote({ assignmentId, note }) {
     );
 }
 
-// ---- Bulk quick actions (Mục XXII/XXIII/XXIV/XXV) --------------------------
-function bulkCheckIn() {
-    const stayIds = selectedRooms.value.filter((r) => r.actions?.can_check_in).map((r) => r.occupant.stay_id);
-    if (stayIds.length === 0) return;
+// ---- ADMIN actual time override (User request, 2026-08-18 chat) -----------
+// Same principle as RoomBoardPanel.vue on the booking-detail page: Reception's
+// flow is unchanged (click → immediate POST → server uses now()); only when
+// can.adjustActualTime (ADMIN) does clicking first open a small "actual time"
+// dialog, defaulting to now, editable. Here it applies ONE shared time to
+// every stay in the current multi-select, since bulk check-in/out already
+// means "these rooms, right now, together."
+const nowForDatetimeLocal = () => {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
 
-    router.post(route('admin.room-operations.check-in'), { stay_ids: stayIds }, {
+function handleBulkActionResult(page, successMsg, errorMsg) {
+    const hasErrors = Object.keys(page.props.errors ?? {}).length > 0;
+    pushToast(hasErrors ? errorMsg : (page.props.flash?.success ?? successMsg), hasErrors ? 'error' : 'success');
+    clearSelection();
+}
+
+// ---- Bulk quick actions (Mục XXII/XXIII/XXIV/XXV) --------------------------
+const checkInTimeDialog = ref(null); // { roomNumbers } — stay_ids lives on the form itself
+const checkInTimeForm = useForm({ stay_ids: [], actual_checkin_at: '' });
+
+function bulkCheckIn() {
+    const targets = selectedRooms.value.filter((r) => r.actions?.can_check_in);
+    if (targets.length === 0) return;
+    const stayIds = targets.map((r) => r.occupant.stay_id);
+
+    if (can.adjustActualTime) {
+        checkInTimeForm.clearErrors();
+        checkInTimeForm.stay_ids = stayIds;
+        checkInTimeForm.actual_checkin_at = nowForDatetimeLocal();
+        checkInTimeDialog.value = { roomNumbers: targets.map((r) => r.room_number) };
+        return;
+    }
+
+    submitBulkCheckIn(stayIds);
+}
+
+function submitBulkCheckIn(stayIds, actualCheckinAt = null) {
+    router.post(
+        route('admin.room-operations.check-in'),
+        { stay_ids: stayIds, ...(actualCheckinAt ? { actual_checkin_at: actualCheckinAt } : {}) },
+        {
+            preserveScroll: true,
+            onSuccess: (page) => handleBulkActionResult(page, 'Đã nhận phòng.', 'Một số phòng không thể nhận — xem chi tiết bên dưới.'),
+        },
+    );
+}
+
+function closeCheckInTimeDialog() {
+    checkInTimeDialog.value = null;
+    checkInTimeForm.clearErrors();
+}
+
+function submitCheckInTimeDialog() {
+    if (!checkInTimeDialog.value) return;
+    checkInTimeForm.post(route('admin.room-operations.check-in'), {
         preserveScroll: true,
         onSuccess: (page) => {
-            const hasErrors = Object.keys(page.props.errors ?? {}).length > 0;
-            pushToast(hasErrors ? 'Một số phòng không thể nhận — xem chi tiết bên dưới.' : (page.props.flash?.success ?? 'Đã nhận phòng.'), hasErrors ? 'error' : 'success');
-            clearSelection();
+            checkInTimeDialog.value = null;
+            handleBulkActionResult(page, 'Đã nhận phòng.', 'Một số phòng không thể nhận — xem chi tiết bên dưới.');
         },
     });
 }
@@ -157,6 +208,29 @@ function bulkCheckIn() {
 // user reaches the "Xác nhận trả phòng" step.
 const checkoutFlow = ref(null);
 
+// ADMIN actual checkout time — shown BEFORE the existing inspection/balance/
+// final-confirm sequence below runs, exactly like RoomBoardPanel.vue's
+// checkOut(): the whole flow after this point carries the chosen time.
+const adminCheckoutTimeDialog = ref(null); // { rooms }
+const adminCheckoutTimeValue = ref('');
+const checkoutTimeError = ref('');
+
+function checkoutOverridePayload() {
+    return can.adjustActualTime && adminCheckoutTimeValue.value
+        ? { actual_checkout_at: adminCheckoutTimeValue.value }
+        : {};
+}
+
+function handleCheckoutTimeError(rooms) {
+    return (errors) => {
+        if (errors.actual_checkout_at) {
+            checkoutTimeError.value = errors.actual_checkout_at;
+            adminCheckoutTimeDialog.value = { rooms };
+            checkoutFlow.value = null;
+        }
+    };
+}
+
 function requestCheckOut() {
     const rooms = selectedRooms.value
         .filter((r) => r.actions?.can_check_out)
@@ -169,11 +243,34 @@ function requestCheckOut() {
         }));
     if (rooms.length === 0) return;
 
+    if (can.adjustActualTime) {
+        adminCheckoutTimeValue.value = nowForDatetimeLocal();
+        checkoutTimeError.value = '';
+        adminCheckoutTimeDialog.value = { rooms };
+        return;
+    }
+
+    startCheckoutFlowFor(rooms);
+}
+
+function startCheckoutFlowFor(rooms) {
     const uninspectedRooms = rooms.filter((r) => r.inspection_status !== 'completed' && r.inspection_status !== 'skipped');
 
     checkoutFlow.value = uninspectedRooms.length > 0
         ? { stage: 'inspection-warning', rooms, uninspectedRooms, skipReason: '' }
         : { stage: 'confirm', rooms };
+}
+
+function closeAdminCheckoutTimeDialog() {
+    adminCheckoutTimeDialog.value = null;
+    checkoutTimeError.value = '';
+}
+
+function confirmAdminCheckoutTime() {
+    if (!adminCheckoutTimeDialog.value) return;
+    const { rooms } = adminCheckoutTimeDialog.value;
+    adminCheckoutTimeDialog.value = null;
+    startCheckoutFlowFor(rooms);
 }
 
 function cancelCheckoutFlow() {
@@ -209,8 +306,9 @@ function confirmCheckout() {
     const { rooms } = checkoutFlow.value;
     const stayIds = rooms.map((r) => r.stay_id);
 
-    router.post(route('admin.room-operations.check-out'), { stay_ids: stayIds, confirmed: false }, {
+    router.post(route('admin.room-operations.check-out'), { stay_ids: stayIds, confirmed: false, ...checkoutOverridePayload() }, {
         preserveScroll: true,
+        onError: handleCheckoutTimeError(rooms),
         onSuccess: (page) => {
             const flash = page.props.flash ?? {};
             const pendingStayIds = flash.final_checkout_confirmation_required ?? [];
@@ -232,6 +330,7 @@ function confirmCheckout() {
             const hasErrors = Object.keys(page.props.errors ?? {}).length > 0;
             pushToast(hasErrors ? 'Một số phòng không thể trả — xem chi tiết bên dưới.' : (flash.success ?? 'Đã trả phòng.'), hasErrors ? 'error' : 'success');
             checkoutFlow.value = null;
+            adminCheckoutTimeValue.value = '';
             clearSelection();
         },
     });
@@ -239,14 +338,16 @@ function confirmCheckout() {
 
 function confirmFinalCheckout() {
     if (!checkoutFlow.value?.pendingStayIds) return;
-    const { pendingStayIds } = checkoutFlow.value;
+    const { pendingStayIds, finalRooms } = checkoutFlow.value;
 
-    router.post(route('admin.room-operations.check-out'), { stay_ids: pendingStayIds, confirmed: true }, {
+    router.post(route('admin.room-operations.check-out'), { stay_ids: pendingStayIds, confirmed: true, ...checkoutOverridePayload() }, {
         preserveScroll: true,
+        onError: handleCheckoutTimeError(finalRooms),
         onSuccess: (page) => {
             const hasErrors = Object.keys(page.props.errors ?? {}).length > 0;
             pushToast(hasErrors ? 'Một số phòng không thể trả — xem chi tiết bên dưới.' : 'Đã trả phòng.', hasErrors ? 'error' : 'success');
             checkoutFlow.value = null;
+            adminCheckoutTimeValue.value = '';
             clearSelection();
         },
     });
@@ -254,6 +355,57 @@ function confirmFinalCheckout() {
 
 function updateSkipReason(value) {
     if (checkoutFlow.value) checkoutFlow.value = { ...checkoutFlow.value, skipReason: value };
+}
+
+// ---- ADMIN: correct an already-recorded actual time, from the board ------
+// "nếu nhân viên quên có thể nhập lại" — mirrors RoomBoardPanel.vue's pencil-
+// icon edit-after-fact dialogs exactly, using the new board-scoped PATCH
+// routes (RoomOperationsController::updateActualCheckIn/Out) so the operator
+// never leaves the board.
+const toDatetimeLocal = (value) => (value ? value.replace(' ', 'T') : '');
+
+const editCheckInTarget = ref(null); // room
+const editCheckInForm = useForm({ actual_checkin_at: '' });
+
+function openEditCheckIn(room) {
+    editCheckInForm.clearErrors();
+    editCheckInForm.actual_checkin_at = toDatetimeLocal(room.occupant.actual_checkin_at);
+    editCheckInTarget.value = room;
+}
+
+function closeEditCheckIn() {
+    editCheckInTarget.value = null;
+    editCheckInForm.clearErrors();
+}
+
+function submitEditCheckIn() {
+    if (!editCheckInTarget.value) return;
+    editCheckInForm.patch(route('admin.room-operations.stays.actual-check-in', editCheckInTarget.value.occupant.stay_id), {
+        preserveScroll: true,
+        onSuccess: () => { editCheckInTarget.value = null; },
+    });
+}
+
+const editCheckOutTarget = ref(null); // room
+const editCheckOutForm = useForm({ actual_checkout_at: '' });
+
+function openEditCheckOut(room) {
+    editCheckOutForm.clearErrors();
+    editCheckOutForm.actual_checkout_at = toDatetimeLocal(room.occupant.actual_checkout_at);
+    editCheckOutTarget.value = room;
+}
+
+function closeEditCheckOut() {
+    editCheckOutTarget.value = null;
+    editCheckOutForm.clearErrors();
+}
+
+function submitEditCheckOut() {
+    if (!editCheckOutTarget.value) return;
+    editCheckOutForm.patch(route('admin.room-operations.stays.actual-check-out', editCheckOutTarget.value.occupant.stay_id), {
+        preserveScroll: true,
+        onSuccess: () => { editCheckOutTarget.value = null; },
+    });
 }
 
 async function bulkClean() {
@@ -414,10 +566,13 @@ function onSwapDone() {
                 :floors="filteredFloors"
                 :selected-ids="selectedIds"
                 :can-edit-note="can.swap"
+                :can-adjust-actual-time="can.adjustActualTime"
                 @toggle-select="toggleSelect"
                 @view-booking="viewBooking"
                 @save-note="saveNote"
                 @select-booking-rooms="selectBookingRooms"
+                @edit-check-in="openEditCheckIn"
+                @edit-check-out="openEditCheckOut"
             />
 
             <div>
@@ -464,6 +619,78 @@ function onSwapDone() {
             @close="closeInspection"
             @success="onInspectionSuccess"
         />
+
+        <!-- ADMIN: actual check-in time for a bulk check-in, before the POST fires -->
+        <div v-if="checkInTimeDialog" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <div class="w-full max-w-sm border border-gray-200 bg-white p-5 shadow-xl">
+                <h2 class="text-base font-semibold">Nhận phòng — {{ checkInTimeDialog.roomNumbers.length }} phòng</h2>
+                <p class="mt-1 text-xs text-steel">Phòng: {{ checkInTimeDialog.roomNumbers.join(', ') }}</p>
+                <form class="mt-3" @submit.prevent="submitCheckInTimeDialog">
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Thời gian nhận phòng thực tế</label>
+                    <input v-model="checkInTimeForm.actual_checkin_at" type="datetime-local" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm" />
+                    <p v-if="checkInTimeForm.errors.actual_checkin_at" class="mt-2 text-sm text-red-600">{{ checkInTimeForm.errors.actual_checkin_at }}</p>
+                    <div class="mt-4 flex justify-end gap-2">
+                        <button type="button" class="border border-gray-300 px-4 py-2 text-sm font-semibold text-steel hover:text-ink" @click="closeCheckInTimeDialog">Hủy</button>
+                        <button type="submit" class="border border-pine bg-pine px-4 py-2 text-sm font-semibold text-white hover:bg-pine/90 disabled:opacity-50" :disabled="checkInTimeForm.processing">
+                            Xác nhận nhận phòng
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- ADMIN: actual checkout time for a bulk checkout, before the existing inspection/balance/final-confirm flow runs -->
+        <div v-if="adminCheckoutTimeDialog" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <div class="w-full max-w-sm border border-gray-200 bg-white p-5 shadow-xl">
+                <h2 class="text-base font-semibold">Trả phòng — {{ adminCheckoutTimeDialog.rooms.length }} phòng</h2>
+                <p class="mt-1 text-xs text-steel">Phòng: {{ adminCheckoutTimeDialog.rooms.map((r) => r.room_number).join(', ') }}</p>
+                <form class="mt-3" @submit.prevent="confirmAdminCheckoutTime">
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Thời gian trả phòng thực tế</label>
+                    <input v-model="adminCheckoutTimeValue" type="datetime-local" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm" />
+                    <p v-if="checkoutTimeError" class="mt-2 text-sm text-red-600">{{ checkoutTimeError }}</p>
+                    <div class="mt-4 flex justify-end gap-2">
+                        <button type="button" class="border border-gray-300 px-4 py-2 text-sm font-semibold text-steel hover:text-ink" @click="closeAdminCheckoutTimeDialog">Hủy</button>
+                        <button type="submit" class="border border-pine bg-pine px-4 py-2 text-sm font-semibold text-white hover:bg-pine/90">Tiếp tục trả phòng</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- ADMIN: edit an already-recorded actual check-in time -->
+        <div v-if="editCheckInTarget" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <div class="w-full max-w-sm border border-gray-200 bg-white p-5 shadow-xl">
+                <h2 class="text-base font-semibold">Sửa thời gian nhận phòng — Phòng {{ editCheckInTarget.room_number }}</h2>
+                <form class="mt-3" @submit.prevent="submitEditCheckIn">
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Thời gian nhận phòng thực tế</label>
+                    <input v-model="editCheckInForm.actual_checkin_at" type="datetime-local" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm" />
+                    <p v-if="editCheckInForm.errors.actual_checkin_at" class="mt-2 text-sm text-red-600">{{ editCheckInForm.errors.actual_checkin_at }}</p>
+                    <div class="mt-4 flex justify-end gap-2">
+                        <button type="button" class="border border-gray-300 px-4 py-2 text-sm font-semibold text-steel hover:text-ink" @click="closeEditCheckIn">Hủy</button>
+                        <button type="submit" class="border border-pine bg-pine px-4 py-2 text-sm font-semibold text-white hover:bg-pine/90 disabled:opacity-50" :disabled="editCheckInForm.processing">
+                            Lưu thay đổi
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- ADMIN: edit an already-recorded actual checkout time -->
+        <div v-if="editCheckOutTarget" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <div class="w-full max-w-sm border border-gray-200 bg-white p-5 shadow-xl">
+                <h2 class="text-base font-semibold">Sửa thời gian trả phòng — Phòng {{ editCheckOutTarget.room_number }}</h2>
+                <form class="mt-3" @submit.prevent="submitEditCheckOut">
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Thời gian trả phòng thực tế</label>
+                    <input v-model="editCheckOutForm.actual_checkout_at" type="datetime-local" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm" />
+                    <p v-if="editCheckOutForm.errors.actual_checkout_at" class="mt-2 text-sm text-red-600">{{ editCheckOutForm.errors.actual_checkout_at }}</p>
+                    <div class="mt-4 flex justify-end gap-2">
+                        <button type="button" class="border border-gray-300 px-4 py-2 text-sm font-semibold text-steel hover:text-ink" @click="closeEditCheckOut">Hủy</button>
+                        <button type="submit" class="border border-pine bg-pine px-4 py-2 text-sm font-semibold text-white hover:bg-pine/90 disabled:opacity-50" :disabled="editCheckOutForm.processing">
+                            Lưu thay đổi
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
 
         <div class="fixed bottom-4 right-4 z-50 space-y-2">
             <div

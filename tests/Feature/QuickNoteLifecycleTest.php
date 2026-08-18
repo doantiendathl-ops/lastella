@@ -112,8 +112,15 @@ class QuickNoteLifecycleTest extends TestCase
         $this->assertSame('Mặc định', $booking->fresh()->quick_note);
     }
 
-    /** 7. Editing Booking quick_note afterward does NOT overwrite existing assignment quick_note (no live-sync). */
-    public function test_editing_booking_quick_note_does_not_overwrite_existing_assignments(): void
+    /**
+     * 7. UPDATED (2026-08-18 chat request): editing Booking quick_note via
+     * "Sửa booking" now OVERWRITES every currently active assignment's own
+     * quick_note — including ones that were customized independently on the
+     * board — so staff can fix/update a note from the booking edit screen and
+     * see it reflected on Sơ đồ thao tác. Supersedes the old "no live-sync"
+     * behavior this test used to assert.
+     */
+    public function test_editing_booking_quick_note_overwrites_active_assignments(): void
     {
         $booking = app(BookingService::class)->createBooking($this->bookingData(['quick_note' => 'Khách cần phòng yên tĩnh']));
         $room104 = Room::where('room_number', '104')->firstOrFail();
@@ -126,16 +133,35 @@ class QuickNoteLifecycleTest extends TestCase
             ['room_id' => $room106->id, 'room_type_id' => $room106->room_type_id, 'start_at' => '2026-08-01 14:00:00', 'end_at' => '2026-08-02 12:00:00'],
         ]);
 
-        // Room-specific edits, matching the spec's own example.
+        // Room-specific edits made directly on the board.
         $a104->update(['quick_note' => 'Khách cần phòng yên tĩnh — thêm 1 gối']);
         $a106->update(['quick_note' => 'Khách cần phòng yên tĩnh — khách đến muộn']);
         // 105 keeps the original copied value untouched.
 
         app(BookingService::class)->updateBooking($booking, ['quick_note' => 'NEW BOOKING DEFAULT']);
 
-        $this->assertSame('Khách cần phòng yên tĩnh — thêm 1 gối', $a104->fresh()->quick_note);
-        $this->assertSame('Khách cần phòng yên tĩnh', $a105->fresh()->quick_note);
-        $this->assertSame('Khách cần phòng yên tĩnh — khách đến muộn', $a106->fresh()->quick_note);
+        $this->assertSame('NEW BOOKING DEFAULT', $a104->fresh()->quick_note);
+        $this->assertSame('NEW BOOKING DEFAULT', $a105->fresh()->quick_note);
+        $this->assertSame('NEW BOOKING DEFAULT', $a106->fresh()->quick_note);
+    }
+
+    /** 7b. A CheckedOut/Released/Cancelled assignment is never touched by this propagation — it no longer appears on the live board. */
+    public function test_editing_booking_quick_note_does_not_touch_checked_out_assignments(): void
+    {
+        $booking = app(BookingService::class)->createBooking($this->bookingData(['quick_note' => 'Ban đầu']));
+        $room104 = Room::where('room_number', '104')->firstOrFail();
+        [$assignment] = app(RoomAssignmentService::class)->assignRooms($booking, [
+            ['room_id' => $room104->id, 'room_type_id' => $room104->room_type_id, 'start_at' => '2026-08-01 14:00:00', 'end_at' => '2026-08-02 12:00:00'],
+        ]);
+        $assignment->update(['quick_note' => 'Ghi chú riêng của phòng đã trả']);
+        $stay = app(\App\Services\StayService::class)->createStayFromAssignment($assignment);
+        app(\App\Services\StayService::class)->checkIn($stay);
+        $this->travelTo('2026-08-02 12:30:00');
+        app(\App\Services\StayService::class)->checkOut($stay->fresh(), '2026-08-02 12:30:00', true);
+
+        app(BookingService::class)->updateBooking($booking->fresh(), ['quick_note' => 'NEW BOOKING DEFAULT']);
+
+        $this->assertSame('Ghi chú riêng của phòng đã trả', $assignment->fresh()->quick_note);
     }
 
     /** 8. New room assigned afterward gets the LATEST Booking quick_note. */
