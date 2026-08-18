@@ -100,6 +100,15 @@ const availabilityStyles = {
         dot: 'bg-gray-400',
         badge: 'bg-gray-200 text-gray-600',
     },
+    // docs/yeucaumoi.txt mục 11 — historical-only: a CheckedOut booking that
+    // overlapped a fully-past queried range. Never blocks a new booking (the
+    // guest already left), purely informational — neutral gray, distinct from
+    // the live "Trống" green so it doesn't read as simply available either.
+    checked_out: {
+        card: 'border-gray-400 bg-gray-100 hover:border-gray-500 cursor-pointer',
+        dot: 'bg-gray-500',
+        badge: 'bg-gray-200 text-gray-700',
+    },
     // Phase 4.2 Milestone 5: reuses the shared RoomStatus CLEANING colors (Support/roomStatusBadges.js)
     // so this page and the Housekeeping board never drift out of visual sync.
     cleaning: {
@@ -115,12 +124,7 @@ const availabilityStyles = {
 // accent instead of owning the background. multi_booking/overlap have no
 // single Booking to color by, and available/out_of_order/cleaning aren't
 // about a Booking at all — those keep their existing full-tile treatment.
-const SINGLE_BOOKING_STATES = ['reserved', 'occupied', 'overstay'];
-const SINGLE_BOOKING_BORDER = {
-    reserved: 'border-blue-400',
-    occupied: 'border-orange-500',
-    overstay: 'border-red-600',
-};
+const SINGLE_BOOKING_STATES = ['reserved', 'occupied', 'overstay', 'checked_out'];
 
 function hasSingleBookingColor(room) {
     return SINGLE_BOOKING_STATES.includes(room.availability) && !!room.primary_color && room.booking_count === 1;
@@ -223,6 +227,7 @@ function badgeClass(badge) {
             <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-red-500"></span>Xung đột</span>
             <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-gray-400"></span>Không khả dụng</span>
             <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-amber-500"></span>Đang dọn</span>
+            <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-gray-500"></span>Đã trả phòng (chỉ khi xem quá khứ)</span>
         </div>
 
         <!-- Floor map — docs/yeucaumoi.txt mục 6: same shared RoomTile/RoomFloorGrid

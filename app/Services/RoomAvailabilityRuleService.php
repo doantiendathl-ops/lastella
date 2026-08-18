@@ -97,11 +97,45 @@ class RoomAvailabilityRuleService
         ];
     }
 
+    /**
+     * @param  Collection|null  $checkedOut  Only ever non-empty for a fully-past query
+     *     range (see RoomAvailabilityCheckerService::isHistoricalRange()) — a room whose
+     *     only overlapping assignment is CheckedOut is not blocked for a NEW booking (it
+     *     never was, that guest already left), it is purely informational: "who stayed
+     *     here during this past period". checkedIn/reserved always take precedence when
+     *     present, exactly like the live view.
+     */
+    /**
+     * docs/yeucaumoi.txt mục 11 (extended to the Availability Checker) — CheckedOut
+     * assignments overlapping the queried range, for use ONLY when the entire range is
+     * in the past (see RoomAvailabilityCheckerService::isHistoricalRange()). Kept as a
+     * separate opt-in method rather than a new getBlockingAssignments() bucket so the
+     * Room Board / conflict-checking callers of getBlockingAssignments() — which must
+     * always stay live-only — are unaffected.
+     */
+    public function getHistoricalCheckedOutAssignments(
+        CarbonInterface|string $startAt,
+        CarbonInterface|string $endAt,
+        ?int $excludeBookingId = null,
+    ): Collection {
+        $startAt = $startAt instanceof CarbonInterface ? $startAt : Carbon::parse($startAt);
+        $endAt = $endAt instanceof CarbonInterface ? $endAt : Carbon::parse($endAt);
+
+        return $this->applyOverlap(
+            $this->blockingQuery(excludeBookingId: $excludeBookingId)
+                ->with('booking:id,booking_code,customer_name,booking_color,status')
+                ->where('status', AssignmentStatus::CheckedOut),
+            $startAt,
+            $endAt,
+        )->get()->groupBy('room_id');
+    }
+
     public function resolveAvailability(
         Collection $checkedIn,
         Collection $reserved,
         bool $isUnavailable,
         Carbon $now,
+        ?Collection $checkedOut = null,
     ): string {
         if ($isUnavailable) {
             return 'out_of_order';
@@ -113,15 +147,19 @@ class RoomAvailabilityRuleService
                 : 'occupied';
         }
 
-        if ($reserved->isEmpty()) {
-            return 'available';
+        if ($reserved->isNotEmpty()) {
+            if ($reserved->count() === 1) {
+                return 'reserved';
+            }
+
+            return $this->hasTimeOverlap($reserved->all()) ? 'overlap' : 'multi_booking';
         }
 
-        if ($reserved->count() === 1) {
-            return 'reserved';
+        if ($checkedOut !== null && $checkedOut->isNotEmpty()) {
+            return 'checked_out';
         }
 
-        return $this->hasTimeOverlap($reserved->all()) ? 'overlap' : 'multi_booking';
+        return 'available';
     }
 
     public function isRoomUnavailable(Room $room): bool
