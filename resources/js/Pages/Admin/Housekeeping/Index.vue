@@ -2,6 +2,7 @@
 import RoomBoardGrid from '@/Components/RoomBoard/RoomBoardGrid.vue';
 import RoomBulkActionBar from '@/Components/RoomBoard/RoomBulkActionBar.vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
+import { formatDate } from '@/Support/format';
 import { roomStatusBadge, cleaningStatusBadge } from '@/Support/roomStatusBadges';
 import { router } from '@inertiajs/vue3';
 import axios from 'axios';
@@ -234,7 +235,7 @@ const bulkMarkDirty = () => runBulkAction(route('admin.housekeeping.bulk.mark-di
                         </span>
                     </div>
 
-                    <div v-if="room.last_cleaned_at" class="text-[10px] text-gray-400">Dọn lần cuối: {{ room.last_cleaned_at }}</div>
+                    <div v-if="room.last_cleaned_at" class="text-[10px] text-gray-400">Dọn lần cuối: {{ formatDate(room.last_cleaned_at) }}</div>
 
                     <!-- Đúng 1 nút hành động chính (SẠCH khi bẩn, BẨN khi sạch) + nút Chi tiết —
                          không hiển thị workflow nhiều bước ở đây (xem HousekeepingDetailModal). -->

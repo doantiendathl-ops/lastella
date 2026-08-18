@@ -2,6 +2,7 @@
 import Pagination from '@/Components/Pagination.vue';
 import { useMediaQuery } from '@/Composables/useMediaQuery';
 import AppLayout from '@/Layouts/AppLayout.vue';
+import { formatDate } from '@/Support/format';
 import { labelFor } from '@/Support/vietnameseLabels';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import { Banknote, BedDouble, Eye, Maximize2, Pencil, Plus, RotateCcw, Search, X, XCircle } from 'lucide-vue-next';
@@ -347,13 +348,13 @@ const clean = (value) => Object.fromEntries(Object.entries(value).filter(([, ite
                             <td class="whitespace-nowrap px-4 py-3">{{ booking.customer_name }}</td>
                             <td class="whitespace-nowrap px-4 py-3">{{ booking.customer_phone }}</td>
                             <td class="whitespace-nowrap px-4 py-3">{{ labelFor('bookingType', booking.booking_type) }}</td>
-                            <td class="whitespace-nowrap px-4 py-3">{{ booking.checkin_at }}</td>
-                            <td class="whitespace-nowrap px-4 py-3">{{ booking.checkout_at }}</td>
+                            <td class="whitespace-nowrap px-4 py-3">{{ formatDate(booking.checkin_at) }}</td>
+                            <td class="whitespace-nowrap px-4 py-3">{{ formatDate(booking.checkout_at) }}</td>
                             <td class="whitespace-nowrap px-4 py-3">{{ booking.adults }}</td>
                             <td class="whitespace-nowrap px-4 py-3">{{ booking.children_under_6 }} / {{ booking.children_over_6 }}</td>
                             <td class="whitespace-nowrap px-4 py-3">{{ labelFor('bookingStatus', booking.status) }}</td>
                             <td class="whitespace-nowrap px-4 py-3">{{ booking.sales_user ?? 'Chưa phân công' }}</td>
-                            <td class="whitespace-nowrap px-4 py-3">{{ booking.created_at }}</td>
+                            <td class="whitespace-nowrap px-4 py-3">{{ formatDate(booking.created_at) }}</td>
                         </tr>
                         <tr v-if="bookings.data.length === 0">
                             <td colspan="13" class="px-4 py-12 text-center text-sm text-steel">Không có đặt phòng.</td>
@@ -391,11 +392,11 @@ const clean = (value) => Object.fromEntries(Object.entries(value).filter(([, ite
                     </div>
                     <div>
                         <dt class="text-xs uppercase tracking-wide text-steel">Nhận phòng</dt>
-                        <dd class="mt-1">{{ bookingToCancel.cancel_confirmation.checkin_at }}</dd>
+                        <dd class="mt-1">{{ formatDate(bookingToCancel.cancel_confirmation.checkin_at) }}</dd>
                     </div>
                     <div>
                         <dt class="text-xs uppercase tracking-wide text-steel">Trả phòng</dt>
-                        <dd class="mt-1">{{ bookingToCancel.cancel_confirmation.checkout_at }}</dd>
+                        <dd class="mt-1">{{ formatDate(bookingToCancel.cancel_confirmation.checkout_at) }}</dd>
                     </div>
                 </dl>
 

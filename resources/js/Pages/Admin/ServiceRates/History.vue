@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AppLayout from '@/Layouts/AppLayout.vue'
+import { formatDate } from '@/Support/format'
 import { Head, Link } from '@inertiajs/vue3'
 import { ChevronLeft, History } from 'lucide-vue-next'
 import { computed } from 'vue'
@@ -29,11 +30,6 @@ const formatCurrency = (value: number) =>
 
 const formatTaxRate = (rate: number) =>
     rate === 0 ? '—' : `${(rate * 100).toFixed(1)}%`
-
-const formatDate = (dateStr: string) => {
-    const [y, m, d] = dateStr.slice(0, 10).split('-')
-    return `${d}/${m}/${y}`
-}
 
 const activeCount = computed(() => props.rates.filter((r) => r.is_active).length)
 </script>
@@ -136,7 +132,7 @@ const activeCount = computed(() => props.rates.filter((r) => r.is_active).length
                                     </span>
                                 </td>
                                 <td class="px-5 py-3 text-xs text-gray-500">{{ rate.created_by }}</td>
-                                <td class="px-5 py-3 font-mono text-xs text-gray-400">{{ rate.created_at }}</td>
+                                <td class="px-5 py-3 font-mono text-xs text-gray-400">{{ formatDate(rate.created_at) }}</td>
                             </tr>
                         </tbody>
                     </table>

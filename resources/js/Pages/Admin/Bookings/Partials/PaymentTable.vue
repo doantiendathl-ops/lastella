@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDate } from '@/Support/format';
 import { labelFor } from '@/Support/vietnameseLabels';
 import { router } from '@inertiajs/vue3';
 import { Trash2 } from 'lucide-vue-next';
@@ -48,7 +49,7 @@ const deletePayment = (payment: { id: number }) => {
                         {{ payment.payment_type === 'REFUND' ? '−' : '' }}{{ formatCurrency(payment.amount) }}
                     </td>
                     <td class="px-4 py-3">{{ labelFor('paymentMethod', payment.payment_method ?? '') }}</td>
-                    <td class="px-4 py-3">{{ payment.payment_at }}</td>
+                    <td class="px-4 py-3">{{ formatDate(payment.payment_at) }}</td>
                     <td class="px-4 py-3">{{ payment.confirmed_by }}</td>
                     <td class="px-4 py-3">{{ payment.note }}</td>
                     <td v-if="canDeletePayment" class="px-4 py-3 text-right">

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AppLayout from '@/Layouts/AppLayout.vue'
+import { formatDate } from '@/Support/format'
 import { Head, Link, router } from '@inertiajs/vue3'
 import { Download } from 'lucide-vue-next'
 import { computed, reactive } from 'vue'
@@ -94,19 +95,10 @@ const totalOutstanding = computed(() => props.outstanding.reduce((s, r) => s + r
 const formatCurrency = (value: number) =>
     `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Number(value) || 0)} đ`
 
-const formatDate = (dateStr: string) => {
-    const [y, m, d] = dateStr.split('-')
-    return `${d}/${m}/${y}`
-}
-
 // docs/Prompt_2.txt mục VI — "checkout date" column; checkout_at is a
 // "YYYY-MM-DD HH:MM:SS" string (Stay.actual_checkout_at), null when the
 // booking hasn't actually checked out yet (e.g. a mid-stay discrepancy row).
-const formatCheckoutAt = (value: string | null) => {
-    if (!value) return '—'
-    const [datePart, timePart] = value.split(' ')
-    return `${formatDate(datePart)} ${timePart?.slice(0, 5) ?? ''}`.trim()
-}
+const formatCheckoutAt = (value: string | null) => (value ? formatDate(value) : '—')
 
 const discrepancyBadgeClass = (type: string) => {
     if (type === 'CHECKED_OUT_OUTSTANDING_BALANCE') return 'bg-coral/10 text-coral'

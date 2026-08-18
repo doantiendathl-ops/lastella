@@ -1,4 +1,5 @@
 <script setup>
+import { formatDate } from '@/Support/format';
 import { labelFor } from '@/Support/vietnameseLabels';
 import { router, useForm, usePage } from '@inertiajs/vue3';
 import { ArrowLeftRight, CalendarClock, CheckCircle, LogIn, LogOut, Pencil } from 'lucide-vue-next';
@@ -446,11 +447,11 @@ function requestStatusClass(status) {
                                 >{{ requestEmoji(req.request_type) }}{{ requestStatusIcon(req.status) }}</span>
                             </div>
                         </td>
-                        <td class="px-4 py-3">{{ stay.planned_checkin_at }}</td>
-                        <td class="px-4 py-3">{{ stay.planned_checkout_at }}</td>
+                        <td class="px-4 py-3">{{ formatDate(stay.planned_checkin_at) }}</td>
+                        <td class="px-4 py-3">{{ formatDate(stay.planned_checkout_at) }}</td>
                         <td class="px-4 py-3">
                             <div class="flex items-center gap-1.5">
-                                <span>{{ stay.actual_checkin_at }}</span>
+                                <span>{{ formatDate(stay.actual_checkin_at) }}</span>
                                 <button
                                     v-if="can.adjustActualTime && stay.actual_checkin_at"
                                     type="button"
@@ -464,7 +465,7 @@ function requestStatusClass(status) {
                         </td>
                         <td class="px-4 py-3">
                             <div class="flex items-center gap-1.5">
-                                <span>{{ stay.actual_checkout_at }}</span>
+                                <span>{{ formatDate(stay.actual_checkout_at) }}</span>
                                 <button
                                     v-if="can.adjustActualTime && stay.actual_checkout_at"
                                     type="button"
@@ -650,7 +651,7 @@ function requestStatusClass(status) {
         <div class="w-full max-w-sm border border-gray-200 bg-white p-5 shadow-xl">
             <h2 class="text-base font-semibold">Gia hạn lưu trú - Phòng {{ extendTarget.room_number }}</h2>
             <p class="mt-2 text-sm text-steel">
-                Trả phòng dự kiến hiện tại: <strong>{{ extendTarget.planned_checkout_at }}</strong>
+                Trả phòng dự kiến hiện tại: <strong>{{ formatDate(extendTarget.planned_checkout_at) }}</strong>
             </p>
             <form class="mt-3" @submit.prevent="submitExtend">
                 <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Trả phòng dự kiến mới</label>

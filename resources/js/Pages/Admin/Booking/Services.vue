@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CurrencyInput from '@/Components/CurrencyInput.vue'
 import AppLayout from '@/Layouts/AppLayout.vue'
 import { Head, Link, router, useForm } from '@inertiajs/vue3'
 import { ChevronLeft, Info } from 'lucide-vue-next'
@@ -190,7 +191,7 @@ const cancelRow = (row: BookingServiceRow): void => {
 
                     <div v-if="selectedService.is_chargeable">
                         <label class="block text-xs font-semibold text-gray-600">Giá thực hiện</label>
-                        <input v-model.number="form.actual_price" type="number" min="0" step="1000" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm" />
+                        <CurrencyInput v-model="form.actual_price" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm" />
                     </div>
 
                     <div v-if="priceIsOverridden" class="sm:col-span-2">

@@ -1,4 +1,5 @@
 <script setup>
+import { formatDate } from '@/Support/format';
 import axios from 'axios';
 import { X } from 'lucide-vue-next';
 import { onMounted, ref } from 'vue';
@@ -58,7 +59,7 @@ const inspectionResultLabels = {
                         <dt class="text-xs uppercase text-steel">Người cập nhật gần nhất</dt>
                         <dd>{{ detail.active_assignment?.assigned_to ?? '—' }}</dd>
                         <dt class="text-xs uppercase text-steel">Thời gian cập nhật</dt>
-                        <dd>{{ detail.active_assignment?.updated_at ?? '—' }}</dd>
+                        <dd>{{ detail.active_assignment?.updated_at ? formatDate(detail.active_assignment.updated_at) : '—' }}</dd>
                     </dl>
 
                     <div v-if="detail.stay" class="mt-4 border-t border-gray-100 pt-3">
@@ -67,9 +68,9 @@ const inspectionResultLabels = {
                             <dt class="text-xs uppercase text-steel">Khách</dt>
                             <dd>{{ detail.stay.guest_name ?? '—' }}</dd>
                             <dt class="text-xs uppercase text-steel">Nhận phòng</dt>
-                            <dd>{{ detail.stay.checked_in_at ?? '—' }}</dd>
+                            <dd>{{ detail.stay.checked_in_at ? formatDate(detail.stay.checked_in_at) : '—' }}</dd>
                             <dt class="text-xs uppercase text-steel">Dự kiến trả</dt>
-                            <dd>{{ detail.stay.planned_checkout_at ?? '—' }}</dd>
+                            <dd>{{ detail.stay.planned_checkout_at ? formatDate(detail.stay.planned_checkout_at) : '—' }}</dd>
                         </dl>
                         <p v-if="detail.stay.note" class="mt-2 text-xs text-steel">Ghi chú lễ tân: {{ detail.stay.note }}</p>
                         <div v-if="detail.stay.special_requests?.length" class="mt-2">
@@ -89,7 +90,7 @@ const inspectionResultLabels = {
                         <h3 class="mb-2 text-xs font-semibold uppercase text-steel">Lịch sử thay đổi</h3>
                         <ul class="space-y-1 text-xs text-steel">
                             <li v-for="(record, i) in detail.recent_cleanings" :key="i">
-                                {{ record.started_at }} — {{ record.cleaned_by ?? '—' }}
+                                {{ formatDate(record.started_at) }} — {{ record.cleaned_by ?? '—' }}
                                 <span v-if="record.reason_label">· {{ record.reason_label }}</span>
                                 <span v-if="record.inspection_result">
                                     · Kiểm tra: {{ inspectionResultLabels[record.inspection_result] ?? record.inspection_result }} ({{ record.inspected_by ?? '—' }})

@@ -1,6 +1,7 @@
 <script setup>
 import Pagination from '@/Components/Pagination.vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
+import { formatDate, formatMoney } from '@/Support/format';
 import { Head, Link, router } from '@inertiajs/vue3';
 import { ArrowUpDown, Pencil, Plus, Search, Trash2, X } from 'lucide-vue-next';
 import { reactive } from 'vue';
@@ -68,6 +69,16 @@ const destroy = (id) => {
 const cleanupQuery = (params) => Object.fromEntries(
     Object.entries(params).filter(([, value]) => value !== '' && value !== null && value !== undefined),
 );
+
+// User request (2026-08-18 chat) — column.type is opt-in (backend controllers
+// declare it per column that needs it); anything else displays raw, unchanged.
+function displayValue(row, column) {
+    const value = row[column.key] ?? '';
+    if (column.type === 'date') return formatDate(value);
+    if (column.type === 'money') return value === '' ? '' : formatMoney(value);
+
+    return value;
+}
 </script>
 
 <template>
@@ -159,7 +170,7 @@ const cleanupQuery = (params) => Object.fromEntries(
                     <tbody class="divide-y divide-gray-100 bg-white">
                         <tr v-for="row in items.data" :key="row.id" class="hover:bg-gray-50">
                             <td v-for="column in columns" :key="column.key" class="whitespace-nowrap px-4 py-3 text-ink">
-                                {{ row[column.key] ?? '' }}
+                                {{ displayValue(row, column) }}
                             </td>
                             <td v-if="!readOnly" class="whitespace-nowrap px-4 py-3 text-right">
                                 <Link

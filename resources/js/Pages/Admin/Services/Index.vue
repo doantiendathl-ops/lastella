@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CurrencyInput from '@/Components/CurrencyInput.vue'
 import AppLayout from '@/Layouts/AppLayout.vue'
 import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3'
 import { Plus, DollarSign } from 'lucide-vue-next'
@@ -340,7 +341,7 @@ const submitPrice = (serviceId: number): void => {
                                     <form @submit.prevent="submitPrice(service.id)" class="flex flex-wrap items-end gap-3">
                                         <div>
                                             <label class="block text-xs font-semibold text-gray-600">Giá mới *</label>
-                                            <input v-model.number="priceForm.unit_price" type="number" min="0" step="1000" required class="mt-1 w-40 border border-gray-300 px-3 py-2 text-sm" />
+                                            <CurrencyInput v-model="priceForm.unit_price" required class="mt-1 w-40 border border-gray-300 px-3 py-2 text-sm" />
                                         </div>
                                         <div>
                                             <label class="block text-xs font-semibold text-gray-600">Áp dụng từ ngày *</label>

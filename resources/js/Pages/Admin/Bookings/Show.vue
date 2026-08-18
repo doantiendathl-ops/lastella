@@ -2,8 +2,10 @@
 import AppLayout from '@/Layouts/AppLayout.vue';
 import RoomFloorGrid from '@/Components/RoomBoard/RoomFloorGrid.vue';
 import RoomTile from '@/Components/RoomBoard/RoomTile.vue';
+import CurrencyInput from '@/Components/CurrencyInput.vue';
 import FolioPanel from './Partials/FolioPanel.vue';
 import RoomBoardPanel from './Partials/RoomBoardPanel.vue';
+import { formatDate, formatDateShort } from '@/Support/format';
 import { labelFor } from '@/Support/vietnameseLabels';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import { BedDouble, CheckCircle, Pencil, Plus, RotateCcw, Trash2, X, XCircle } from 'lucide-vue-next';
@@ -559,7 +561,7 @@ const roomTooltip = (room) => {
     if (room.current_assignment?.lock_reason) lines.push(room.current_assignment.lock_reason);
     if (!room.matches_requirement) lines.push('Không đúng loại phòng yêu cầu');
     if (room.info_booking) {
-        lines.push(`${room.info_booking.booking_code} · ${room.info_booking.customer_name} (${room.info_booking.checkin_at} → ${room.info_booking.checkout_at})`);
+        lines.push(`${room.info_booking.booking_code} · ${room.info_booking.customer_name} (${formatDate(room.info_booking.checkin_at)} → ${formatDate(room.info_booking.checkout_at)})`);
         lines.push('Phòng có booking ở thời điểm khác, không ảnh hưởng tới khoảng thời gian hiện tại.');
     }
 
@@ -969,8 +971,8 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                 <div class="border border-gray-100 p-4">
                     <div class="text-xs uppercase tracking-wide text-steel">Lưu trú</div>
                     <div class="mt-2 text-sm">Loại: {{ labelFor('bookingType', booking.booking_type) }}</div>
-                    <div class="mt-1 text-sm">Nhận phòng: {{ booking.checkin_at }}</div>
-                    <div class="mt-1 text-sm">Trả phòng: {{ booking.checkout_at }}</div>
+                    <div class="mt-1 text-sm">Nhận phòng: {{ formatDate(booking.checkin_at) }}</div>
+                    <div class="mt-1 text-sm">Trả phòng: {{ formatDate(booking.checkout_at) }}</div>
                 </div>
                 <div class="border border-gray-100 p-4">
                     <div class="text-xs uppercase tracking-wide text-steel">Số khách</div>
@@ -1060,7 +1062,7 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                     </div>
                     <div class="w-28">
                         <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Giá phòng</label>
-                        <input v-model="requirementForm.room_price" type="number" min="0" step="0.01" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+                        <CurrencyInput v-model="requirementForm.room_price" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm" />
                     </div>
                     <div class="w-28">
                         <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Nguồn giá</label>
@@ -1096,7 +1098,7 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                                 <template v-if="editingRequirementId === requirement.id">
                                     <td class="px-4 py-3"><select v-model="editRequirementForm.room_type_id" class="w-full border border-gray-300 px-2 py-1" @change="applySuggestedPrice(editRequirementForm)"><option v-for="type in options.roomTypes" :key="type.value" :value="type.value">{{ type.label }}</option></select></td>
                                     <td class="px-4 py-3"><input v-model="editRequirementForm.quantity" type="number" min="1" class="w-20 border border-gray-300 px-2 py-1"></td>
-                                    <td class="px-4 py-3"><input v-model="editRequirementForm.room_price" type="number" min="0" step="0.01" class="w-28 border border-gray-300 px-2 py-1"></td>
+                                    <td class="px-4 py-3"><CurrencyInput v-model="editRequirementForm.room_price" class="w-28 border border-gray-300 px-2 py-1" /></td>
                                     <td class="px-4 py-3"><select v-model="editRequirementForm.price_source" class="border border-gray-300 px-2 py-1"><option v-for="source in options.priceSources" :key="source.value" :value="source.value">{{ labelFor('priceSource', source.value) }}</option></select></td>
                                     <td class="px-4 py-3"><input v-model="editRequirementForm.note" type="text" class="w-full border border-gray-300 px-2 py-1"></td>
                                     <td class="px-4 py-3 text-right">
@@ -1287,7 +1289,7 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                     <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                         <div>
                             <div class="text-sm font-semibold">Sơ đồ phòng</div>
-                            <div class="mt-1 text-sm text-steel">{{ booking.checkin_at }} - {{ booking.checkout_at }}</div>
+                            <div class="mt-1 text-sm text-steel">{{ formatDate(booking.checkin_at) }} - {{ formatDate(booking.checkout_at) }}</div>
                         </div>
                         <button type="submit" class="inline-flex items-center justify-center gap-2 bg-pine px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300" :disabled="!canSubmitAssignment || assignmentForm.processing">
                             <BedDouble class="h-4 w-4" />
@@ -1352,7 +1354,7 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                                     <div v-if="room.assignment_detail" class="space-y-1">
                                         <div class="truncate font-medium" style="overflow-wrap: anywhere;">{{ room.assignment_detail.customer_name }}</div>
                                         <div class="text-[10px] opacity-80">
-                                            {{ room.assignment_detail.checkin_at?.slice(5, 16) }} → {{ room.assignment_detail.checkout_at?.slice(5, 16) }}
+                                            {{ formatDateShort(room.assignment_detail.checkin_at) }} → {{ formatDateShort(room.assignment_detail.checkout_at) }}
                                         </div>
                                     </div>
                                     <div v-else-if="room.availability_status === 'unavailable'" class="text-[11px] italic text-gray-500">{{ room.disabled_reason }}</div>
@@ -1373,7 +1375,7 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
 
                                 <template #footer>
                                     <div v-if="room.info_booking" class="rounded bg-white/75 px-1 py-1 text-[10px] leading-snug text-gray-700" style="overflow-wrap: anywhere;">
-                                        {{ room.info_booking.customer_name }} ({{ room.info_booking.checkin_at?.slice(5, 16) }} → {{ room.info_booking.checkout_at?.slice(5, 16) }})
+                                        {{ room.info_booking.customer_name }} ({{ formatDateShort(room.info_booking.checkin_at) }} → {{ formatDateShort(room.info_booking.checkout_at) }})
                                     </div>
                                 </template>
                             </RoomTile>
@@ -1447,7 +1449,7 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                                 <div>
                                     <label class="block text-xs font-medium text-steel">Giá phòng</label>
                                     <div class="flex gap-1">
-                                        <input v-model="roomBoardInputs[group.room_type_id].room_price" type="number" min="0" class="w-full border border-gray-300 px-2 py-1.5 text-sm" />
+                                        <CurrencyInput v-model="roomBoardInputs[group.room_type_id].room_price" class="w-full border border-gray-300 px-2 py-1.5 text-sm" />
                                         <button
                                             v-if="suggestedPriceForRoomType(group.room_type_id)"
                                             type="button"
@@ -1546,15 +1548,15 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                                 </td>
                                 <td class="px-4 py-3">{{ assignment.room_number }}</td>
                                 <td class="px-4 py-3">{{ assignment.room_type }}</td>
-                                <td class="px-4 py-3">{{ assignment.start_at }}</td>
-                                <td class="px-4 py-3">{{ assignment.end_at }}</td>
+                                <td class="px-4 py-3">{{ formatDate(assignment.start_at) }}</td>
+                                <td class="px-4 py-3">{{ formatDate(assignment.end_at) }}</td>
                                 <td class="px-4 py-3">
                                     <span :class="assignment.is_released ? 'text-steel' : assignment.is_checked_out ? 'text-pine' : assignment.is_checked_in ? 'text-amber-600' : ''">
                                         {{ labelFor('assignmentStatus', assignment.status) }}
                                     </span>
                                 </td>
                                 <td class="px-4 py-3">{{ assignment.assigned_by }}</td>
-                                <td class="px-4 py-3">{{ assignment.released_at }}</td>
+                                <td class="px-4 py-3">{{ formatDate(assignment.released_at) }}</td>
                                 <td class="px-4 py-3">{{ assignment.release_reason }}</td>
                                 <td class="whitespace-nowrap px-4 py-3 text-right">
                                     <template v-if="assignment.is_released">
@@ -1697,11 +1699,11 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                             </div>
                             <div class="flex justify-between gap-3">
                                 <dt class="text-steel">Nhận phòng</dt>
-                                <dd class="font-medium">{{ conflictPanelRoom.assignment_detail?.checkin_at }}</dd>
+                                <dd class="font-medium">{{ formatDate(conflictPanelRoom.assignment_detail?.checkin_at) }}</dd>
                             </div>
                             <div class="flex justify-between gap-3">
                                 <dt class="text-steel">Trả phòng</dt>
-                                <dd class="font-medium">{{ conflictPanelRoom.assignment_detail?.checkout_at }}</dd>
+                                <dd class="font-medium">{{ formatDate(conflictPanelRoom.assignment_detail?.checkout_at) }}</dd>
                             </div>
                             <div class="flex justify-between gap-3">
                                 <dt class="text-steel">Phân phòng</dt>
@@ -1774,11 +1776,11 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                             </div>
                             <div class="flex justify-between gap-3">
                                 <dt class="text-steel">Nhận phòng</dt>
-                                <dd class="font-medium">{{ currentBookingPanelRoom.assignment_detail?.checkin_at }}</dd>
+                                <dd class="font-medium">{{ formatDate(currentBookingPanelRoom.assignment_detail?.checkin_at) }}</dd>
                             </div>
                             <div class="flex justify-between gap-3">
                                 <dt class="text-steel">Trả phòng</dt>
-                                <dd class="font-medium">{{ currentBookingPanelRoom.assignment_detail?.checkout_at }}</dd>
+                                <dd class="font-medium">{{ formatDate(currentBookingPanelRoom.assignment_detail?.checkout_at) }}</dd>
                             </div>
                             <div class="flex justify-between gap-3">
                                 <dt class="text-steel">Trạng thái phân phòng</dt>
@@ -1860,11 +1862,11 @@ const tabClass = (key) => tab.value === key ? 'border-pine text-pine' : 'border-
                     </div>
                     <div>
                         <dt class="text-xs uppercase tracking-wide text-steel">Nhận phòng</dt>
-                        <dd class="mt-1">{{ booking.cancel_confirmation.checkin_at }}</dd>
+                        <dd class="mt-1">{{ formatDate(booking.cancel_confirmation.checkin_at) }}</dd>
                     </div>
                     <div>
                         <dt class="text-xs uppercase tracking-wide text-steel">Trả phòng</dt>
-                        <dd class="mt-1">{{ booking.cancel_confirmation.checkout_at }}</dd>
+                        <dd class="mt-1">{{ formatDate(booking.cancel_confirmation.checkout_at) }}</dd>
                     </div>
                 </dl>
 

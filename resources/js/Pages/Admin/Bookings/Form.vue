@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue';
+import { formatDate } from '@/Support/format';
 import { labelFor } from '@/Support/vietnameseLabels';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import { ArrowLeft, Save } from 'lucide-vue-next';
@@ -272,7 +273,7 @@ watch([checkinDate, checkinTime, checkoutDate, checkoutTime], () => {
                                 </div>
                                 <div class="text-steel">Booking: <span class="font-medium text-ink">{{ conflict.booking_code }}</span></div>
                                 <div class="text-steel">Khách: {{ conflict.customer_name }}</div>
-                                <div class="text-steel">{{ conflict.checkin_at }} → {{ conflict.checkout_at }}</div>
+                                <div class="text-steel">{{ formatDate(conflict.checkin_at) }} → {{ formatDate(conflict.checkout_at) }}</div>
                                 <div>
                                     <span class="inline-block bg-amber-100 px-2 py-0.5 text-xs text-amber-800">{{ conflict.status_label }}</span>
                                 </div>

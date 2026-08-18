@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CurrencyInput from '@/Components/CurrencyInput.vue';
 import { labelFor } from '@/Support/vietnameseLabels';
 import { useForm } from '@inertiajs/vue3';
 import { Banknote } from 'lucide-vue-next';
@@ -65,7 +66,7 @@ const submit = () => {
         </div>
         <div>
             <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Số tiền</label>
-            <input v-model="form.amount" type="number" min="0.01" step="0.01" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm">
+            <CurrencyInput v-model="form.amount" class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm" />
             <div v-if="isRefund && refundableMax >= 0" class="mt-1 text-xs text-steel">
                 Tối đa có thể hoàn: {{ formatCurrency(refundableMax) }}
             </div>

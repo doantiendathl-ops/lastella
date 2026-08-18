@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AppLayout from '@/Layouts/AppLayout.vue'
+import { formatDate } from '@/Support/format'
 import { Head, Link, router } from '@inertiajs/vue3'
 import { Download } from 'lucide-vue-next'
 import { computed, reactive } from 'vue'
@@ -52,11 +53,6 @@ const totalVoided = computed(() => props.voids.reduce((s, r) => s + r.amount, 0)
 
 const formatCurrency = (value: number) =>
     `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Number(value) || 0)} đ`
-
-const formatDate = (dateStr: string) => {
-    const [y, m, d] = dateStr.split('-')
-    return `${d}/${m}/${y}`
-}
 
 const periodLabel = computed(() => {
     if (props.filters.from === props.filters.to) return formatDate(props.filters.from)
@@ -211,7 +207,7 @@ const periodLabel = computed(() => {
                                     {{ formatDate(row.entry_date) }}
                                 </td>
                                 <td class="px-4 py-3 font-mono text-xs text-gray-500">
-                                    {{ row.voided_at ?? '—' }}
+                                    {{ row.voided_at ? formatDate(row.voided_at) : '—' }}
                                 </td>
                                 <td class="px-4 py-3 text-gray-700">{{ row.voided_by }}</td>
                                 <td class="max-w-xs px-4 py-3 text-gray-500">

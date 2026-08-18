@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AppLayout from '@/Layouts/AppLayout.vue'
+import { formatDate } from '@/Support/format'
 import { Head, Link } from '@inertiajs/vue3'
 import { ChevronLeft, Clock, Info } from 'lucide-vue-next'
 import { computed } from 'vue'
@@ -67,11 +68,6 @@ const SOURCE_LABELS: Record<string, string> = {
 
 const formatCurrency = (value: number | string) =>
     `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Number(value) || 0)} đ`
-
-const formatDate = (dateStr: string) => {
-    const [y, m, d] = dateStr.slice(0, 10).split('-')
-    return `${d}/${m}/${y}`
-}
 
 const sourceBadgeClass = (source: string) => {
     if (source === 'NIGHT_AUDIT') return 'bg-blue-100 text-blue-700'
@@ -211,7 +207,7 @@ const lastRunningTotal = computed(() => props.timeline[props.timeline.length - 1
                                             <div class="font-mono text-xs font-medium text-gray-700">
                                                 {{ formatDate(row.entry_date) }}
                                             </div>
-                                            <div class="mt-0.5 font-mono text-xs text-gray-400">{{ row.created_at }}</div>
+                                            <div class="mt-0.5 font-mono text-xs text-gray-400">{{ formatDate(row.created_at) }}</div>
                                         </td>
                                         <td class="px-4 py-2.5">
                                             <span class="inline-block rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700">
@@ -262,7 +258,7 @@ const lastRunningTotal = computed(() => props.timeline[props.timeline.length - 1
                                             <div class="flex flex-wrap items-center gap-x-4 gap-y-0.5 text-xs text-coral/80">
                                                 <span>
                                                     Hủy lúc:
-                                                    <span class="font-mono">{{ row.voided_at ?? '—' }}</span>
+                                                    <span class="font-mono">{{ row.voided_at ? formatDate(row.voided_at) : '—' }}</span>
                                                 </span>
                                                 <span>Người hủy: {{ row.voided_by ?? '—' }}</span>
                                                 <span v-if="row.void_reason">Lý do: {{ row.void_reason }}</span>

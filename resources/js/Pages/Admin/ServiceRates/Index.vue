@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CurrencyInput from '@/Components/CurrencyInput.vue'
 import AppLayout from '@/Layouts/AppLayout.vue'
 import { Head, Link, router, useForm } from '@inertiajs/vue3'
 import { Plus, ToggleLeft, ToggleRight } from 'lucide-vue-next'
@@ -116,7 +117,7 @@ const toggleActive = (rate: ServiceRate) => {
                     </div>
                     <div>
                         <label class="block text-xs font-semibold text-gray-600">Đơn giá *</label>
-                        <input v-model="form.unit_price" type="number" min="0" step="1000" required class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm" />
+                        <CurrencyInput v-model="form.unit_price" required class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm" />
                         <p v-if="form.errors.unit_price" class="mt-1 text-xs text-red-600">{{ form.errors.unit_price }}</p>
                     </div>
                     <div>

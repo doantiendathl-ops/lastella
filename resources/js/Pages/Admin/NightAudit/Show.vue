@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AppLayout from '@/Layouts/AppLayout.vue'
+import { formatDate } from '@/Support/format'
 import { Head, Link, useForm } from '@inertiajs/vue3'
 import { ArrowLeft, RefreshCw } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
@@ -134,7 +135,7 @@ const retryRun = () => {
             <div class="mb-6 flex items-start justify-between">
                 <div>
                     <h1 class="text-2xl font-bold text-gray-900">
-                        Night Audit — <span class="font-mono">{{ run.business_date }}</span>
+                        Night Audit — <span class="font-mono">{{ formatDate(run.business_date) }}</span>
                     </h1>
                     <div class="mt-2 flex flex-wrap items-center gap-3 text-sm text-gray-500">
                         <span
@@ -144,8 +145,8 @@ const retryRun = () => {
                             {{ statusLabel(run.status) }}
                         </span>
                         <span v-if="run.run_by_name">Người chạy: <strong class="text-gray-700">{{ run.run_by_name }}</strong></span>
-                        <span v-if="run.started_at">Bắt đầu: {{ run.started_at }}</span>
-                        <span v-if="run.completed_at">Hoàn tất: {{ run.completed_at }}</span>
+                        <span v-if="run.started_at">Bắt đầu: {{ formatDate(run.started_at) }}</span>
+                        <span v-if="run.completed_at">Hoàn tất: {{ formatDate(run.completed_at) }}</span>
                     </div>
                 </div>
 

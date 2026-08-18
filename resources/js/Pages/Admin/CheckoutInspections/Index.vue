@@ -2,6 +2,7 @@
 import RoomFloorGrid from '@/Components/RoomBoard/RoomFloorGrid.vue';
 import RoomTile from '@/Components/RoomBoard/RoomTile.vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
+import { formatDateShort } from '@/Support/format';
 import { Head, Link, router } from '@inertiajs/vue3';
 import { AlertTriangle, ClipboardCheck, Search } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
@@ -59,10 +60,7 @@ const onSuccess = () => {
     router.reload({ only: ['floors'] });
 };
 
-const formatTime = (value) => {
-    if (!value) return '—';
-    return new Date(value).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
-};
+const formatTime = (value) => (value ? formatDateShort(value) : '—');
 </script>
 
 <template>

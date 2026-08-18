@@ -1,4 +1,5 @@
 <script setup>
+import CurrencyInput from '@/Components/CurrencyInput.vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import { ArrowLeft, Save } from 'lucide-vue-next';
@@ -125,6 +126,13 @@ const submit = () => {
                         <input v-model="form[field.name]" type="checkbox" class="h-4 w-4 border-gray-300 text-pine focus:ring-pine">
                         Bật
                     </label>
+
+                    <CurrencyInput
+                        v-else-if="field.type === 'money'"
+                        :id="field.name"
+                        v-model="form[field.name]"
+                        class="mt-2 block w-full border border-gray-300 px-3 py-2 text-sm focus:border-pine focus:outline-none focus:ring-1 focus:ring-pine"
+                    />
 
                     <input
                         v-else

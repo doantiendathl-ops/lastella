@@ -35,7 +35,7 @@ class AuditLogController extends Controller
             'items' => $items,
             'filters' => $request->validated(),
             'columns' => [
-                ['key' => 'created_at', 'label' => 'Thời điểm', 'sortable' => true],
+                ['key' => 'created_at', 'label' => 'Thời điểm', 'sortable' => true, 'type' => 'date'],
                 ['key' => 'action', 'label' => 'Hành động', 'sortable' => true],
                 ['key' => 'user', 'label' => 'Người dùng'],
                 ['key' => 'entity_type', 'label' => 'Đối tượng', 'sortable' => true],

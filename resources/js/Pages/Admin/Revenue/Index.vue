@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AppLayout from '@/Layouts/AppLayout.vue'
+import { formatDate } from '@/Support/format'
 import { Head, router } from '@inertiajs/vue3'
 import { Download } from 'lucide-vue-next'
 import { computed, reactive } from 'vue'
@@ -79,11 +80,6 @@ const isMultiDay = computed(() => props.period.by_date.length > 1)
 
 const formatCurrency = (value: number) =>
     `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Number(value) || 0)} đ`
-
-const formatDate = (dateStr: string) => {
-    const [y, m, d] = dateStr.split('-')
-    return `${d}/${m}/${y}`
-}
 
 const periodLabel = computed(() => {
     if (props.filters.from === props.filters.to) return formatDate(props.filters.from)

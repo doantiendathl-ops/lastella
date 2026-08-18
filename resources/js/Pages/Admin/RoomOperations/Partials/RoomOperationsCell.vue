@@ -1,5 +1,6 @@
 <script setup>
 import RoomTile from '@/Components/RoomBoard/RoomTile.vue';
+import { formatDateShort } from '@/Support/format';
 import {
     AlertTriangle,
     BedDouble,
@@ -180,7 +181,7 @@ const conflictTooltip = computed(() => {
                     </button>
                 </div>
                 <div class="text-[10px] opacity-80">
-                    {{ occupant.start_at?.slice(5, 16) }} → {{ occupant.end_at?.slice(5, 16) }}
+                    {{ formatDateShort(occupant.start_at) }} → {{ formatDateShort(occupant.end_at) }}
                 </div>
             </div>
             <div v-else class="text-[11px] italic text-gray-500">Phòng trống</div>

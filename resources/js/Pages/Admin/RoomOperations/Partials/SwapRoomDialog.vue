@@ -1,4 +1,5 @@
 <script setup>
+import { formatDate } from '@/Support/format';
 import { router } from '@inertiajs/vue3';
 import axios from 'axios';
 import { AlertTriangle, X } from 'lucide-vue-next';
@@ -125,7 +126,7 @@ function confirmSwap() {
                         <ul v-if="pairResult.displaced?.length" class="ml-4 list-disc text-gray-600">
                             <li v-for="d in pairResult.displaced" :key="d.assignment_id">
                                 Booking {{ d.booking_code }} ({{ d.customer_name }}) chuyển sang phòng {{ pairResult.source?.room_number }} trong khoảng
-                                {{ d.moved_start_at }} → {{ d.moved_end_at }}
+                                {{ formatDate(d.moved_start_at) }} → {{ formatDate(d.moved_end_at) }}
                             </li>
                         </ul>
                         <p v-for="(w, i) in pairResult.warnings" :key="`w${i}`" class="flex items-start gap-1 text-amber-700">

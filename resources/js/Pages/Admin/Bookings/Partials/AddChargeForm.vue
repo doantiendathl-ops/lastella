@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CurrencyInput from '@/Components/CurrencyInput.vue'
 import { useForm } from '@inertiajs/vue3'
 import { Plus, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
@@ -170,11 +171,8 @@ const submit = () => {
 
             <div>
                 <label class="block text-xs font-semibold uppercase tracking-wide text-steel">Đơn giá</label>
-                <input
+                <CurrencyInput
                     v-model="form.unit_price"
-                    type="number"
-                    min="0"
-                    step="0.01"
                     :disabled="priceLocked"
                     :title="priceLocked ? 'Không có quyền sửa giá danh mục sản phẩm/dịch vụ' : ''"
                     class="mt-1 w-full border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-steel"

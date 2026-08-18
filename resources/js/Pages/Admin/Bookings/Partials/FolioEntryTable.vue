@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import VoidEntryDialog from './VoidEntryDialog.vue'
+import { formatDate } from '@/Support/format'
 import { XCircle } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 
@@ -78,7 +79,7 @@ const sourceBadgeLabel = (source: string | null) => {
             <tbody class="divide-y divide-gray-100">
                 <template v-for="entry in entries" :key="entry.id">
                     <tr :class="entry.is_voided ? 'bg-gray-50' : ''">
-                        <td class="whitespace-nowrap px-4 py-3" :class="entry.is_voided ? 'text-gray-400 line-through' : ''">{{ entry.entry_date }}</td>
+                        <td class="whitespace-nowrap px-4 py-3" :class="entry.is_voided ? 'text-gray-400 line-through' : ''">{{ formatDate(entry.entry_date) }}</td>
                         <td class="whitespace-nowrap px-4 py-3" :class="entry.is_voided ? 'text-gray-400 line-through' : ''">{{ entry.charge_type_label }}</td>
                         <td class="px-4 py-3" :class="entry.is_voided ? 'text-gray-400 line-through' : ''">{{ entry.description }}</td>
                         <td class="whitespace-nowrap px-4 py-3" :class="entry.is_voided ? 'text-gray-400 line-through' : ''">{{ entry.quantity }}</td>

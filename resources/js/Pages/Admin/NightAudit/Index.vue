@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AppLayout from '@/Layouts/AppLayout.vue'
+import { formatDate } from '@/Support/format'
 import { Head, Link, useForm, usePage } from '@inertiajs/vue3'
 import { computed, ref } from 'vue'
 
@@ -131,7 +132,7 @@ const statusLabel = (status: string) => ({
                             :key="run.id"
                             class="border-t border-gray-100"
                         >
-                            <td class="px-4 py-3 font-mono">{{ run.business_date }}</td>
+                            <td class="px-4 py-3 font-mono">{{ formatDate(run.business_date) }}</td>
                             <td class="px-4 py-3">
                                 <span :class="statusClass(run.status)" class="text-xs font-semibold">
                                     {{ statusLabel(run.status) }}
@@ -141,7 +142,7 @@ const statusLabel = (status: string) => ({
                             <td class="px-4 py-3 text-right text-green-700">{{ run.entries_posted }}</td>
                             <td class="px-4 py-3 text-right text-gray-400">{{ run.entries_skipped }}</td>
                             <td class="px-4 py-3 text-gray-500">{{ run.run_by_name ?? '—' }}</td>
-                            <td class="px-4 py-3 text-gray-500">{{ run.completed_at ?? '—' }}</td>
+                            <td class="px-4 py-3 text-gray-500">{{ run.completed_at ? formatDate(run.completed_at) : '—' }}</td>
                             <td class="px-4 py-3">
                                 <Link
                                     :href="route('admin.night-audit.show', run.id)"

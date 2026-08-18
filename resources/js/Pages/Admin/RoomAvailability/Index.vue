@@ -2,6 +2,7 @@
 import RoomFloorGrid from '@/Components/RoomBoard/RoomFloorGrid.vue';
 import RoomTile from '@/Components/RoomBoard/RoomTile.vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
+import { formatDate, formatDateShort } from '@/Support/format';
 import { roomStatusBadge } from '@/Support/roomStatusBadges';
 import { router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
@@ -192,8 +193,8 @@ function badgeClass(badge) {
 
         <!-- Range label -->
         <p class="mb-4 text-sm text-steel">
-            Kết quả cho: <span class="font-medium text-ink">{{ availability.range.start }}</span> —
-            <span class="font-medium text-ink">{{ availability.range.end }}</span>
+            Kết quả cho: <span class="font-medium text-ink">{{ formatDate(availability.range.start) }}</span> —
+            <span class="font-medium text-ink">{{ formatDate(availability.range.end) }}</span>
         </p>
 
         <!-- Room type summary -->
@@ -263,7 +264,7 @@ function badgeClass(badge) {
                                 <span v-if="room.booking_count > 1 && !room.has_overlap" class="shrink-0 text-[10px] font-bold text-amber-700">×{{ room.booking_count }}</span>
                             </div>
                             <div class="text-[10px] opacity-80">
-                                {{ primaryBooking(room).checkin_at?.slice(5, 16) }} → {{ primaryBooking(room).checkout_at?.slice(5, 16) }}
+                                {{ formatDateShort(primaryBooking(room).checkin_at) }} → {{ formatDateShort(primaryBooking(room).checkout_at) }}
                             </div>
                         </div>
                         <div v-else class="text-[11px] italic text-gray-500">Phòng trống</div>
@@ -351,11 +352,11 @@ function badgeClass(badge) {
                             <div class="mt-2 grid grid-cols-2 gap-x-3 text-xs">
                                 <div>
                                     <span class="text-steel">Nhận phòng: </span>
-                                    <span class="font-medium">{{ bk.checkin_at }}</span>
+                                    <span class="font-medium">{{ formatDate(bk.checkin_at) }}</span>
                                 </div>
                                 <div>
                                     <span class="text-steel">Trả phòng: </span>
-                                    <span class="font-medium">{{ bk.checkout_at }}</span>
+                                    <span class="font-medium">{{ formatDate(bk.checkout_at) }}</span>
                                 </div>
                             </div>
                         </div>

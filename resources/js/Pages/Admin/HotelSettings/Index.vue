@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AppLayout from '@/Layouts/AppLayout.vue'
+import { formatDate } from '@/Support/format'
 import { Head, useForm } from '@inertiajs/vue3'
 import { Save } from 'lucide-vue-next'
 
@@ -80,7 +81,7 @@ const submit = () => {
                                 class="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
                             />
                             <p v-if="settings[item.key]?.updated_by" class="mt-1 text-xs text-gray-400">
-                                Cập nhật bởi {{ settings[item.key].updated_by }} lúc {{ settings[item.key].updated_at }}
+                                Cập nhật bởi {{ settings[item.key].updated_by }} lúc {{ formatDate(settings[item.key].updated_at) }}
                             </p>
                         </div>
                     </div>
