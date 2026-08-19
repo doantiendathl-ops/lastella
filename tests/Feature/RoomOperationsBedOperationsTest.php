@@ -153,6 +153,89 @@ class RoomOperationsBedOperationsTest extends TestCase
         $this->assertSame(2, $assignment->fresh()->extra_bed_quantity);
     }
 
+    /**
+     * User request (2026-08-19 chat) — the board previously only read the
+     * legacy room_assignments.extra_bed_quantity column, which has no
+     * reachable UI input; staff actually add "Giường phụ" via the new
+     * Dịch vụ & Yêu cầu screen (BookingService row, Service code
+     * EXTRA_BED_PER_NIGHT). Proves the board now picks that up too.
+     */
+    public function test_board_extra_bed_quantity_includes_unified_service_enrollment(): void
+    {
+        $booking = $this->createBooking();
+        $room = Room::where('room_number', '104')->firstOrFail();
+        [$assignment] = $this->assignRooms($booking, [$room]);
+        app(StayService::class)->createStayFromAssignment($assignment);
+
+        $service = $this->makeExtraBedUnifiedService();
+        app(\App\Services\BookingServiceEnrollmentService::class)->enroll(
+            booking: $booking,
+            service: $service,
+            roomAssignment: $assignment,
+            quantity: 2,
+            billingModeSelected: null,
+            actualPrice: null,
+            priceOverrideReason: null,
+            createdBy: $this->admin,
+        );
+
+        $board = app(RoomOperationsBoardService::class)->boardForDate('2026-08-01', $this->admin);
+
+        $this->assertSame(2, $this->findRoom($board, '104')['occupant']['extra_bed_quantity']);
+    }
+
+    /** Neither source is deprecated (docs/yeucaumoi.txt Mục 1) — both count, summed. */
+    public function test_board_extra_bed_quantity_sums_legacy_and_unified_sources(): void
+    {
+        $booking = $this->createBooking();
+        $room = Room::where('room_number', '104')->firstOrFail();
+        [$assignment] = $this->assignRooms($booking, [$room]);
+        $assignment->update(['extra_bed_quantity' => 1]);
+        app(StayService::class)->createStayFromAssignment($assignment);
+
+        $service = $this->makeExtraBedUnifiedService();
+        app(\App\Services\BookingServiceEnrollmentService::class)->enroll(
+            booking: $booking,
+            service: $service,
+            roomAssignment: $assignment,
+            quantity: 1,
+            billingModeSelected: null,
+            actualPrice: null,
+            priceOverrideReason: null,
+            createdBy: $this->admin,
+        );
+
+        $board = app(RoomOperationsBoardService::class)->boardForDate('2026-08-01', $this->admin);
+
+        $this->assertSame(2, $this->findRoom($board, '104')['occupant']['extra_bed_quantity']);
+    }
+
+    private function makeExtraBedUnifiedService(): \App\Models\Service
+    {
+        $category = \App\Models\ServiceCategory::firstOrCreate(
+            ['code' => 'BED_CONFIG_TEST'],
+            ['name' => 'Giường & nệm', 'is_active' => true],
+        );
+
+        $service = \App\Models\Service::create([
+            'category_id' => $category->id,
+            'code' => 'EXTRA_BED_PER_NIGHT',
+            'name' => 'Giường phụ',
+            'is_chargeable' => true,
+            'scope' => 'ROOM',
+            'billing_mode' => 'PER_NIGHT',
+            'quantity_enabled' => true,
+            'default_quantity' => 1,
+            'unit_label' => 'giường',
+            'fulfillment_required' => false,
+            'is_active' => true,
+            'is_bookable' => true,
+        ]);
+        $service->prices()->create(['unit_price' => 150000, 'effective_from' => '2026-01-01', 'is_active' => true]);
+
+        return $service;
+    }
+
     // -------------------------------------------------------------------------
     // Ghép giường (twin_to_double Special Request) — canonical, room-scoped
     // -------------------------------------------------------------------------

@@ -27,10 +27,20 @@ use Illuminate\Support\Collection;
  *  - clean/dirty        → Room::isRoomClean()/isRoomDirty() (normalizedCleaningStatus())
  *  - checked-in/out      → Stay::actual_checkin_at / actual_checkout_at
  *  - checkout inspection → Stay::inspectionStatus() (shared with BookingController)
- *  - extra bed           → room_assignments.extra_bed_quantity — ROOM-scoped (Room-Scoped
+ *  - extra bed           → merged from TWO sources, keyed by stay_id, ADDED together (User
+ *                          request, 2026-08-19 chat — display-only fix, does not touch
+ *                          billing): legacy room_assignments.extra_bed_quantity (Room-Scoped
  *                          Bed Operations Correction; was BookingPackageFlag, booking-level,
  *                          which could not identify which room in a multi-room booking and
- *                          also caused a per-room over-posting bug — see ExtraBedPostingJob)
+ *                          also caused a per-room over-posting bug — see ExtraBedPostingJob;
+ *                          note this column has no reachable input anywhere in the UI today,
+ *                          its only writer is never wired to a route) UNION BookingService
+ *                          rows for the new catalog's EXTRA_BED_PER_NIGHT Service, created via
+ *                          the new "Dịch vụ & Yêu cầu" screen — the actual way staff add extra
+ *                          beds now. See extraBedQuantityByStayId() for the exact merge. This
+ *                          combined total is display-only; it does NOT feed either
+ *                          ExtraBedPostingJob or UnifiedServicePostingJob, so it carries no
+ *                          double-billing risk.
  *  - bed joined           → merged from TWO sources, keyed by stay_id (Unified Services &
  *                          Requests, Slice 3): legacy BookingSpecialRequest (category=
  *                          bed_config, request_type=twin_to_double) — unchanged, staff can
@@ -104,6 +114,7 @@ class RoomOperationsBoardService
 
         $bookingIds = $assignments->flatten()->pluck('booking_id')->unique()->all();
         $bedJoinByStayId = $this->bedJoinRequestsByStayId($bookingIds);
+        $extraBedQuantityByStayId = $this->extraBedQuantityByStayId($bookingIds);
 
         $pendingRequestCounts = BookingSpecialRequest::pendingCountByRoom(
             \App\Models\Room::query()->pluck('id')->all(),
@@ -114,13 +125,13 @@ class RoomOperationsBoardService
             ->orderBy('sort_order')
             ->with(['rooms' => fn ($q) => $q->with('roomType')->orderBy('room_number')])
             ->get()
-            ->map(function (Floor $floor) use ($assignments, $bedJoinByStayId, $user, $pendingRequestCounts): array {
+            ->map(function (Floor $floor) use ($assignments, $bedJoinByStayId, $extraBedQuantityByStayId, $user, $pendingRequestCounts): array {
                 return [
                     'id' => $floor->id,
                     'code' => $floor->code,
                     'name' => $floor->name,
                     'rooms' => $floor->rooms->map(
-                        fn ($room) => $this->buildRoomCell($room, $assignments->get($room->id, collect()), $bedJoinByStayId, $user, $pendingRequestCounts[$room->id] ?? 0),
+                        fn ($room) => $this->buildRoomCell($room, $assignments->get($room->id, collect()), $bedJoinByStayId, $extraBedQuantityByStayId, $user, $pendingRequestCounts[$room->id] ?? 0),
                     )->values(),
                 ];
             })
@@ -240,7 +251,7 @@ class RoomOperationsBoardService
         })->values()->all();
     }
 
-    private function buildRoomCell($room, Collection $roomAssignments, Collection $bedJoinByStayId, User $user, int $pendingRequestCount): array
+    private function buildRoomCell($room, Collection $roomAssignments, Collection $bedJoinByStayId, Collection $extraBedQuantityByStayId, User $user, int $pendingRequestCount): array
     {
         $ordered = $roomAssignments->sortBy([
             fn ($a, $b) => ($b->status === AssignmentStatus::CheckedIn ? 1 : 0) <=> ($a->status === AssignmentStatus::CheckedIn ? 1 : 0),
@@ -308,7 +319,10 @@ class RoomOperationsBoardService
                 'actual_checkin_at' => $stay?->actual_checkin_at?->format('Y-m-d H:i'),
                 'actual_checkout_at' => $stay?->actual_checkout_at?->format('Y-m-d H:i'),
                 'bed_join' => $bedJoinRequest,
-                'extra_bed_quantity' => $primary->extra_bed_quantity,
+                // User request (2026-08-19 chat) — legacy column + new Dịch vụ & Yêu cầu
+                // enrollment ADDED together; see extraBedQuantityByStayId() docblock.
+                'extra_bed_quantity' => $primary->extra_bed_quantity
+                    + ($stay !== null ? ($extraBedQuantityByStayId->get($stay->id) ?? 0) : 0),
                 'inspection_status' => $inspectionStatus,
                 'quick_note' => $primary->quick_note,
                 'start_at' => $primary->start_at?->format('Y-m-d H:i'),
@@ -520,6 +534,44 @@ class RoomOperationsBoardService
         // preserves the base collection's keys and values on conflict — exactly
         // "legacy wins" — and fills in any additional keys only unified has.
         return $legacy->union($unified);
+    }
+
+    /**
+     * User request (2026-08-19 chat) — the board's "Giường phụ" icon only
+     * ever read room_assignments.extra_bed_quantity, but that column has no
+     * reachable input in the UI (its only writer,
+     * PackageEnrollmentService::updateExtraBedRoomQuantities(), is never
+     * wired to a route) — staff actually add "Giường phụ" through the new
+     * Dịch vụ & Yêu cầu screen, which creates a BookingService row (Service
+     * code EXTRA_BED_PER_NIGHT) instead, a source this board never read, so
+     * the icon silently never lit up for bookings using that flow.
+     *
+     * Unlike bedJoinRequestsByStayId() ("legacy wins" on conflict — a
+     * status, not summable), this ADDS both sources per stay: the legacy
+     * column is de facto always 0 in production today (no UI path sets it),
+     * so summing is a safe superset with no realistic double-counting risk,
+     * and avoids having to decide which source is "authoritative". This
+     * figure is DISPLAY-ONLY — it does not feed ExtraBedPostingJob or
+     * UnifiedServicePostingJob, so it carries no double-billing risk.
+     *
+     * @param  int[]  $bookingIds
+     * @return Collection<int, int> quantity keyed by stay_id
+     */
+    private function extraBedQuantityByStayId(array $bookingIds): Collection
+    {
+        if ($bookingIds === []) {
+            return collect();
+        }
+
+        return BookingService::whereIn('booking_id', $bookingIds)
+            ->whereHas('service', fn ($q) => $q->where('code', 'EXTRA_BED_PER_NIGHT'))
+            ->where('fulfillment_status', '!=', ServiceFulfillmentStatus::Cancelled->value)
+            ->whereNotNull('room_assignment_id')
+            ->with('roomAssignment.stay')
+            ->get()
+            ->filter(fn (BookingService $bs): bool => $bs->roomAssignment?->stay !== null)
+            ->groupBy(fn (BookingService $bs) => $bs->roomAssignment->stay->id)
+            ->map(fn (Collection $rows): int => (int) $rows->sum('quantity'));
     }
 
     private function boardTotals(Collection $floors): array
