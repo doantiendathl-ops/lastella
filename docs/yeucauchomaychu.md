@@ -1,6 +1,6 @@
 # Hướng dẫn cập nhật pms.lastella.com.vn — đưa lên ngang bằng `phase-3`
 
-**Ngày soạn:** 2026-08-19 (cập nhật lần 4) · **Nhánh nguồn:** `origin/phase-3` @ `69961bb` · **Người soạn:** Claude (máy dev), theo yêu cầu Product Owner sau khi phát hiện `pms.lastella.com.vn` đang chạy code cũ (thiếu menu "Dịch vụ & Yêu cầu", vẫn còn danh sách "Yêu cầu đặc biệt" hardcode trong PHP).
+**Ngày soạn:** 2026-08-19 (cập nhật lần 5) · **Nhánh nguồn:** `origin/phase-3` @ `a461ae7` · **Người soạn:** Claude (máy dev), theo yêu cầu Product Owner sau khi phát hiện `pms.lastella.com.vn` đang chạy code cũ (thiếu menu "Dịch vụ & Yêu cầu", vẫn còn danh sách "Yêu cầu đặc biệt" hardcode trong PHP).
 
 **Cách dùng file này:** dán nguyên văn phần "LỆNH CHO CLAUDE TRÊN MÁY CHỦ" bên dưới cho Claude đang chạy trực tiếp trên máy chủ production. Claude ở máy dev (soạn file này) **không có quyền truy cập trực tiếp vào máy chủ đó** — mọi thao tác thực tế do Claude trên máy chủ tự thực hiện.
 
@@ -8,7 +8,7 @@
 
 ## Bối cảnh (để Claude trên máy chủ hiểu VÌ SAO, không chỉ làm theo lệnh mù)
 
-`pms.lastella.com.vn` hiện thiếu ~24 commit gần nhất trên `phase-3`, trong đó quan trọng nhất:
+`pms.lastella.com.vn` hiện thiếu ~26 commit gần nhất trên `phase-3`, trong đó quan trọng nhất:
 
 - **Unified Services & Requests** (4 commit `ca188f0`…`9e984b6`): thêm danh mục Dịch vụ/Yêu cầu quản lý qua DB (4 bảng mới), thay cho danh sách 24 loại "Yêu cầu đặc biệt" đang hardcode trong `app/Http/Requests/Booking/StoreBookingSpecialRequestRequest.php::ALLOWED_REQUEST_TYPES` (và bản tương ứng ở frontend) — đây chính là lý do màn "Dịch vụ & Yêu cầu" ở menu bị thiếu và các "yêu cầu" hiện tại vẫn nằm cứng trong code.
 - **Room Map hợp nhất** (~7 commit): Sơ đồ thao tác/Sơ đồ chọn phòng/Sơ đồ Check phòng/Sơ đồ Kiểm đồ dùng chung 1 kiểu hiển thị, xem lại được phòng đã trả trên Sơ đồ kiểm tra phòng.
@@ -19,9 +19,10 @@
 - **Quyền thật cho 6 chức năng trước đây khóa cứng `hasRole('ADMIN')`** (1 commit `fe67b3a`): sửa giờ nhận/trả phòng thực tế, khôi phục booking đã hủy, mở lại hóa đơn đã đóng, xóa thanh toán ở mọi ngày, hủy phí phát sinh ở mọi ngày, sửa booking đã đóng/hủy/không đến — 6 chức năng này giờ dùng quyền Spatie thật (`stay.actual_time.manage`, `booking.restore`, `folio.reopen`, `payment.delete_any_date`, `charge.void_any_date`, `booking.edit_closed`) thay vì kiểm tra vai trò cứng, đồng thời tên hiển thị trên màn Quyền/Vai trò được dịch sang tiếng Việt.
   **⚠️ QUAN TRỌNG — khác với các thay đổi trước:** các quyền này **KHÔNG tự có sẵn** trong DB production cho tới khi cấp thủ công (xem Bước 4). Nếu bỏ qua bước cấp quyền, ngay sau khi pull code, ADMIN trên production sẽ **MẤT khả năng** dùng cả 6 chức năng trên (dù trước đó vẫn dùng bình thường) — vì code không còn kiểm tra `hasRole('ADMIN')` nữa mà kiểm tra `$user->can('<slug>')`, và quyền đó chưa tồn tại. Đây không phải rủi ro dữ liệu, nhưng LÀ một hồi quy chức năng tạm thời nếu làm sai thứ tự — bắt buộc chạy Bước 4 ngay sau Bước 1, không được để cách quãng.
 - **Sửa hiển thị icon "Giường phụ" trên Sơ đồ thao tác** (1 commit `69961bb`) — icon này trước đây chỉ đọc cột cũ `room_assignments.extra_bed_quantity` (không có nơi nào trên giao diện ghi vào cột đó), nên khi staff thêm "Giường phụ" qua màn Dịch vụ & Yêu cầu (ghi vào bảng `booking_services`), icon không bao giờ hiện. Giờ icon cộng cả 2 nguồn. Thuần đọc dữ liệu (read-model), không đụng migration/quyền/tính phí Night Audit.
+- **Thiết kế lại nội dung ô phòng trên Sơ đồ thao tác** (1 commit `a461ae7`) — số phòng/checkbox/nút chọn cả booking chuyển lên cùng 1 hàng; ngày nhận/trả in đậm rõ hơn, tự thay bằng giờ thực tế + gạch chân khi đã nhận/trả, bấm trực tiếp vào ngày để sửa (thay cho icon bút chì cũ); "Ghép giường"/"Giường phụ x{n}"/"Đã kiểm out" hiện bằng chữ thay vì icon; icon dọn phòng đổi thành chữ "Sạch"/"Bẩn"; bỏ hẳn icon cửa nhận/trả phòng riêng (đã gộp vào cách hiển thị ngày). Thuần frontend (`.vue`), không đụng backend/API/migration/quyền.
 - 1 commit hạ tầng (`bootstrap/app.php` trust Cloudflare Tunnel proxy — **có thể máy chủ đã tự vá tay phần này rồi, kiểm tra kỹ để tránh conflict khi pull**).
 
-**4 migration mới** (additive — tạo bảng mới, KHÔNG đụng bảng cũ): `service_categories`, `services`, `service_prices`, `booking_services`. Commit `fe67b3a` (quyền mới) và `69961bb` (sửa icon giường phụ) **không có migration nào** — `fe67b3a` chỉ thêm dòng dữ liệu vào bảng `permissions`/`role_has_permissions` có sẵn của Spatie (làm bằng tinker ở Bước 4); `69961bb` chỉ đổi cách đọc dữ liệu hiện có, không ghi gì mới.
+**4 migration mới** (additive — tạo bảng mới, KHÔNG đụng bảng cũ): `service_categories`, `services`, `service_prices`, `booking_services`. Commit `fe67b3a` (quyền mới), `69961bb` (sửa icon giường phụ) và `a461ae7` (thiết kế lại ô phòng) **không có migration nào** — `fe67b3a` chỉ thêm dòng dữ liệu vào bảng `permissions`/`role_has_permissions` có sẵn của Spatie (làm bằng tinker ở Bước 4); `69961bb` và `a461ae7` chỉ đổi cách đọc/hiển thị dữ liệu hiện có, không ghi gì mới.
 
 **Không có migration nào XÓA/SỬA cột hoặc bảng cũ** trong toàn bộ khoảng này — rủi ro dữ liệu ở mức thấp, nhưng vẫn backup đầy đủ theo đúng quy trình bên dưới trước khi làm bất cứ gì.
 
@@ -31,10 +32,10 @@
 
 ```
 Cập nhật Lastella PMS (pms.lastella.com.vn) lên ngang bằng origin/phase-3
-(commit mới nhất hiện tại: 69961bb — "fix(room-operations): show extra-bed
-icon for services added via Dịch vụ & Yêu cầu"). Đây là một đợt cập nhật
-LỚN (~24 commit), làm tuần tự từng bước, DỪNG LẠI hỏi tôi ngay khi có bất
-kỳ điều gì bất thường — không tự suy đoán hoặc tự sửa nếu không chắc chắn.
+(commit mới nhất hiện tại: a461ae7 — "feat(room-operations): redesign room
+tile content on Sơ đồ thao tác"). Đây là một đợt cập nhật LỚN (~26 commit),
+làm tuần tự từng bước, DỪNG LẠI hỏi tôi ngay khi có bất kỳ điều gì bất
+thường — không tự suy đoán hoặc tự sửa nếu không chắc chắn.
 
 ═══════════════════════════════════════════════════════════════
 BƯỚC 0 — PREFLIGHT (bắt buộc, không bỏ qua bước nào)
@@ -233,9 +234,15 @@ tác lên dữ liệu thật ngoài những gì liệt kê)
       Việt (không còn slug tiếng Anh làm tên chính); mở màn "Vai trò" → sửa
       1 vai trò bất kỳ — danh sách checkbox quyền cũng hiện tên tiếng Việt.
 - [ ] Mở 1 booking test → Dịch vụ & Yêu cầu → thêm "Giường phụ" cho 1 phòng
-      cụ thể → quay lại Sơ đồ thao tác, ô phòng đó phải hiện icon giường đơn
-      màu cyan (hover thấy tooltip "Giường phụ x{số lượng}"). Trước bản cập
-      nhật này, icon KHÔNG hiện dù đã thêm dịch vụ — đây là hành vi ĐÚNG mới.
+      cụ thể → quay lại Sơ đồ thao tác, ô phòng đó phải hiện chữ "Giường
+      phụ x{số lượng}" (không còn icon). Trước bản cập nhật này, không hiện
+      gì dù đã thêm dịch vụ — đây là hành vi ĐÚNG mới.
+- [ ] Trên Sơ đồ thao tác, ô phòng: số phòng → checkbox chọn phòng → nút
+      chọn cả booking nằm cùng 1 hàng trên cùng (không còn tách rời như
+      trước); ngày nhận/trả in đậm, rõ ràng; sau khi Nhận phòng, phần "ngày
+      in" tự đổi sang giờ thực tế có gạch chân đậm, bấm trực tiếp vào đó mở
+      được hộp thoại sửa giờ (ADMIN); ô phòng không còn icon cửa/icon dọn
+      phòng riêng — thay bằng chữ "Sạch"/"Bẩn".
 - [ ] Console trình duyệt không có lỗi mới sau khi load lại các trang trên.
 - [ ] KHÔNG tự chạy Night Audit để test — nếu cần xác nhận Night Audit vẫn
       hoạt động, chỉ mở trang xem trạng thái, không tự bấm chạy.
