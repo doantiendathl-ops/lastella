@@ -298,10 +298,13 @@ function handleCheckoutDateClick() {
                         placeholder="Ghi chú nhanh (tối đa 100 ký tự)"
                     />
                     <div class="flex items-center justify-between text-[10px]">
-                        <span class="font-bold" :class="noteError ? 'text-red-600' : 'text-gray-500'">{{ noteError || `${noteDraft?.length ?? 0}/100` }}</span>
+                        <!-- User request (2026-08-20 chat) — gray-500/indigo-600 read as
+                             faint/hard-to-see against the tile's colored background; black
+                             for both the counter and the two buttons instead. -->
+                        <span class="font-bold" :class="noteError ? 'text-red-600' : 'text-black'">{{ noteError || `${noteDraft?.length ?? 0}/100` }}</span>
                         <div class="flex gap-1">
-                            <button type="button" class="font-bold text-gray-600 hover:underline" @click="cancelEditNote">Hủy</button>
-                            <button type="button" class="font-bold text-indigo-600 hover:underline" @click="saveNote">Lưu</button>
+                            <button type="button" class="font-bold text-black hover:underline" @click="cancelEditNote">Hủy</button>
+                            <button type="button" class="font-bold text-black hover:underline" @click="saveNote">Lưu</button>
                         </div>
                     </div>
                 </div>
