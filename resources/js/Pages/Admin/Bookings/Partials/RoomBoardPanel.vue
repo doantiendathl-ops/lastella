@@ -200,15 +200,9 @@ const submitEditCheckOut = () => {
     )
 }
 
-// "Vẫn trả phòng" — dismiss the advisory warning and proceed with the normal, unmodified
-// checkout flow. Records nothing; available to any user regardless of override permission.
-const dismissInspectionWarningAndCheckOut = () => {
-    if (!inspectionWarningStay.value) return
-    const stay = inspectionWarningStay.value
-    inspectionWarningStay.value = null
-    proceedCheckout(stay)
-}
-
+// User request (2026-08-20 chat) — "chưa kiểm đồ thì không thể check out
+// được": removed the old "Vẫn trả phòng" bypass (dismissInspectionWarningAndCheckOut)
+// that let anyone skip the warning with no permission, no reason, no record.
 // "Bỏ qua và trả phòng" — records a permission-gated, reasoned skip first, then proceeds.
 const skipInspectionAndCheckOut = () => {
     if (!inspectionWarningStay.value || !inspectionSkipReason.value.trim()) return
@@ -525,12 +519,21 @@ function requestStatusClass(status) {
         </div>
     </div>
 
-    <!-- Checkout-inspection warning (not an absolute lock) -->
+    <!-- Checkout-inspection warning — User request (2026-08-20 chat): now a
+         REAL gate, not advisory. See RoomOperations/Partials/
+         CheckoutFlowDialogs.vue for the identical change on Sơ đồ thao tác
+         (both checkout entry points had to change together, or this one
+         would just become the bypass route). -->
     <div v-if="inspectionWarningStay" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
         <div class="w-full max-w-md border border-gray-200 bg-white p-5 shadow-xl">
             <h2 class="text-base font-semibold text-coral">Chưa kiểm đồ phòng {{ inspectionWarningStay.room_number }}</h2>
             <p class="mt-2 text-sm text-steel">
                 Phòng này chưa được kiểm đồ khi trả phòng. Vui lòng mở kiểm đồ nhanh để ghi nhận đồ dùng/minibar phát sinh trước khi trả phòng.
+            </p>
+            <p class="mt-2 text-sm font-semibold text-coral">
+                {{ can.overrideCheckoutInspection
+                    ? 'Chưa kiểm đồ thì không thể trả phòng, trừ khi bỏ qua kiểm đồ có ghi lý do bên dưới.'
+                    : 'Chưa kiểm đồ thì không thể trả phòng. Vui lòng kiểm đồ trước, hoặc liên hệ người có quyền bỏ qua kiểm đồ.' }}
             </p>
             <a
                 href="/admin/checkout-inspections"
@@ -566,13 +569,6 @@ function requestStatusClass(status) {
                     @click="skipInspectionAndCheckOut"
                 >
                     Bỏ qua và trả phòng
-                </button>
-                <button
-                    type="button"
-                    class="border border-pine bg-pine px-4 py-2 text-sm font-semibold text-white hover:bg-pine/90"
-                    @click="dismissInspectionWarningAndCheckOut"
-                >
-                    Vẫn trả phòng
                 </button>
             </div>
         </div>

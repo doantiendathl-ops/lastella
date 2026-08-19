@@ -277,11 +277,12 @@ function cancelCheckoutFlow() {
     checkoutFlow.value = null;
 }
 
-function dismissInspectionWarning() {
-    if (!checkoutFlow.value) return;
-    checkoutFlow.value = { stage: 'confirm', rooms: checkoutFlow.value.rooms };
-}
-
+// User request (2026-08-20 chat) — "chưa kiểm đồ thì không thể check out
+// được": the free "Vẫn tiếp tục" bypass is gone (dismissInspectionWarning
+// removed along with it). skipInspectionAndContinue() below is now the
+// ONLY way past an uninspected room, and it must fail CLOSED: if the
+// formal skip record fails to save, do not silently continue to checkout
+// — that would recreate the exact hole this change closes.
 async function skipInspectionAndContinue() {
     if (!checkoutFlow.value?.skipReason?.trim()) return;
     const { rooms, uninspectedRooms, skipReason } = checkoutFlow.value;
@@ -291,11 +292,12 @@ async function skipInspectionAndContinue() {
             route('admin.bookings.stays.inspection-skip', { booking: r.booking_id, stay: r.stay_id }),
             { reason: skipReason.trim() },
         )));
-    } catch {
-        // Skip-record is a permission-gated formal action — if it fails (e.g. the
-        // acting user lacks checkout_inspection.override, enforced server-side),
-        // fall through to the advisory "still checkout" path rather than
-        // silently blocking the operator entirely.
+    } catch (error) {
+        pushToast(
+            error?.response?.data?.message ?? 'Không thể ghi nhận bỏ qua kiểm đồ — chưa trả phòng được.',
+            'error',
+        );
+        return;
     }
 
     checkoutFlow.value = { stage: 'confirm', rooms };
@@ -621,7 +623,6 @@ function onSwapDone() {
             :flow="checkoutFlow"
             :can-override-inspection="can.overrideCheckoutInspection"
             @cancel="cancelCheckoutFlow"
-            @dismiss-inspection-warning="dismissInspectionWarning"
             @skip-inspection="skipInspectionAndContinue"
             @update:skip-reason="updateSkipReason"
             @confirm="confirmCheckout"

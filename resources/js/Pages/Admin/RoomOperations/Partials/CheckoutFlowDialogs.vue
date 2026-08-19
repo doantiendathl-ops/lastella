@@ -6,7 +6,7 @@ const props = defineProps({
     canOverrideInspection: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['cancel', 'dismiss-inspection-warning', 'skip-inspection', 'update:skip-reason', 'confirm', 'confirm-final', 'open-inspection']);
+const emit = defineEmits(['cancel', 'skip-inspection', 'update:skip-reason', 'confirm', 'confirm-final', 'open-inspection']);
 
 function roomLabel(rooms) {
     return rooms.length === 1 ? `phòng ${rooms[0].room_number}` : `${rooms.length} phòng đã chọn`;
@@ -21,11 +21,19 @@ const roomsWithBalance = (rooms) => rooms.filter((r) => (r.balance_due ?? 0) > 0
 
 <template>
     <!--
-        Mục III/IV: checkout inspection warning (advisory, same shape as
-        Booking Detail's RoomBoardPanel — never a hard backend lock) shown
-        BEFORE the exact-room confirmation, whenever any selected room is
-        still uninspected. No checkout request is ever sent during this
-        stage.
+        Mục III/IV: checkout inspection warning shown BEFORE the exact-room
+        confirmation, whenever any selected room is still uninspected. No
+        checkout request is ever sent during this stage.
+
+        User request (2026-08-20 chat) — this is now a REAL gate, not
+        advisory: the free "Vẫn tiếp tục" bypass (no permission, no reason,
+        no record) is REMOVED. The only way past an uninspected room is
+        either completing the inspection, or (checkout_inspection.override
+        only) "Bỏ qua và tiếp tục" — which already creates a full audit
+        record (Stay.inspection_skipped_at/by/reason + a StayEvent, see
+        StayService::skipCheckoutInspection()) before checkout proceeds.
+        Anyone without that permission is hard-blocked here: "Đóng" and
+        "Kiểm đồ ngay" are the only options.
     -->
     <div v-if="flow?.stage === 'inspection-warning'" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
         <div class="w-full max-w-md rounded-lg border border-gray-200 bg-white p-5 shadow-xl">
@@ -35,6 +43,11 @@ const roomsWithBalance = (rooms) => rooms.filter((r) => (r.balance_due ?? 0) > 0
             <p class="mt-2 text-sm text-gray-600">
                 {{ flow.uninspectedRooms.length === 1 ? `Phòng ${flow.uninspectedRooms[0].room_number} chưa` : `Các phòng sau chưa` }}
                 được kiểm đồ khi trả phòng. Vui lòng mở kiểm đồ nhanh để ghi nhận đồ dùng/minibar phát sinh trước khi trả phòng.
+            </p>
+            <p class="mt-2 text-sm font-semibold text-red-700">
+                {{ canOverrideInspection
+                    ? 'Chưa kiểm đồ thì không thể trả phòng, trừ khi bỏ qua kiểm đồ có ghi lý do bên dưới.'
+                    : 'Chưa kiểm đồ thì không thể trả phòng. Vui lòng kiểm đồ trước, hoặc liên hệ người có quyền bỏ qua kiểm đồ.' }}
             </p>
             <ul v-if="flow.uninspectedRooms.length > 1" class="mt-2 flex flex-wrap gap-1 text-xs">
                 <li v-for="r in flow.uninspectedRooms" :key="r.room_id" class="rounded bg-amber-100 px-1.5 py-0.5 font-medium text-amber-800">
@@ -74,9 +87,6 @@ const roomsWithBalance = (rooms) => rooms.filter((r) => (r.balance_due ?? 0) > 0
                     @click="emit('skip-inspection')"
                 >
                     Bỏ qua và tiếp tục
-                </button>
-                <button type="button" class="rounded border border-indigo-600 bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700" @click="emit('dismiss-inspection-warning')">
-                    Vẫn tiếp tục
                 </button>
             </div>
         </div>
