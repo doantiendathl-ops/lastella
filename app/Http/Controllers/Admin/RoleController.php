@@ -7,6 +7,7 @@ use App\Http\Requests\Admin\IndexRequest;
 use App\Http\Requests\Admin\StoreRoleRequest;
 use App\Http\Requests\Admin\UpdateRoleRequest;
 use App\Services\RoleService;
+use App\Support\PermissionLabels;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -102,9 +103,18 @@ class RoleController extends Controller
 
     private function permissionOptions(): array
     {
-        return Permission::query()->orderBy('name')->pluck('name')->map(fn (string $name): array => [
-            'value' => $name,
-            'label' => $name,
-        ])->values()->all();
+        // User request (2026-08-19 chat) — Vietnamese label on the
+        // checkbox, `value` stays the raw slug so submission/authorization
+        // are unaffected. Sort by the LABEL (not the raw slug) so the list
+        // groups sensibly for a human picking checkboxes, not alphabetically
+        // by English dot-notation.
+        return Permission::query()->pluck('name')
+            ->map(fn (string $name): array => [
+                'value' => $name,
+                'label' => PermissionLabels::forSlug($name),
+            ])
+            ->sortBy('label')
+            ->values()
+            ->all();
     }
 }

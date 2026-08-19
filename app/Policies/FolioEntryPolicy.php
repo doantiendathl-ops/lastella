@@ -16,7 +16,10 @@ class FolioEntryPolicy
 
     public function void(User $user, FolioEntry $entry): bool
     {
-        if ($user->hasRole('ADMIN')) {
+        // User request (2026-08-19 chat) — was hasRole('ADMIN'); the "any
+        // date" bypass (charge.void alone only allows voiding TODAY's
+        // entry, see below) is now its own grantable permission.
+        if ($user->can('charge.void_any_date')) {
             return true;
         }
 

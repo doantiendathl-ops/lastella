@@ -8,7 +8,7 @@ class UpdateActualCheckOutRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->hasRole('ADMIN') ?? false;
+        return $this->user()?->can('stay.actual_time.manage') ?? false;
     }
 
     public function rules(): array

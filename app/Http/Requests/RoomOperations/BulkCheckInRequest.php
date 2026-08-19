@@ -31,7 +31,7 @@ class BulkCheckInRequest extends FormRequest
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $v): void {
-            if ($this->filled('actual_checkin_at') && ! ($this->user()?->hasRole('ADMIN') ?? false)) {
+            if ($this->filled('actual_checkin_at') && ! ($this->user()?->can('stay.actual_time.manage') ?? false)) {
                 $v->errors()->add('actual_checkin_at', 'Chỉ Quản trị viên được phép chỉnh thời gian nhận phòng thực tế.');
             }
         });

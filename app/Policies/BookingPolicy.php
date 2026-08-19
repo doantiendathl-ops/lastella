@@ -38,7 +38,8 @@ class BookingPolicy
 
     public function restore(User $user, Booking $booking): bool
     {
-        return $user->hasRole('ADMIN') && $booking->status === BookingStatus::Cancelled;
+        // User request (2026-08-19 chat) — was hasRole('ADMIN').
+        return $user->can('booking.restore') && $booking->status === BookingStatus::Cancelled;
     }
 
     public function delete(User $user, Booking $booking): bool

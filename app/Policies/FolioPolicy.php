@@ -25,6 +25,7 @@ class FolioPolicy
 
     public function reopen(User $user, Folio $folio): bool
     {
-        return $user->hasRole('ADMIN') && $folio->status === FolioStatus::Closed;
+        // User request (2026-08-19 chat) — was hasRole('ADMIN').
+        return $user->can('folio.reopen') && $folio->status === FolioStatus::Closed;
     }
 }

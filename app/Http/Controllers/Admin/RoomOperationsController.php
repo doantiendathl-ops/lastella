@@ -78,12 +78,13 @@ class RoomOperationsController extends Controller
                 'overrideCheckoutInspection' => $user->can('checkout_inspection.override'),
                 'clean' => $user->can('room.cleaning.update'),
                 'viewBooking' => $user->can('viewAny', Booking::class),
-                // User request (2026-08-18 chat) — same ADMIN-only actual-time
-                // override already on the booking-detail page (BookingController::
+                // User request (2026-08-18 chat) — same actual-time override
+                // already on the booking-detail page (BookingController::
                 // permissions()), now also on the board: check-in/check-out ask for
                 // the real time instead of always defaulting to now(), and an
-                // already-recorded time can be corrected afterward.
-                'adjustActualTime' => $user->hasRole('ADMIN'),
+                // already-recorded time can be corrected afterward. User request
+                // (2026-08-19 chat) — was hasRole('ADMIN'), now a real permission.
+                'adjustActualTime' => $user->can('stay.actual_time.manage'),
             ],
         ]);
     }

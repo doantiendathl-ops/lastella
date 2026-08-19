@@ -118,6 +118,70 @@ export const inspectionResultLabels = {
     skip: 'Bỏ qua kiểm tra',
 };
 
+// User request (2026-08-19 chat) — the Quyền (Permissions) screen showed
+// raw dot-notation slugs (e.g. "stay.checkin"), unreadable for non-technical
+// staff assigning roles. Display-only translation: the underlying
+// `permissions.name` slug in the DB is UNCHANGED (every $user->can('...')
+// check in the backend still uses the English slug) — this only swaps what
+// renders on screen. Keep this list in sync with
+// database/seeders/RolePermissionSeeder::PERMISSIONS; an unmapped slug
+// falls back to showing itself raw (labelFor()'s default), so a missed
+// entry here is visible, never silently blank.
+export const permissionLabels = {
+    'booking.create': 'Tạo đặt phòng',
+    'booking.update': 'Sửa đặt phòng',
+    'booking.cancel': 'Hủy đặt phòng',
+    'booking.restore': 'Khôi phục đặt phòng đã hủy',
+    'booking.edit_closed': 'Sửa đặt phòng đã đóng/hủy/không đến',
+    'booking.package.manage': 'Quản lý gói dịch vụ trên đặt phòng',
+    'room.assign': 'Phân phòng',
+    'room.unassign': 'Gỡ phân phòng',
+    'room_availability.view': 'Xem tình trạng phòng trống',
+    'stay.checkin': 'Nhận phòng',
+    'stay.checkout': 'Trả phòng',
+    'stay.extend': 'Gia hạn lưu trú',
+    'stay.room_move': 'Đổi phòng khi đang lưu trú',
+    'stay.actual_time.manage': 'Sửa giờ nhận/trả phòng thực tế',
+    'payment.create': 'Thêm thanh toán/đặt cọc',
+    'payment.delete': 'Xóa thanh toán (trong ngày)',
+    'payment.delete_any_date': 'Xóa thanh toán (mọi ngày)',
+    'folio.view': 'Xem hóa đơn',
+    'folio.close': 'Đóng hóa đơn',
+    'folio.reopen': 'Mở lại hóa đơn đã đóng',
+    'charge.create': 'Thêm phí phát sinh',
+    'charge.void': 'Hủy phí phát sinh (trong ngày)',
+    'charge.void_any_date': 'Hủy phí phát sinh (mọi ngày)',
+    'report.view': 'Xem báo cáo',
+    'settings.manage': 'Quản lý cài đặt hệ thống',
+    'hotel_settings.manage': 'Quản lý cài đặt khách sạn',
+    'service_rates.manage': 'Quản lý phụ phí hệ thống',
+    'service_packages.manage': 'Quản lý gói dịch vụ (cũ)',
+    'services.manage': 'Quản lý Dịch vụ & Yêu cầu',
+    'night_audit.run': 'Chạy Night Audit',
+    'night_audit.view': 'Xem Night Audit',
+    'revenue.view': 'Xem doanh thu',
+    'reconciliation.view': 'Xem đối soát',
+    'users.manage': 'Quản lý người dùng',
+    'roles.manage': 'Quản lý vai trò & quyền',
+    'rooms.manage': 'Quản lý phòng',
+    'room_types.manage': 'Quản lý loại phòng',
+    'rates.manage': 'Quản lý giá phòng',
+    'special_request.create': 'Tạo yêu cầu đặc biệt',
+    'special_request.fulfill': 'Hoàn thành yêu cầu đặc biệt',
+    'special_request.cancel': 'Hủy yêu cầu đặc biệt',
+    'housekeeping.view': 'Xem dọn phòng',
+    'housekeeping.assign': 'Phân công dọn phòng',
+    'room.status.update': 'Cập nhật trạng thái phòng',
+    'room.cleaning.update': 'Cập nhật tình trạng dọn phòng',
+    'room.inspect': 'Kiểm tra phòng',
+    'room.maintenance': 'Đánh dấu phòng bảo trì',
+    'rooms.bulk_update': 'Cập nhật hàng loạt phòng',
+    'product_services.manage': 'Quản lý Sản phẩm/Dịch vụ (cũ)',
+    'checkout_inspection.view': 'Xem kiểm đồ trả phòng',
+    'checkout_inspection.perform': 'Thực hiện kiểm đồ trả phòng',
+    'checkout_inspection.override': 'Bỏ qua kiểm đồ trả phòng',
+};
+
 const maps = {
     bookingStatus: bookingStatusLabels,
     bookingType: bookingTypeLabels,
@@ -133,6 +197,7 @@ const maps = {
     housekeepingAssignmentStatus: housekeepingAssignmentStatusLabels,
     inspectionResult: inspectionResultLabels,
     cleaningStatus: cleaningStatusLabels,
+    permission: permissionLabels,
 };
 
 export const labelFor = (type, value) => maps[type]?.[value] ?? value ?? '';

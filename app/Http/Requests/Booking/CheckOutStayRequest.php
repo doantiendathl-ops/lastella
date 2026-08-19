@@ -22,14 +22,14 @@ class CheckOutStayRequest extends FormRequest
     }
 
     /**
-     * Only ADMIN may supply actual_checkout_at — see CheckInStayRequest for
-     * the identical rationale on the check-in side.
+     * Only stay.actual_time.manage may supply actual_checkout_at — see
+     * CheckInStayRequest for the identical rationale on the check-in side.
      */
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $v): void {
-            if ($this->filled('actual_checkout_at') && ! ($this->user()?->hasRole('ADMIN') ?? false)) {
-                $v->errors()->add('actual_checkout_at', 'Chỉ Quản trị viên được phép chỉnh thời gian trả phòng thực tế.');
+            if ($this->filled('actual_checkout_at') && ! ($this->user()?->can('stay.actual_time.manage') ?? false)) {
+                $v->errors()->add('actual_checkout_at', 'Bạn không có quyền chỉnh thời gian trả phòng thực tế.');
             }
         });
     }

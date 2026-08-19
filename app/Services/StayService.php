@@ -470,8 +470,8 @@ class StayService
      */
     public function updateActualCheckIn(Stay $stay, CarbonInterface $newActualCheckinAt, User $actor): Stay
     {
-        if (! $actor->hasRole('ADMIN')) {
-            throw new AuthorizationException('Chỉ Quản trị viên được phép sửa thời gian nhận phòng thực tế.');
+        if (! $actor->can('stay.actual_time.manage')) {
+            throw new AuthorizationException('Bạn không có quyền sửa thời gian nhận phòng thực tế.');
         }
 
         return DB::transaction(function () use ($stay, $newActualCheckinAt, $actor): Stay {
@@ -519,8 +519,8 @@ class StayService
      */
     public function updateActualCheckOut(Stay $stay, CarbonInterface $newActualCheckoutAt, User $actor): Stay
     {
-        if (! $actor->hasRole('ADMIN')) {
-            throw new AuthorizationException('Chỉ Quản trị viên được phép sửa thời gian trả phòng thực tế.');
+        if (! $actor->can('stay.actual_time.manage')) {
+            throw new AuthorizationException('Bạn không có quyền sửa thời gian trả phòng thực tế.');
         }
 
         return DB::transaction(function () use ($stay, $newActualCheckoutAt, $actor): Stay {

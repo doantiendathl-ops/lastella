@@ -272,7 +272,9 @@ class BookingController extends Controller
 
     private function canEdit(Booking $booking, ?User $user): bool
     {
-        if ($user?->hasRole('ADMIN')) {
+        // User request (2026-08-19 chat) — was hasRole('ADMIN'); real,
+        // independently-grantable permission now (RolePermissionSeeder).
+        if ($user?->can('booking.edit_closed')) {
             return true;
         }
 
@@ -710,7 +712,7 @@ class BookingController extends Controller
             'createCharge'  => $user?->can('charge.create') ?? false,
             'voidCharge'    => $user?->can('charge.void') ?? false,
             'closeFolio'    => $user?->can('folio.close') ?? false,
-            'reopenFolio'   => $user?->hasRole('ADMIN') ?? false,
+            'reopenFolio'   => $user?->can('folio.reopen') ?? false,
             'assignRoom'              => $user?->can('room.assign') ?? false,
             'releaseRoom'             => $user?->can('room.unassign') ?? false,
             // Room Demand/Room Board Unification M4: gates the "Đồng thời giảm
@@ -726,10 +728,10 @@ class BookingController extends Controller
             'reduceDemand'            => $user?->can('booking.update') ?? false,
             'checkIn'                 => $user?->can('stay.checkin') ?? false,
             'checkOut'                => $user?->can('stay.checkout') ?? false,
-            // ADMIN-only: shows the actual check-in/check-out time override
-            // field and the post-event "edit time" action. Distinct from the
-            // ordinary checkIn/checkOut permission RECEPTION also holds.
-            'adjustActualTime'        => $user?->hasRole('ADMIN') ?? false,
+            // Shows the actual check-in/check-out time override field and the
+            // post-event "edit time" action. Distinct from the ordinary
+            // checkIn/checkOut permission RECEPTION also holds.
+            'adjustActualTime'        => $user?->can('stay.actual_time.manage') ?? false,
             'extend'                  => $user?->can('stay.extend') ?? false,
             'moveRoom'                => $user?->can('stay.room_move') ?? false,
             'managePackage'           => $user?->can('booking.package.manage') ?? false,

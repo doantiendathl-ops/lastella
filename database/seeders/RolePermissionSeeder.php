@@ -65,6 +65,21 @@ class RolePermissionSeeder extends Seeder
         'checkout_inspection.view',
         'checkout_inspection.perform',
         'checkout_inspection.override',
+        // User request (2026-08-19 chat) — these 6 were previously hardcoded
+        // hasRole('ADMIN') checks scattered across Policies/FormRequests/
+        // Services with no corresponding Permission row, so they never
+        // appeared on the Quyền screen and could never be granted to any
+        // other role without a code change. Converting them to real,
+        // assignable permissions — added ONLY to ADMIN's syncPermissions()
+        // below (self::PERMISSIONS, the full list), so current behavior is
+        // byte-for-byte unchanged; a future grant to another role (e.g.
+        // MANAGER) is now possible from the Vai trò screen, no deploy needed.
+        'stay.actual_time.manage',
+        'booking.restore',
+        'folio.reopen',
+        'payment.delete_any_date',
+        'charge.void_any_date',
+        'booking.edit_closed',
     ];
 
     public function run(): void

@@ -7,6 +7,7 @@ use App\Http\Requests\Admin\IndexRequest;
 use App\Http\Requests\Admin\StorePermissionRequest;
 use App\Http\Requests\Admin\UpdatePermissionRequest;
 use App\Services\PermissionService;
+use App\Support\PermissionLabels;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -22,13 +23,27 @@ class PermissionController extends Controller
     {
         $this->authorize('viewAny', Permission::class);
 
+        // User request (2026-08-19 chat) — Vietnamese display label alongside
+        // the raw slug (never replacing it — the slug is still what
+        // StorePermissionRequest/UpdatePermissionRequest actually manage,
+        // and any custom permission an admin creates later has no
+        // translation to fall back on other than itself).
+        $items = $this->permissions->paginate($request->validated())
+            ->through(fn (Permission $permission): array => [
+                'id' => $permission->id,
+                'label' => PermissionLabels::forSlug($permission->name),
+                'name' => $permission->name,
+                'guard_name' => $permission->guard_name,
+            ]);
+
         return Inertia::render('Admin/CrudIndex', [
             'title' => 'Quyền',
             'baseUrl' => '/permissions',
-            'items' => $this->permissions->paginate($request->validated()),
+            'items' => $items,
             'filters' => $request->validated(),
             'columns' => [
-                ['key' => 'name', 'label' => 'Tên', 'sortable' => true],
+                ['key' => 'label', 'label' => 'Chức năng'],
+                ['key' => 'name', 'label' => 'Mã quyền (kỹ thuật)', 'sortable' => true],
                 ['key' => 'guard_name', 'label' => 'Guard xác thực'],
             ],
             'canCreate' => true,

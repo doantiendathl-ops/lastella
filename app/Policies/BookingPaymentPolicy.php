@@ -24,7 +24,10 @@ class BookingPaymentPolicy
 
     public function delete(User $user, BookingPayment $bookingPayment): bool
     {
-        if ($user->hasRole('ADMIN')) {
+        // User request (2026-08-19 chat) — was hasRole('ADMIN'); the "any
+        // date" bypass (payment.delete alone only allows deleting TODAY's
+        // payment, see below) is now its own grantable permission.
+        if ($user->can('payment.delete_any_date')) {
             return true;
         }
 
