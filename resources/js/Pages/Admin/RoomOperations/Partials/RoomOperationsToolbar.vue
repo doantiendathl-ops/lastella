@@ -1,5 +1,5 @@
 <script setup>
-import { ArrowLeftRight, Brush, ClipboardCheck, DoorOpen, LogOut, X } from 'lucide-vue-next';
+import { ArrowLeftRight, Brush, CheckCircle2, ClipboardCheck, DoorOpen, LogOut, X } from 'lucide-vue-next';
 import { computed } from 'vue';
 
 const props = defineProps({
@@ -7,7 +7,7 @@ const props = defineProps({
     can: { type: Object, required: true },
 });
 
-const emit = defineEmits(['swap', 'check-in', 'check-out', 'inspect', 'clean', 'clear']);
+const emit = defineEmits(['swap', 'check-in', 'check-out', 'inspect', 'confirm-no-charge', 'clean', 'clear']);
 
 function eligibleCount(actionKey) {
     return props.selectedRooms.filter((r) => r.actions?.[actionKey]).length;
@@ -65,6 +65,21 @@ const cleanCount = computed(() => props.selectedRooms.filter((r) => r.actions?.c
             @click="emit('inspect')"
         >
             <ClipboardCheck class="h-3.5 w-3.5" /> Kiểm đồ ({{ inspectCount }})
+        </button>
+
+        <!-- User request (2026-08-20 chat) — "ghi một lượt cho nhiều phòng chỉ
+             với 1 kết quả 'xác nhận không phát sinh'": same eligible set as
+             "Kiểm đồ" (can_inspect), one click records "không phát sinh" for
+             every selected room's stay in one batch instead of opening the
+             popup once per room. -->
+        <button
+            type="button"
+            class="inline-flex items-center gap-1 rounded border border-lime-300 bg-lime-50 px-2.5 py-1.5 text-xs font-medium text-lime-700 disabled:cursor-not-allowed disabled:opacity-40"
+            :disabled="inspectCount === 0 || !can.inspect"
+            :title="inspectCount === 0 ? 'Không có phòng nào cần kiểm đồ.' : 'Ghi \'Xác nhận không phát sinh\' cho tất cả phòng đã chọn, không cần mở từng phiếu.'"
+            @click="emit('confirm-no-charge')"
+        >
+            <CheckCircle2 class="h-3.5 w-3.5" /> Không phát sinh ({{ inspectCount }})
         </button>
 
         <button

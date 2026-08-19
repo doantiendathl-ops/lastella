@@ -426,6 +426,33 @@ function closeOtherServices() {
     otherServicesTarget.value = null;
 }
 
+// User request (2026-08-20 chat) — "Phần kiểm đồ trong sơ đồ thao tác cho
+// phép ghi một lượt cho nhiều phòng chỉ với 1 kết quả 'xác nhận không phát
+// sinh'". Same eligible set as the single-room "Kiểm đồ" toolbar button
+// (can_inspect); reuses the exact per-stay draft -> complete(items: [])
+// sequence CheckoutInspectionModal.vue's "Xác nhận không phát sinh" button
+// already does — complete() is idempotent, so a room whose inspection is
+// already Completed is silently skipped (no-op), never overwritten.
+async function bulkConfirmNoCharge() {
+    const targets = selectedRooms.value.filter((r) => r.actions?.can_inspect && r.occupant?.stay_id);
+    if (targets.length === 0) return;
+
+    const results = await Promise.allSettled(targets.map(async (room) => {
+        const draft = await axios.post(route('admin.checkout-inspections.draft', room.occupant.stay_id));
+        await axios.post(route('admin.checkout-inspections.complete', draft.data.id), { note: null, items: [] });
+    }));
+
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    pushToast(
+        failed > 0
+            ? `Đã xác nhận không phát sinh ${targets.length - failed}/${targets.length} phòng (${failed} lỗi).`
+            : `Đã xác nhận không phát sinh cho ${targets.length} phòng.`,
+        failed > 0 ? 'error' : 'success',
+    );
+    clearSelection();
+    refresh();
+}
+
 async function bulkClean() {
     const targets = selectedRooms.value.filter((r) => r.actions?.can_clean);
     if (targets.length === 0) return;
@@ -607,6 +634,7 @@ function onSwapDone() {
             @check-in="bulkCheckIn"
             @check-out="requestCheckOut"
             @inspect="openInspectFromToolbar"
+            @confirm-no-charge="bulkConfirmNoCharge"
             @clean="bulkClean"
             @clear="clearSelection"
         />
