@@ -262,6 +262,37 @@ class EarlyCheckInAdminActualTimeOverrideTest extends TestCase
         app(StayService::class)->updateActualCheckIn($stay, now(), $this->reception);
     }
 
+    /**
+     * User request (2026-08-19 chat) — "khóa điều kiện an toàn" check:
+     * confirms updateActualCheckIn() rejects a correction that would push
+     * the check-in time PAST an already-recorded checkout time, same
+     * cross-field guard checkOut() enforces on the initial action, just
+     * exercised from the edit-after-fact side.
+     */
+    public function test_admin_edit_check_in_service_rejects_when_after_actual_checkout(): void
+    {
+        [, $stay] = $this->makeCheckedInStay(now()->subHours(3));
+        app(StayService::class)->checkOut($stay, now()->subHour(), true);
+        $stay->refresh();
+        $originalCheckin = $stay->actual_checkin_at;
+
+        try {
+            app(StayService::class)->updateActualCheckIn(
+                $stay,
+                $stay->actual_checkout_at->copy()->addMinutes(10),
+                $this->admin,
+            );
+            $this->fail('Expected ValidationException was not thrown.');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('actual_checkin_at', $e->errors());
+        }
+
+        $this->assertSame(
+            $originalCheckin->format('Y-m-d H:i'),
+            $stay->refresh()->actual_checkin_at->format('Y-m-d H:i'),
+        );
+    }
+
     // -------------------------------------------------------------------------
     // 9-10. Employee checkout
     // -------------------------------------------------------------------------
@@ -403,6 +434,35 @@ class EarlyCheckInAdminActualTimeOverrideTest extends TestCase
             ->assertForbidden();
 
         $this->assertSame($oldActual, $stay->refresh()->actual_checkout_at->format('Y-m-d H:i'));
+    }
+
+    /**
+     * User request (2026-08-19 chat) — "khóa điều kiện an toàn" check, other
+     * direction: updateActualCheckOut() rejects a correction that would pull
+     * the checkout time BEFORE the recorded check-in time.
+     */
+    public function test_admin_edit_check_out_service_rejects_when_before_actual_checkin(): void
+    {
+        [, $stay] = $this->makeCheckedInStay(now()->subHours(3));
+        app(StayService::class)->checkOut($stay, now()->subHour(), true);
+        $stay->refresh();
+        $originalCheckout = $stay->actual_checkout_at;
+
+        try {
+            app(StayService::class)->updateActualCheckOut(
+                $stay,
+                $stay->actual_checkin_at->copy()->subMinutes(10),
+                $this->admin,
+            );
+            $this->fail('Expected ValidationException was not thrown.');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('actual_checkout_at', $e->errors());
+        }
+
+        $this->assertSame(
+            $originalCheckout->format('Y-m-d H:i'),
+            $stay->refresh()->actual_checkout_at->format('Y-m-d H:i'),
+        );
     }
 
     // -------------------------------------------------------------------------
