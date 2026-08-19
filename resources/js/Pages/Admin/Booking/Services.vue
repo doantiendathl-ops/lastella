@@ -244,7 +244,10 @@ const cancelRow = (row: BookingServiceRow): void => {
                                     <div v-if="can.manage" class="flex flex-wrap gap-2">
                                         <button v-if="row.fulfillment_status === 'CREATED'" type="button" class="text-xs text-pine hover:underline" @click="confirmRow(row)">Xác nhận</button>
                                         <button v-if="row.fulfillment_status === 'CREATED' || row.fulfillment_status === 'CONFIRMED'" type="button" class="text-xs text-pine hover:underline" @click="completeRow(row)">Hoàn thành</button>
-                                        <button v-if="row.fulfillment_status === 'CREATED' || row.fulfillment_status === 'CONFIRMED'" type="button" class="text-xs text-red-600 hover:underline" @click="cancelRow(row)">Hủy</button>
+                                        <!-- User request (2026-08-20 chat) — allow cancelling even after
+                                             COMPLETED (fulfillment lifecycle is independent of billing,
+                                             see ServiceFulfillmentStatus::allowedNextStatuses()). -->
+                                        <button v-if="row.fulfillment_status !== 'CANCELLED'" type="button" class="text-xs text-red-600 hover:underline" @click="cancelRow(row)">Hủy</button>
                                     </div>
                                 </td>
                             </tr>

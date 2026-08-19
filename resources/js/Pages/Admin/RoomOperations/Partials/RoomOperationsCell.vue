@@ -14,7 +14,7 @@ const props = defineProps({
     canAdjustActualTime: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['toggle-select', 'view-booking', 'save-note', 'select-booking-rooms', 'edit-check-in', 'edit-check-out']);
+const emit = defineEmits(['toggle-select', 'view-booking', 'save-note', 'select-booking-rooms', 'edit-check-in', 'edit-check-out', 'view-other-services']);
 
 const occupant = computed(() => props.room.occupant);
 
@@ -63,6 +63,30 @@ const housekeepingText = computed(() => (props.room.is_clean ? 'Sạch' : 'Bẩn
 const housekeepingClass = computed(() => (props.room.is_clean ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'));
 
 const bedJoinTooltip = computed(() => (occupant.value?.bed_join ? `Ghép giường — ${occupant.value.bed_join.status_label}` : ''));
+
+// User request (2026-08-20 chat) — compact "N chờ xác nhận · N chờ thực hiện
+// · N đã hoàn thành" summary for every OTHER active Dịch vụ & Yêu cầu
+// enrollment (bed join/extra bed are excluded server-side — they already
+// have their own badge above). Zero-count buckets are omitted.
+const OTHER_SERVICE_STATUS_TEXT = {
+    CREATED: 'chờ xác nhận',
+    CONFIRMED: 'chờ thực hiện',
+    COMPLETED: 'đã hoàn thành',
+};
+const otherServicesSummary = computed(() => {
+    const items = occupant.value?.other_services ?? [];
+    if (items.length === 0) return '';
+
+    const counts = { CREATED: 0, CONFIRMED: 0, COMPLETED: 0 };
+    items.forEach((item) => {
+        if (counts[item.status] !== undefined) counts[item.status] += 1;
+    });
+
+    return Object.entries(counts)
+        .filter(([, count]) => count > 0)
+        .map(([status, count]) => `${count} ${OTHER_SERVICE_STATUS_TEXT[status]}`)
+        .join(' · ');
+});
 
 // Room-Conflict Detection follow-up: two (or more) live assignments hold the
 // same physical room with genuinely overlapping date ranges — a real
@@ -167,7 +191,7 @@ function handleCheckoutDateClick() {
             <div v-if="occupant" class="space-y-1">
                 <button
                     type="button"
-                    class="block text-left font-medium leading-snug underline decoration-dotted underline-offset-2 hover:decoration-solid"
+                    class="block text-left font-bold leading-snug underline decoration-dotted underline-offset-2 hover:decoration-solid"
                     style="overflow-wrap: anywhere;"
                     @click="emit('view-booking', occupant.booking_id)"
                 >
@@ -228,6 +252,19 @@ function handleCheckoutDateClick() {
         </template>
 
         <template #footer>
+            <!-- User request (2026-08-20 chat) — every OTHER active Dịch vụ &
+                 Yêu cầu enrollment (bed join/extra bed already have their own
+                 badge above), summarized ABOVE the note box; click opens a
+                 popup list + link to the booking's Dịch vụ & Yêu cầu page. -->
+            <button
+                v-if="otherServicesSummary"
+                type="button"
+                class="mb-1 block w-full rounded bg-white/75 px-1 py-0.5 text-left text-[10px] font-medium text-indigo-700 hover:bg-white"
+                @click="emit('view-other-services', room)"
+            >
+                {{ occupant.other_services.length }} yêu cầu &amp; dịch vụ khác: {{ otherServicesSummary }}
+            </button>
+
             <!-- Mục XVIII/XXVII: quick note is shown in FULL — no truncate/line-clamp/max-height,
                  wraps across as many lines as needed. -->
             <div class="pt-1">

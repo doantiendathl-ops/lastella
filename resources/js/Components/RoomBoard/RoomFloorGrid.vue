@@ -20,7 +20,9 @@ const props = defineProps({
     emptyMessage: { type: String, default: 'Không có phòng nào.' },
 });
 
-const MIN_SCALE = 0.5;
+// User request (2026-08-20 chat) — lowered from 0.5 so more of a busy floor
+// fits on screen at once, especially useful on mobile.
+const MIN_SCALE = 0.3;
 const MAX_SCALE = 2;
 const SCALE_STEP = 0.1;
 

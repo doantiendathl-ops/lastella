@@ -9,7 +9,7 @@ defineProps({
     canAdjustActualTime: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['toggle-select', 'view-booking', 'save-note', 'select-booking-rooms', 'edit-check-in', 'edit-check-out']);
+const emit = defineEmits(['toggle-select', 'view-booking', 'save-note', 'select-booking-rooms', 'edit-check-in', 'edit-check-out', 'view-other-services']);
 </script>
 
 <template>
@@ -26,6 +26,7 @@ const emit = defineEmits(['toggle-select', 'view-booking', 'save-note', 'select-
                 @select-booking-rooms="emit('select-booking-rooms', $event)"
                 @edit-check-in="emit('edit-check-in', $event)"
                 @edit-check-out="emit('edit-check-out', $event)"
+                @view-other-services="emit('view-other-services', $event)"
             />
         </template>
     </RoomFloorGrid>

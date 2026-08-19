@@ -115,6 +115,15 @@ class RoomOperationsBoardService
         $bookingIds = $assignments->flatten()->pluck('booking_id')->unique()->all();
         $bedJoinByStayId = $this->bedJoinRequestsByStayId($bookingIds);
         $extraBedQuantityByStayId = $this->extraBedQuantityByStayId($bookingIds);
+        // User request (2026-08-20 chat) — needed so a BOOKING-scoped Service
+        // enrollment (room_assignment_id null) can be attached to every stay
+        // of that booking currently on the board, same "applies to every
+        // stay" rule bedJoinRequestsByStayId()'s docblock already documents.
+        $bookingIdToStayIds = $assignments->flatten()
+            ->filter(fn (RoomAssignment $a): bool => $a->stay !== null)
+            ->groupBy('booking_id')
+            ->map(fn (Collection $group) => $group->pluck('stay.id')->unique()->values());
+        $otherServicesByStayId = $this->otherServicesByStayId($bookingIds, $bookingIdToStayIds);
 
         $pendingRequestCounts = BookingSpecialRequest::pendingCountByRoom(
             \App\Models\Room::query()->pluck('id')->all(),
@@ -125,13 +134,13 @@ class RoomOperationsBoardService
             ->orderBy('sort_order')
             ->with(['rooms' => fn ($q) => $q->with('roomType')->orderBy('room_number')])
             ->get()
-            ->map(function (Floor $floor) use ($assignments, $bedJoinByStayId, $extraBedQuantityByStayId, $user, $pendingRequestCounts): array {
+            ->map(function (Floor $floor) use ($assignments, $bedJoinByStayId, $extraBedQuantityByStayId, $otherServicesByStayId, $user, $pendingRequestCounts): array {
                 return [
                     'id' => $floor->id,
                     'code' => $floor->code,
                     'name' => $floor->name,
                     'rooms' => $floor->rooms->map(
-                        fn ($room) => $this->buildRoomCell($room, $assignments->get($room->id, collect()), $bedJoinByStayId, $extraBedQuantityByStayId, $user, $pendingRequestCounts[$room->id] ?? 0),
+                        fn ($room) => $this->buildRoomCell($room, $assignments->get($room->id, collect()), $bedJoinByStayId, $extraBedQuantityByStayId, $otherServicesByStayId, $user, $pendingRequestCounts[$room->id] ?? 0),
                     )->values(),
                 ];
             })
@@ -251,7 +260,7 @@ class RoomOperationsBoardService
         })->values()->all();
     }
 
-    private function buildRoomCell($room, Collection $roomAssignments, Collection $bedJoinByStayId, Collection $extraBedQuantityByStayId, User $user, int $pendingRequestCount): array
+    private function buildRoomCell($room, Collection $roomAssignments, Collection $bedJoinByStayId, Collection $extraBedQuantityByStayId, Collection $otherServicesByStayId, User $user, int $pendingRequestCount): array
     {
         $ordered = $roomAssignments->sortBy([
             fn ($a, $b) => ($b->status === AssignmentStatus::CheckedIn ? 1 : 0) <=> ($a->status === AssignmentStatus::CheckedIn ? 1 : 0),
@@ -323,6 +332,12 @@ class RoomOperationsBoardService
                 // enrollment ADDED together; see extraBedQuantityByStayId() docblock.
                 'extra_bed_quantity' => $primary->extra_bed_quantity
                     + ($stay !== null ? ($extraBedQuantityByStayId->get($stay->id) ?? 0) : 0),
+                // User request (2026-08-20 chat) — every OTHER active Dịch vụ &
+                // Yêu cầu enrollment (i.e. everything except the TWIN_TO_DOUBLE/
+                // EXTRA_BED_PER_NIGHT ones already surfaced as their own badge
+                // above), summarized above the quick-note box, click opens a
+                // popup list + a link to the booking's own Dịch vụ & Yêu cầu page.
+                'other_services' => $stay !== null ? ($otherServicesByStayId->get($stay->id, collect())->values()->all()) : [],
                 'inspection_status' => $inspectionStatus,
                 'quick_note' => $primary->quick_note,
                 'start_at' => $primary->start_at?->format('Y-m-d H:i'),
@@ -572,6 +587,75 @@ class RoomOperationsBoardService
             ->filter(fn (BookingService $bs): bool => $bs->roomAssignment?->stay !== null)
             ->groupBy(fn (BookingService $bs) => $bs->roomAssignment->stay->id)
             ->map(fn (Collection $rows): int => (int) $rows->sum('quantity'));
+    }
+
+    /**
+     * User request (2026-08-20 chat) — "ngoài các yêu cầu hiển thị trực tiếp
+     * trên ô Phòng" (bed join, extra bed — each has its own dedicated badge)
+     * "thì các yêu cầu và dịch vụ khác" — every other active BookingService
+     * enrollment, summarized into a click-to-expand popup instead of its own
+     * badge. ROOM-scoped rows attach only to their own stay; BOOKING-scoped
+     * rows (room_assignment_id null) attach to every stay of that booking
+     * currently on the board — same rule bedJoinRequestsByStayId() already
+     * documents for TWIN_TO_DOUBLE.
+     *
+     * Deliberately does NOT include legacy BookingSpecialRequest rows (the
+     * pre-Unified-Services "yêu cầu đặc biệt" checklist, still surfaced
+     * separately via $pendingRequestCount): there is no longer any UI to
+     * create new ones (superseded by the Unified Request Catalog), so they
+     * are historical-only data, not part of the active service-management
+     * workflow this popup's "Xem" link opens into (/admin/bookings/{id}/
+     * services never manages BookingSpecialRequest rows).
+     *
+     * @param  int[]  $bookingIds
+     * @param  Collection<int, Collection<int, int>>  $bookingIdToStayIds
+     * @return Collection<int, array<int, array{id: int, name: string, category_name: ?string, quantity: int, unit_label: ?string, status: string, status_label: string}>> keyed by stay_id
+     */
+    private function otherServicesByStayId(array $bookingIds, Collection $bookingIdToStayIds): Collection
+    {
+        if ($bookingIds === []) {
+            return collect();
+        }
+
+        $excludedCodes = ['TWIN_TO_DOUBLE', 'EXTRA_BED_PER_NIGHT'];
+
+        $rows = BookingService::whereIn('booking_id', $bookingIds)
+            ->whereHas('service', fn ($q) => $q->whereNotIn('code', $excludedCodes))
+            ->where('fulfillment_status', '!=', ServiceFulfillmentStatus::Cancelled->value)
+            ->with(['service.category', 'roomAssignment.stay'])
+            ->get();
+
+        $byStayId = collect();
+        $appendTo = function (int $stayId, array $item) use ($byStayId): void {
+            $byStayId->put($stayId, $byStayId->get($stayId, collect())->push($item));
+        };
+
+        foreach ($rows as $bs) {
+            $item = [
+                'id' => $bs->id,
+                'name' => $bs->service->name,
+                'category_name' => $bs->service->category?->name,
+                'quantity' => $bs->quantity,
+                'unit_label' => $bs->service->unit_label,
+                'status' => $bs->fulfillment_status->value,
+                'status_label' => $bs->fulfillment_status->label(),
+            ];
+
+            if ($bs->room_assignment_id !== null) {
+                $stayId = $bs->roomAssignment?->stay?->id;
+                if ($stayId !== null) {
+                    $appendTo($stayId, $item);
+                }
+
+                continue;
+            }
+
+            foreach ($bookingIdToStayIds->get($bs->booking_id, collect()) as $stayId) {
+                $appendTo($stayId, $item);
+            }
+        }
+
+        return $byStayId;
     }
 
     private function boardTotals(Collection $floors): array

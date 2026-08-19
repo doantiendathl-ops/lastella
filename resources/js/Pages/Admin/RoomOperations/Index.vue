@@ -408,6 +408,22 @@ function submitEditCheckOut() {
     });
 }
 
+// ---- "Other services" popup (User request, 2026-08-20 chat) ---------------
+// Every OTHER active Dịch vụ & Yêu cầu enrollment (bed join/extra bed have
+// their own dedicated badge on the tile) — click the tile's summary button
+// to see the full list, with a link out to the booking's own Dịch vụ &
+// Yêu cầu page (the one place these are actually confirmed/completed/
+// cancelled) rather than duplicating that management UI here.
+const otherServicesTarget = ref(null); // room
+
+function openOtherServices(room) {
+    otherServicesTarget.value = room;
+}
+
+function closeOtherServices() {
+    otherServicesTarget.value = null;
+}
+
 async function bulkClean() {
     const targets = selectedRooms.value.filter((r) => r.actions?.can_clean);
     if (targets.length === 0) return;
@@ -573,6 +589,7 @@ function onSwapDone() {
                 @select-booking-rooms="selectBookingRooms"
                 @edit-check-in="openEditCheckIn"
                 @edit-check-out="openEditCheckOut"
+                @view-other-services="openOtherServices"
             />
 
             <div>
@@ -689,6 +706,50 @@ function onSwapDone() {
                         </button>
                     </div>
                 </form>
+            </div>
+        </div>
+
+        <!-- "Yêu cầu & dịch vụ khác" popup (User request, 2026-08-20 chat) -->
+        <div v-if="otherServicesTarget" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <div class="w-full max-w-md border border-gray-200 bg-white p-5 shadow-xl">
+                <h2 class="text-base font-semibold">
+                    Yêu cầu &amp; dịch vụ — Phòng {{ otherServicesTarget.room_number }}
+                </h2>
+                <p v-if="otherServicesTarget.occupant" class="mt-1 text-xs text-steel">
+                    {{ otherServicesTarget.occupant.booking_code }} · {{ otherServicesTarget.occupant.customer_name }}
+                </p>
+
+                <ul class="mt-3 max-h-80 space-y-2 overflow-y-auto">
+                    <li
+                        v-for="item in otherServicesTarget.occupant?.other_services ?? []"
+                        :key="item.id"
+                        class="flex items-start justify-between gap-2 border-b border-gray-100 pb-2 text-sm"
+                    >
+                        <div>
+                            <div class="font-medium text-gray-900">{{ item.name }}</div>
+                            <div class="text-xs text-steel">
+                                {{ item.category_name }}<template v-if="item.quantity > 1"> · SL {{ item.quantity }}{{ item.unit_label ? ` ${item.unit_label}` : '' }}</template>
+                            </div>
+                        </div>
+                        <span class="shrink-0 text-xs font-medium text-gray-600">{{ item.status_label }}</span>
+                    </li>
+                    <li v-if="!(otherServicesTarget.occupant?.other_services?.length)" class="text-sm text-steel">
+                        Không có yêu cầu/dịch vụ nào khác.
+                    </li>
+                </ul>
+
+                <div class="mt-4 flex justify-end gap-2">
+                    <button type="button" class="border border-gray-300 px-4 py-2 text-sm font-semibold text-steel hover:text-ink" @click="closeOtherServices">
+                        Thoát
+                    </button>
+                    <a
+                        v-if="otherServicesTarget.occupant"
+                        :href="route('admin.bookings.services.show', otherServicesTarget.occupant.booking_id)"
+                        class="border border-pine bg-pine px-4 py-2 text-sm font-semibold text-white hover:bg-pine/90"
+                    >
+                        Xem
+                    </a>
+                </div>
             </div>
         </div>
 

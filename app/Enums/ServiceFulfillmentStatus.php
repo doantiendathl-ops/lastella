@@ -25,13 +25,22 @@ enum ServiceFulfillmentStatus: string
         };
     }
 
-    /** Valid forward transitions from this status. Cancelled is reachable from Created/Confirmed only, never from Completed. */
+    /**
+     * Valid forward transitions from this status. Cancelled is reachable
+     * from ANY non-Cancelled status, including Completed — User request
+     * (2026-08-20 chat): "cho phép hủy kể cả sau khi đã hoàn thành". Safe
+     * because the fulfillment lifecycle is intentionally independent of
+     * billing (see class docblock) — cancelling a Completed row never
+     * retroactively voids an already-posted FolioEntry, it only stops any
+     * further PER_NIGHT posting via isBillable() below.
+     */
     public function allowedNextStatuses(): array
     {
         return match ($this) {
             self::Created => [self::Confirmed, self::Completed, self::Cancelled],
             self::Confirmed => [self::Completed, self::Cancelled],
-            self::Completed, self::Cancelled => [],
+            self::Completed => [self::Cancelled],
+            self::Cancelled => [],
         };
     }
 

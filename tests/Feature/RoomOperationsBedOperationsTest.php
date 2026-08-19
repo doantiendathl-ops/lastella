@@ -237,6 +237,126 @@ class RoomOperationsBedOperationsTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
+    // "Yêu cầu & dịch vụ khác" popup summary (User request, 2026-08-20 chat)
+    // -------------------------------------------------------------------------
+
+    public function test_board_other_services_shows_room_scoped_enrollment_only_on_its_room(): void
+    {
+        $booking = $this->createBooking();
+        $roomA = Room::where('room_number', '104')->firstOrFail();
+        $roomB = Room::where('room_number', '105')->firstOrFail();
+        [$assignmentA] = $this->assignRooms($booking, [$roomA, $roomB]);
+        app(StayService::class)->createStayFromAssignment($assignmentA);
+
+        $service = $this->makeOtherUnifiedService('LATE_CHECKOUT_TEST', 'Trả phòng muộn', 'ROOM');
+        app(\App\Services\BookingServiceEnrollmentService::class)->enroll(
+            booking: $booking,
+            service: $service,
+            roomAssignment: $assignmentA,
+            quantity: 1,
+            billingModeSelected: null,
+            actualPrice: null,
+            priceOverrideReason: null,
+            createdBy: $this->admin,
+        );
+
+        $board = app(RoomOperationsBoardService::class)->boardForDate('2026-08-01', $this->admin);
+
+        $otherServicesA = $this->findRoom($board, '104')['occupant']['other_services'];
+        $this->assertCount(1, $otherServicesA);
+        $this->assertSame('Trả phòng muộn', $otherServicesA[0]['name']);
+        $this->assertSame('CREATED', $otherServicesA[0]['status']);
+
+        $roomBOccupant = $this->findRoom($board, '105')['occupant'];
+        $this->assertSame([], $roomBOccupant['other_services'] ?? []);
+    }
+
+    public function test_board_other_services_shows_booking_scoped_enrollment_on_every_room(): void
+    {
+        $booking = $this->createBooking();
+        $roomA = Room::where('room_number', '104')->firstOrFail();
+        $roomB = Room::where('room_number', '105')->firstOrFail();
+        [$assignmentA, $assignmentB] = $this->assignRooms($booking, [$roomA, $roomB]);
+        app(StayService::class)->createStayFromAssignment($assignmentA);
+        app(StayService::class)->createStayFromAssignment($assignmentB);
+
+        $service = $this->makeOtherUnifiedService('AIRPORT_PICKUP_TEST', 'Đưa đón sân bay', 'BOOKING');
+        app(\App\Services\BookingServiceEnrollmentService::class)->enroll(
+            booking: $booking,
+            service: $service,
+            roomAssignment: null,
+            quantity: 1,
+            billingModeSelected: null,
+            actualPrice: null,
+            priceOverrideReason: null,
+            createdBy: $this->admin,
+        );
+
+        $board = app(RoomOperationsBoardService::class)->boardForDate('2026-08-01', $this->admin);
+
+        foreach (['104', '105'] as $roomNumber) {
+            $items = $this->findRoom($board, $roomNumber)['occupant']['other_services'];
+            $this->assertCount(1, $items, "Room {$roomNumber} should carry the booking-wide enrollment.");
+            $this->assertSame('Đưa đón sân bay', $items[0]['name']);
+        }
+    }
+
+    public function test_board_other_services_excludes_bed_join_extra_bed_and_cancelled(): void
+    {
+        $booking = $this->createBooking();
+        $room = Room::where('room_number', '104')->firstOrFail();
+        [$assignment] = $this->assignRooms($booking, [$room]);
+        app(StayService::class)->createStayFromAssignment($assignment);
+
+        $enrollment = app(\App\Services\BookingServiceEnrollmentService::class);
+        $enrollArgs = fn ($service) => [
+            'booking' => $booking,
+            'service' => $service,
+            'roomAssignment' => $assignment,
+            'quantity' => 1,
+            'billingModeSelected' => null,
+            'actualPrice' => null,
+            'priceOverrideReason' => null,
+            'createdBy' => $this->admin,
+        ];
+
+        // Already has its own dedicated badge — must not duplicate into "other".
+        $enrollment->enroll(...$enrollArgs($this->makeExtraBedUnifiedService()));
+
+        // Cancelled — excluded regardless of Service code.
+        $cancelledService = $this->makeOtherUnifiedService('SPA_TEST', 'Spa', 'ROOM');
+        $cancelledEnrollment = $enrollment->enroll(...$enrollArgs($cancelledService));
+        $enrollment->cancel($cancelledEnrollment, $this->admin);
+
+        $board = app(RoomOperationsBoardService::class)->boardForDate('2026-08-01', $this->admin);
+
+        $this->assertSame([], $this->findRoom($board, '104')['occupant']['other_services']);
+    }
+
+    private function makeOtherUnifiedService(string $code, string $name, string $scope): \App\Models\Service
+    {
+        $category = \App\Models\ServiceCategory::firstOrCreate(
+            ['code' => 'OTHER_SERVICE_TEST'],
+            ['name' => 'Khác', 'is_active' => true],
+        );
+
+        return \App\Models\Service::create([
+            'category_id' => $category->id,
+            'code' => $code,
+            'name' => $name,
+            'is_chargeable' => false,
+            'scope' => $scope,
+            'billing_mode' => 'ONE_TIME',
+            'quantity_enabled' => false,
+            'default_quantity' => 1,
+            'unit_label' => '',
+            'fulfillment_required' => true,
+            'is_active' => true,
+            'is_bookable' => true,
+        ]);
+    }
+
+    // -------------------------------------------------------------------------
     // Ghép giường (twin_to_double Special Request) — canonical, room-scoped
     // -------------------------------------------------------------------------
 

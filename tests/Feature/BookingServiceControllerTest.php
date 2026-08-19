@@ -179,7 +179,13 @@ class BookingServiceControllerTest extends TestCase
         $this->assertSame('COMPLETED', $bs->fresh()->fulfillment_status->value);
     }
 
-    public function test_cannot_cancel_after_completed(): void
+    /**
+     * User request (2026-08-20 chat) — "cho phép hủy kể cả sau khi đã hoàn
+     * thành". Was test_cannot_cancel_after_completed (asserted the opposite,
+     * pre-2026-08-20 behavior) — updated in place since the old behavior is
+     * exactly what was asked to change, not a separate case to keep.
+     */
+    public function test_can_cancel_after_completed(): void
     {
         $bs = app(\App\Services\BookingServiceEnrollmentService::class)->enroll(
             $this->booking, $this->roomService, $this->stay->roomAssignment, 1, null, null, null, $this->admin,
@@ -188,9 +194,25 @@ class BookingServiceControllerTest extends TestCase
 
         $this->actingAs($this->admin)
             ->patch(route('admin.bookings.services.cancel', [$this->booking, $bs]))
+            ->assertRedirect()
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame('CANCELLED', $bs->fresh()->fulfillment_status->value);
+    }
+
+    /** Cancelled stays terminal — cannot cancel an already-cancelled row. */
+    public function test_cannot_cancel_already_cancelled(): void
+    {
+        $bs = app(\App\Services\BookingServiceEnrollmentService::class)->enroll(
+            $this->booking, $this->roomService, $this->stay->roomAssignment, 1, null, null, null, $this->admin,
+        );
+        app(\App\Services\BookingServiceEnrollmentService::class)->cancel($bs, $this->admin);
+
+        $this->actingAs($this->admin)
+            ->patch(route('admin.bookings.services.cancel', [$this->booking, $bs]))
             ->assertSessionHasErrors('fulfillment_status');
 
-        $this->assertSame('COMPLETED', $bs->fresh()->fulfillment_status->value);
+        $this->assertSame('CANCELLED', $bs->fresh()->fulfillment_status->value);
     }
 
     public function test_sales_role_cannot_manage_booking_services(): void

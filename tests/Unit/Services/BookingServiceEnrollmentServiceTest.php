@@ -267,7 +267,15 @@ class BookingServiceEnrollmentServiceTest extends TestCase
         $this->assertSame($this->user->id, $bs->completed_by);
     }
 
-    public function test_cannot_transition_out_of_completed(): void
+    /**
+     * User request (2026-08-20 chat) — "cho phép hủy kể cả sau khi đã hoàn
+     * thành". Was test_cannot_transition_out_of_completed (asserted the
+     * opposite, pre-2026-08-20 behavior) — updated in place since the old
+     * behavior is exactly what was asked to change, not a separate case to
+     * keep. Completed -> Cancelled is now the ONE transition allowed out of
+     * Completed; still nothing else (asserted below).
+     */
+    public function test_completed_can_only_transition_to_cancelled(): void
     {
         $booking = Booking::factory()->create();
         $service = $this->makeService();
@@ -277,8 +285,12 @@ class BookingServiceEnrollmentServiceTest extends TestCase
         $bs = $enrollment->enroll($booking, $service, null, 1, null, null, null, $this->user);
         $bs = $enrollment->complete($bs, $this->user);
 
+        $bs = $enrollment->cancel($bs, $this->user);
+        $this->assertSame(ServiceFulfillmentStatus::Cancelled, $bs->fulfillment_status);
+
+        // Cancelled is terminal — no further transition, including re-completing.
         $this->expectException(ValidationException::class);
-        $enrollment->cancel($bs, $this->user);
+        $enrollment->complete($bs, $this->user);
     }
 
     public function test_cancelled_row_records_who_and_when(): void
