@@ -1,6 +1,6 @@
 # Hướng dẫn cập nhật pms.lastella.com.vn — đưa lên ngang bằng `phase-3`
 
-**Ngày soạn:** 2026-08-19 (cập nhật lần 5) · **Nhánh nguồn:** `origin/phase-3` @ `a461ae7` · **Người soạn:** Claude (máy dev), theo yêu cầu Product Owner sau khi phát hiện `pms.lastella.com.vn` đang chạy code cũ (thiếu menu "Dịch vụ & Yêu cầu", vẫn còn danh sách "Yêu cầu đặc biệt" hardcode trong PHP).
+**Ngày soạn:** 2026-08-19 (cập nhật lần 6) · **Nhánh nguồn:** `origin/phase-3` @ `739fd70` · **Người soạn:** Claude (máy dev), theo yêu cầu Product Owner sau khi phát hiện `pms.lastella.com.vn` đang chạy code cũ (thiếu menu "Dịch vụ & Yêu cầu", vẫn còn danh sách "Yêu cầu đặc biệt" hardcode trong PHP).
 
 **Cách dùng file này:** dán nguyên văn phần "LỆNH CHO CLAUDE TRÊN MÁY CHỦ" bên dưới cho Claude đang chạy trực tiếp trên máy chủ production. Claude ở máy dev (soạn file này) **không có quyền truy cập trực tiếp vào máy chủ đó** — mọi thao tác thực tế do Claude trên máy chủ tự thực hiện.
 
@@ -8,7 +8,7 @@
 
 ## Bối cảnh (để Claude trên máy chủ hiểu VÌ SAO, không chỉ làm theo lệnh mù)
 
-`pms.lastella.com.vn` hiện thiếu ~26 commit gần nhất trên `phase-3`, trong đó quan trọng nhất:
+`pms.lastella.com.vn` hiện thiếu ~27 commit gần nhất trên `phase-3`, trong đó quan trọng nhất:
 
 - **Unified Services & Requests** (4 commit `ca188f0`…`9e984b6`): thêm danh mục Dịch vụ/Yêu cầu quản lý qua DB (4 bảng mới), thay cho danh sách 24 loại "Yêu cầu đặc biệt" đang hardcode trong `app/Http/Requests/Booking/StoreBookingSpecialRequestRequest.php::ALLOWED_REQUEST_TYPES` (và bản tương ứng ở frontend) — đây chính là lý do màn "Dịch vụ & Yêu cầu" ở menu bị thiếu và các "yêu cầu" hiện tại vẫn nằm cứng trong code.
 - **Room Map hợp nhất** (~7 commit): Sơ đồ thao tác/Sơ đồ chọn phòng/Sơ đồ Check phòng/Sơ đồ Kiểm đồ dùng chung 1 kiểu hiển thị, xem lại được phòng đã trả trên Sơ đồ kiểm tra phòng.
@@ -20,9 +20,10 @@
   **⚠️ QUAN TRỌNG — khác với các thay đổi trước:** các quyền này **KHÔNG tự có sẵn** trong DB production cho tới khi cấp thủ công (xem Bước 4). Nếu bỏ qua bước cấp quyền, ngay sau khi pull code, ADMIN trên production sẽ **MẤT khả năng** dùng cả 6 chức năng trên (dù trước đó vẫn dùng bình thường) — vì code không còn kiểm tra `hasRole('ADMIN')` nữa mà kiểm tra `$user->can('<slug>')`, và quyền đó chưa tồn tại. Đây không phải rủi ro dữ liệu, nhưng LÀ một hồi quy chức năng tạm thời nếu làm sai thứ tự — bắt buộc chạy Bước 4 ngay sau Bước 1, không được để cách quãng.
 - **Sửa hiển thị icon "Giường phụ" trên Sơ đồ thao tác** (1 commit `69961bb`) — icon này trước đây chỉ đọc cột cũ `room_assignments.extra_bed_quantity` (không có nơi nào trên giao diện ghi vào cột đó), nên khi staff thêm "Giường phụ" qua màn Dịch vụ & Yêu cầu (ghi vào bảng `booking_services`), icon không bao giờ hiện. Giờ icon cộng cả 2 nguồn. Thuần đọc dữ liệu (read-model), không đụng migration/quyền/tính phí Night Audit.
 - **Thiết kế lại nội dung ô phòng trên Sơ đồ thao tác** (1 commit `a461ae7`) — số phòng/checkbox/nút chọn cả booking chuyển lên cùng 1 hàng; ngày nhận/trả in đậm rõ hơn, tự thay bằng giờ thực tế + gạch chân khi đã nhận/trả, bấm trực tiếp vào ngày để sửa (thay cho icon bút chì cũ); "Ghép giường"/"Giường phụ x{n}"/"Đã kiểm out" hiện bằng chữ thay vì icon; icon dọn phòng đổi thành chữ "Sạch"/"Bẩn"; bỏ hẳn icon cửa nhận/trả phòng riêng (đã gộp vào cách hiển thị ngày). Thuần frontend (`.vue`), không đụng backend/API/migration/quyền.
+- **Zoom 30%, tên khách đậm, hủy dịch vụ kể cả đã hoàn thành, popup "yêu cầu & dịch vụ khác"** (1 commit `739fd70`) — 4 phần: (1) zoom sơ đồ xuống được tới 30% (trước chỉ 50%); (2) tên khách trên ô phòng in đậm hơn; (3) nút "Hủy" trên màn Dịch vụ & Yêu cầu giờ hoạt động cả khi dịch vụ đã ở trạng thái "Đã hoàn thành" (trước đây bị khóa); (4) ô phòng có thêm 1 dòng tóm tắt "yêu cầu & dịch vụ khác" (mọi Dịch vụ & Yêu cầu ngoài Ghép giường/Giường phụ đã hiện riêng) phía trên ô ghi chú, bấm vào mở popup xem danh sách + link sang trang Dịch vụ & Yêu cầu của booking đó. Thuần frontend + 1 thay đổi logic PHP nhỏ (nới điều kiện chuyển trạng thái, không có migration).
 - 1 commit hạ tầng (`bootstrap/app.php` trust Cloudflare Tunnel proxy — **có thể máy chủ đã tự vá tay phần này rồi, kiểm tra kỹ để tránh conflict khi pull**).
 
-**4 migration mới** (additive — tạo bảng mới, KHÔNG đụng bảng cũ): `service_categories`, `services`, `service_prices`, `booking_services`. Commit `fe67b3a` (quyền mới), `69961bb` (sửa icon giường phụ) và `a461ae7` (thiết kế lại ô phòng) **không có migration nào** — `fe67b3a` chỉ thêm dòng dữ liệu vào bảng `permissions`/`role_has_permissions` có sẵn của Spatie (làm bằng tinker ở Bước 4); `69961bb` và `a461ae7` chỉ đổi cách đọc/hiển thị dữ liệu hiện có, không ghi gì mới.
+**4 migration mới** (additive — tạo bảng mới, KHÔNG đụng bảng cũ): `service_categories`, `services`, `service_prices`, `booking_services`. Commit `fe67b3a` (quyền mới), `69961bb` (sửa icon giường phụ), `a461ae7` (thiết kế lại ô phòng) và `739fd70` (zoom/tên đậm/hủy dịch vụ/popup) **không có migration nào** — `fe67b3a` chỉ thêm dòng dữ liệu vào bảng `permissions`/`role_has_permissions` có sẵn của Spatie (làm bằng tinker ở Bước 4); 3 commit còn lại chỉ đổi cách đọc/hiển thị/logic-chuyển-trạng-thái trên dữ liệu hiện có, không ghi schema mới.
 
 **Không có migration nào XÓA/SỬA cột hoặc bảng cũ** trong toàn bộ khoảng này — rủi ro dữ liệu ở mức thấp, nhưng vẫn backup đầy đủ theo đúng quy trình bên dưới trước khi làm bất cứ gì.
 
@@ -32,10 +33,11 @@
 
 ```
 Cập nhật Lastella PMS (pms.lastella.com.vn) lên ngang bằng origin/phase-3
-(commit mới nhất hiện tại: a461ae7 — "feat(room-operations): redesign room
-tile content on Sơ đồ thao tác"). Đây là một đợt cập nhật LỚN (~26 commit),
-làm tuần tự từng bước, DỪNG LẠI hỏi tôi ngay khi có bất kỳ điều gì bất
-thường — không tự suy đoán hoặc tự sửa nếu không chắc chắn.
+(commit mới nhất hiện tại: 739fd70 — "feat(room-operations): zoom to 30%,
+bold guest name, cancel-after-complete, other-services popup"). Đây là một
+đợt cập nhật LỚN (~27 commit), làm tuần tự từng bước, DỪNG LẠI hỏi tôi ngay
+khi có bất kỳ điều gì bất thường — không tự suy đoán hoặc tự sửa nếu không
+chắc chắn.
 
 ═══════════════════════════════════════════════════════════════
 BƯỚC 0 — PREFLIGHT (bắt buộc, không bỏ qua bước nào)
@@ -243,6 +245,15 @@ tác lên dữ liệu thật ngoài những gì liệt kê)
       in" tự đổi sang giờ thực tế có gạch chân đậm, bấm trực tiếp vào đó mở
       được hộp thoại sửa giờ (ADMIN); ô phòng không còn icon cửa/icon dọn
       phòng riêng — thay bằng chữ "Sạch"/"Bẩn".
+- [ ] Trên 1 sơ đồ phòng, bấm nút − liên tục — zoom được xuống tới 30%
+      (trước đây chỉ tới 50%). Tên khách trên ô phòng in đậm rõ hơn trước.
+- [ ] Vào 1 booking test → Dịch vụ & Yêu cầu → thêm 1 dịch vụ bất kỳ (không
+      phải Giường phụ/Ghép giường) → Xác nhận → Hoàn thành → nút "Hủy" vẫn
+      bấm được và hủy thành công (trước đây bị ẩn/khóa sau khi Hoàn thành).
+- [ ] Trên Sơ đồ thao tác, ô phòng của booking vừa thêm dịch vụ ở trên phải
+      hiện dòng "1 yêu cầu & dịch vụ khác: ..." phía trên ô ghi chú — bấm
+      vào mở popup liệt kê đúng dịch vụ đó, có nút "Xem" (mở đúng trang
+      Dịch vụ & Yêu cầu của booking) và nút "Thoát" (đóng popup).
 - [ ] Console trình duyệt không có lỗi mới sau khi load lại các trang trên.
 - [ ] KHÔNG tự chạy Night Audit để test — nếu cần xác nhận Night Audit vẫn
       hoạt động, chỉ mở trang xem trạng thái, không tự bấm chạy.
