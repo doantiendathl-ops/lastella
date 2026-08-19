@@ -273,7 +273,7 @@ function handleCheckoutDateClick() {
                     <button
                         v-if="canEditNote && occupant"
                         type="button"
-                        class="flex-1 text-left text-[10px] leading-snug text-gray-700 hover:text-indigo-600"
+                        class="flex-1 text-left text-[10px] font-bold leading-snug text-gray-700 hover:text-indigo-600"
                         style="white-space: normal; overflow-wrap: anywhere;"
                         @click="startEditNote"
                     >
@@ -281,25 +281,27 @@ function handleCheckoutDateClick() {
                     </button>
                     <span
                         v-else
-                        class="flex-1 text-[10px] leading-snug text-gray-600"
+                        class="flex-1 text-[10px] font-bold leading-snug text-gray-600"
                         style="white-space: normal; overflow-wrap: anywhere;"
                     >
                         {{ occupant?.quick_note || '—' }}
                     </span>
                 </div>
                 <div v-else class="space-y-1">
+                    <!-- User request (2026-08-20 chat) — bold the note content,
+                         the N/100 character counter, and the Hủy/Lưu buttons. -->
                     <textarea
                         v-model="noteDraft"
                         rows="3"
                         maxlength="100"
-                        class="w-full rounded border border-gray-300 bg-white p-1 text-[10px]"
+                        class="w-full rounded border border-gray-300 bg-white p-1 text-[10px] font-bold"
                         placeholder="Ghi chú nhanh (tối đa 100 ký tự)"
                     />
                     <div class="flex items-center justify-between text-[10px]">
-                        <span :class="noteError ? 'text-red-600' : 'text-gray-500'">{{ noteError || `${noteDraft?.length ?? 0}/100` }}</span>
+                        <span class="font-bold" :class="noteError ? 'text-red-600' : 'text-gray-500'">{{ noteError || `${noteDraft?.length ?? 0}/100` }}</span>
                         <div class="flex gap-1">
-                            <button type="button" class="text-gray-600 hover:underline" @click="cancelEditNote">Hủy</button>
-                            <button type="button" class="font-medium text-indigo-600 hover:underline" @click="saveNote">Lưu</button>
+                            <button type="button" class="font-bold text-gray-600 hover:underline" @click="cancelEditNote">Hủy</button>
+                            <button type="button" class="font-bold text-indigo-600 hover:underline" @click="saveNote">Lưu</button>
                         </div>
                     </div>
                 </div>
