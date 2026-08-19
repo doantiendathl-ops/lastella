@@ -57,9 +57,16 @@ const ringClass = computed(() => {
         </div>
 
         <div class="flex items-center justify-between gap-1">
-            <div class="flex min-w-0 items-center gap-1.5">
-                <slot name="checkbox" />
+            <!-- User request (2026-08-19 chat) — checkbox (+ any extra header
+                 action, e.g. Sơ đồ thao tác's "select all rooms of this
+                 booking" button) now sit AFTER the room number, not before.
+                 Only RoomOperationsCell.vue populates #checkbox/#header-extra
+                 today, so this reorder has no visual effect on the other 3
+                 Room Map screens that share this shell. -->
+            <div class="flex min-w-0 items-center gap-1">
                 <span class="truncate font-semibold">{{ roomNumber }}</span>
+                <slot name="checkbox" />
+                <slot name="header-extra" />
             </div>
             <span v-if="roomTypeLabel" class="shrink-0 rounded bg-white/90 px-1.5 py-0.5 text-[10px] font-medium text-gray-700">{{ roomTypeLabel }}</span>
         </div>

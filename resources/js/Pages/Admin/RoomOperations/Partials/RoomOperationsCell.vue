@@ -1,20 +1,7 @@
 <script setup>
 import RoomTile from '@/Components/RoomBoard/RoomTile.vue';
 import { formatDateShort } from '@/Support/format';
-import {
-    AlertTriangle,
-    BedDouble,
-    BedSingle,
-    Brush,
-    CheckCircle2,
-    ClipboardCheck,
-    ClipboardX,
-    DoorClosed,
-    DoorOpen,
-    LogOut,
-    MessageSquare,
-    Pencil,
-} from 'lucide-vue-next';
+import { AlertTriangle, CheckCircle2, MessageSquare } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
 
 const props = defineProps({
@@ -22,8 +9,8 @@ const props = defineProps({
     selected: { type: Boolean, default: false },
     canEditNote: { type: Boolean, default: false },
     // User request (2026-08-18 chat) — ADMIN-only, same as RoomBoardPanel.vue
-    // on the booking-detail page: shows a pencil to correct an already-
-    // recorded actual check-in/check-out time.
+    // on the booking-detail page: lets the actual check-in/check-out time be
+    // corrected without leaving the board.
     canAdjustActualTime: { type: Boolean, default: false },
 });
 
@@ -67,53 +54,15 @@ const VACANT_THEME = {
 const bookingColor = computed(() => props.room.occupant?.booking_color ?? null);
 const vacantClass = computed(() => VACANT_THEME[props.room.status_theme] ?? 'border-gray-200 bg-white');
 
-// Mục XV-XXVI: one compact icon-only status row, five groups, each with an
-// exact tooltip/aria-label — canonical sources unchanged (only the display
-// changed from text badges to icons):
-//   1. Housekeeping  → Room::isRoomClean() (physical room state)
-//   2. Occupancy     → Stay.actual_checkin_at/actual_checkout_at (3-state)
-//   3. Bed join      → BookingSpecialRequest (twin_to_double), room-scoped
-//   4. Extra bed     → room_assignments.extra_bed_quantity, room-scoped
-//   5. Inspection    → Stay::inspectionStatus()
-const housekeepingIcon = computed(() => (props.room.is_clean ? CheckCircle2 : Brush));
-const housekeepingTooltip = computed(() => (props.room.is_clean ? 'Đã dọn' : 'Chưa dọn'));
-const housekeepingClass = computed(() => (props.room.is_clean ? 'text-green-600' : 'text-amber-600'));
-
-const occupancyIcon = computed(() => {
-    if (!occupant.value) return null;
-    if (occupant.value.is_checked_out) return LogOut;
-    if (occupant.value.is_checked_in) return DoorOpen;
-    return DoorClosed;
-});
-const occupancyTooltip = computed(() => {
-    if (!occupant.value) return '';
-    if (occupant.value.is_checked_out) return 'Đã trả phòng';
-    if (occupant.value.is_checked_in) return 'Đã nhận phòng';
-    return 'Chưa nhận phòng';
-});
-// docs/yeucaumoi.txt mục 8 — DoorClosed/DoorOpen/LogOut no longer own the
-// full Room Tile background; they're one icon inside the status-strip row
-// (see the icon row's bg-white/75 backing below) instead, so the Booking
-// color underneath stays the dominant, visible background. Same 3
-// operational states, same colors, new scope only.
-const occupancyClass = computed(() => {
-    if (!occupant.value) return '';
-    if (occupant.value.is_checked_out) return 'text-gray-700';
-    if (occupant.value.is_checked_in) return 'text-blue-700';
-    return 'text-purple-700';
-});
+// User request (2026-08-19 chat) — full tile content redesign: every status
+// that used to be an icon-only badge (housekeeping, bed join, extra bed,
+// checkout inspection) is now a short Vietnamese text label instead, and the
+// separate "checked-in/checked-out" door icon is REMOVED — that fact is now
+// carried entirely by the actual-time date line below (bold + underline).
+const housekeepingText = computed(() => (props.room.is_clean ? 'Sạch' : 'Bẩn'));
+const housekeepingClass = computed(() => (props.room.is_clean ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'));
 
 const bedJoinTooltip = computed(() => (occupant.value?.bed_join ? `Ghép giường — ${occupant.value.bed_join.status_label}` : ''));
-
-const inspectionIcon = computed(() => (occupant.value?.inspection_status === 'completed' ? ClipboardCheck : ClipboardX));
-const inspectionLabel = {
-    completed: 'Đã kiểm đồ',
-    draft: 'Đang kiểm đồ (nháp)',
-    skipped: 'Bỏ qua kiểm đồ',
-    none: 'Chưa kiểm đồ',
-};
-const inspectionTooltip = computed(() => inspectionLabel[occupant.value?.inspection_status] ?? '');
-const inspectionClass = computed(() => (occupant.value?.inspection_status === 'completed' ? 'text-emerald-600' : 'text-amber-600'));
 
 // Room-Conflict Detection follow-up: two (or more) live assignments hold the
 // same physical room with genuinely overlapping date ranges — a real
@@ -132,6 +81,47 @@ const conflictTooltip = computed(() => {
     const codes = (props.room.conflicting_bookings ?? []).map((b) => b.booking_code).filter(Boolean).join(', ');
     return codes ? `Trùng phòng với: ${codes}` : 'Phòng đang bị trùng với booking khác.';
 });
+
+// User request (2026-08-19 chat) — the planned in/out date line now shows
+// the ACTUAL time (bold + underline), in place of the planned value, the
+// moment each half is recorded — independently per side, since a booking
+// can be checked in on one side and still only planned on the other.
+// Editing (ADMIN-only, ClaudeCode 2026-08-18 feature) moves from a separate
+// pencil icon to clicking the date text itself.
+const checkinDateText = computed(() => (occupant.value?.is_checked_in
+    ? formatDateShort(occupant.value.actual_checkin_at)
+    : formatDateShort(occupant.value?.start_at)));
+const checkoutDateText = computed(() => (occupant.value?.is_checked_out
+    ? formatDateShort(occupant.value.actual_checkout_at)
+    : formatDateShort(occupant.value?.end_at)));
+
+const canEditCheckin = computed(() => props.canAdjustActualTime && occupant.value?.is_checked_in);
+const canEditCheckout = computed(() => props.canAdjustActualTime && occupant.value?.is_checked_out);
+
+const checkinDateClass = computed(() => ({
+    'underline decoration-2 underline-offset-2': occupant.value?.is_checked_in,
+    'cursor-pointer hover:opacity-70': canEditCheckin.value,
+}));
+const checkoutDateClass = computed(() => ({
+    'underline decoration-2 underline-offset-2': occupant.value?.is_checked_out,
+    'cursor-pointer hover:opacity-70': canEditCheckout.value,
+}));
+
+const checkinDateTitle = computed(() => {
+    if (canEditCheckin.value) return 'Bấm để sửa giờ nhận phòng thực tế';
+    return occupant.value?.is_checked_in ? 'Giờ nhận phòng thực tế' : 'Giờ nhận phòng dự kiến';
+});
+const checkoutDateTitle = computed(() => {
+    if (canEditCheckout.value) return 'Bấm để sửa giờ trả phòng thực tế';
+    return occupant.value?.is_checked_out ? 'Giờ trả phòng thực tế' : 'Giờ trả phòng dự kiến';
+});
+
+function handleCheckinDateClick() {
+    if (canEditCheckin.value) emit('edit-check-in', props.room);
+}
+function handleCheckoutDateClick() {
+    if (canEditCheckout.value) emit('edit-check-out', props.room);
+}
 </script>
 
 <template>
@@ -151,37 +141,57 @@ const conflictTooltip = computed(() => {
         <template #checkbox>
             <input
                 type="checkbox"
-                class="h-3.5 w-3.5 rounded border-gray-300"
+                class="h-3.5 w-3.5 shrink-0 rounded border-gray-300"
                 :checked="selected"
                 @change="emit('toggle-select', room.id)"
             />
         </template>
 
+        <!-- User request (2026-08-19 chat) — "select every room of this
+             booking" button moved out of the body row, next to the room's
+             own selection checkbox in the header. -->
+        <template #header-extra>
+            <button
+                v-if="occupant"
+                type="button"
+                title="Chọn tất cả phòng của booking này"
+                aria-label="Chọn tất cả phòng của booking này"
+                class="shrink-0 rounded border border-current/40 p-0.5 opacity-80 hover:opacity-100"
+                @click="emit('select-booking-rooms', occupant.booking_id)"
+            >
+                <CheckCircle2 class="h-3 w-3" />
+            </button>
+        </template>
+
         <template #body>
             <div v-if="occupant" class="space-y-1">
-                <div class="flex items-start justify-between gap-1">
-                    <button
-                        type="button"
-                        class="block text-left font-medium leading-snug underline decoration-dotted underline-offset-2 hover:decoration-solid"
-                        style="overflow-wrap: anywhere;"
-                        @click="emit('view-booking', occupant.booking_id)"
-                    >
-                        {{ occupant.customer_name }}
-                    </button>
-                    <!-- docs/yeucaumoi.txt mục 12 — select every room this Booking
-                         currently occupies, without clicking each one. -->
-                    <button
-                        type="button"
-                        title="Chọn tất cả phòng của booking này"
-                        aria-label="Chọn tất cả phòng của booking này"
-                        class="shrink-0 rounded border border-current/40 p-0.5 opacity-80 hover:opacity-100"
-                        @click="emit('select-booking-rooms', occupant.booking_id)"
-                    >
-                        <CheckCircle2 class="h-3 w-3" />
-                    </button>
-                </div>
-                <div class="text-[10px] opacity-80">
-                    {{ formatDateShort(occupant.start_at) }} → {{ formatDateShort(occupant.end_at) }}
+                <button
+                    type="button"
+                    class="block text-left font-medium leading-snug underline decoration-dotted underline-offset-2 hover:decoration-solid"
+                    style="overflow-wrap: anywhere;"
+                    @click="emit('view-booking', occupant.booking_id)"
+                >
+                    {{ occupant.customer_name }}
+                </button>
+                <!-- User request (2026-08-19 chat) — bold, more legible than the
+                     old text-[10px] opacity-80 hint; each side independently
+                     swaps from planned to actual (bold + underline) the moment
+                     that half is recorded, and becomes clickable to correct
+                     (ADMIN-only) once it is. -->
+                <div class="text-xs">
+                    <span
+                        class="font-bold"
+                        :class="checkinDateClass"
+                        :title="checkinDateTitle"
+                        @click="handleCheckinDateClick"
+                    >{{ checkinDateText }}</span>
+                    <span class="opacity-70"> → </span>
+                    <span
+                        class="font-bold"
+                        :class="checkoutDateClass"
+                        :title="checkoutDateTitle"
+                        @click="handleCheckoutDateClick"
+                    >{{ checkoutDateText }}</span>
                 </div>
             </div>
             <div v-else class="text-[11px] italic text-gray-500">Phòng trống</div>
@@ -189,60 +199,31 @@ const conflictTooltip = computed(() => {
 
         <template #status-row>
             <!--
-                Mục XVI-XXVI: one compact icon-only row, five status groups, never wraps.
-                docs/yeucaumoi.txt mục 8 — this row IS the "status strip": a light backing
-                band that keeps every operational icon legible regardless of the Booking
-                color behind the tile, without letting any single state (DoorClosed/
-                DoorOpen/LogOut included) take over the tile's own background.
+                User request (2026-08-19 chat) — every status here is now a
+                short Vietnamese text label (was icon-only): housekeeping
+                (Sạch/Bẩn), Ghép giường, Giường phụ x{n}, Đã kiểm out
+                (checkout inspection — ONLY the completed state is shown, by
+                design, per the user's own list). flex-wrap (not flex-nowrap)
+                because text labels need more width than icons did.
             -->
-            <div class="flex flex-nowrap items-center gap-2 rounded bg-white/75 px-1 py-1 text-gray-900">
-                <span :title="housekeepingTooltip" :aria-label="housekeepingTooltip" class="shrink-0">
-                    <component :is="housekeepingIcon" class="h-4 w-4" :class="housekeepingClass" />
-                </span>
+            <div class="flex flex-wrap items-center gap-1 rounded bg-white/75 px-1 py-1 text-gray-900">
+                <span class="rounded px-1 py-0.5 text-[10px] font-semibold" :class="housekeepingClass">{{ housekeepingText }}</span>
 
-                <span v-if="occupant" :title="occupancyTooltip" :aria-label="occupancyTooltip" class="shrink-0">
-                    <component :is="occupancyIcon" class="h-4 w-4" :class="occupancyClass" />
-                </span>
-
-                <!-- User request (2026-08-18 chat) — ADMIN-only: correct an
-                     already-recorded actual time without leaving the board. -->
-                <button
-                    v-if="canAdjustActualTime && occupant?.is_checked_in"
-                    type="button"
-                    title="Sửa thời gian nhận phòng thực tế"
-                    aria-label="Sửa thời gian nhận phòng thực tế"
-                    class="shrink-0 text-gray-500 hover:text-indigo-600"
-                    @click="emit('edit-check-in', room)"
-                >
-                    <Pencil class="h-3 w-3" />
-                </button>
-                <button
-                    v-if="canAdjustActualTime && occupant?.is_checked_out"
-                    type="button"
-                    title="Sửa thời gian trả phòng thực tế"
-                    aria-label="Sửa thời gian trả phòng thực tế"
-                    class="shrink-0 text-gray-500 hover:text-indigo-600"
-                    @click="emit('edit-check-out', room)"
-                >
-                    <Pencil class="h-3 w-3" />
-                </button>
-
-                <span v-if="occupant?.bed_join" :title="bedJoinTooltip" :aria-label="bedJoinTooltip" class="shrink-0">
-                    <BedDouble class="h-4 w-4 text-orange-600" />
-                </span>
+                <span
+                    v-if="occupant?.bed_join"
+                    :title="bedJoinTooltip"
+                    class="rounded bg-orange-100 px-1 py-0.5 text-[10px] font-semibold text-orange-700"
+                >Ghép giường</span>
 
                 <span
                     v-if="occupant?.extra_bed_quantity > 0"
-                    :title="`Giường phụ x${occupant.extra_bed_quantity}`"
-                    :aria-label="`Giường phụ x${occupant.extra_bed_quantity}`"
-                    class="shrink-0"
-                >
-                    <BedSingle class="h-4 w-4 text-cyan-600" />
-                </span>
+                    class="rounded bg-cyan-100 px-1 py-0.5 text-[10px] font-semibold text-cyan-700"
+                >Giường phụ x{{ occupant.extra_bed_quantity }}</span>
 
-                <span v-if="occupant" :title="inspectionTooltip" :aria-label="inspectionTooltip" class="shrink-0">
-                    <component :is="inspectionIcon" class="h-4 w-4" :class="inspectionClass" />
-                </span>
+                <span
+                    v-if="occupant?.inspection_status === 'completed'"
+                    class="rounded bg-emerald-100 px-1 py-0.5 text-[10px] font-semibold text-emerald-700"
+                >Đã kiểm out</span>
             </div>
         </template>
 
