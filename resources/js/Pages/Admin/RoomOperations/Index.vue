@@ -159,7 +159,7 @@ function bulkCheckIn() {
     if (targets.length === 0) return;
     const stayIds = targets.map((r) => r.occupant.stay_id);
 
-    if (can.adjustActualTime) {
+    if (props.can.adjustActualTime) {
         checkInTimeForm.clearErrors();
         checkInTimeForm.stay_ids = stayIds;
         checkInTimeForm.actual_checkin_at = nowForDatetimeLocal();
@@ -216,7 +216,7 @@ const adminCheckoutTimeValue = ref('');
 const checkoutTimeError = ref('');
 
 function checkoutOverridePayload() {
-    return can.adjustActualTime && adminCheckoutTimeValue.value
+    return props.can.adjustActualTime && adminCheckoutTimeValue.value
         ? { actual_checkout_at: adminCheckoutTimeValue.value }
         : {};
 }
@@ -243,7 +243,7 @@ function requestCheckOut() {
         }));
     if (rooms.length === 0) return;
 
-    if (can.adjustActualTime) {
+    if (props.can.adjustActualTime) {
         adminCheckoutTimeValue.value = nowForDatetimeLocal();
         checkoutTimeError.value = '';
         adminCheckoutTimeDialog.value = { rooms };
