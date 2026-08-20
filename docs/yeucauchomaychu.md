@@ -1,6 +1,6 @@
 # Hướng dẫn cập nhật pms.lastella.com.vn — đưa lên ngang bằng `phase-3`
 
-**Ngày soạn:** 2026-08-19 (cập nhật lần 9) · **Nhánh nguồn:** `origin/phase-3` @ `6e7d676` · **Người soạn:** Claude (máy dev), theo yêu cầu Product Owner sau khi phát hiện `pms.lastella.com.vn` đang chạy code cũ (thiếu menu "Dịch vụ & Yêu cầu", vẫn còn danh sách "Yêu cầu đặc biệt" hardcode trong PHP).
+**Ngày soạn:** 2026-08-19 (cập nhật lần 10) · **Nhánh nguồn:** `origin/phase-3` @ `12474d2` · **Người soạn:** Claude (máy dev), theo yêu cầu Product Owner sau khi phát hiện `pms.lastella.com.vn` đang chạy code cũ (thiếu menu "Dịch vụ & Yêu cầu", vẫn còn danh sách "Yêu cầu đặc biệt" hardcode trong PHP).
 
 **Cách dùng file này:** dán nguyên văn phần "LỆNH CHO CLAUDE TRÊN MÁY CHỦ" bên dưới cho Claude đang chạy trực tiếp trên máy chủ production. Claude ở máy dev (soạn file này) **không có quyền truy cập trực tiếp vào máy chủ đó** — mọi thao tác thực tế do Claude trên máy chủ tự thực hiện.
 
@@ -8,7 +8,7 @@
 
 ## Bối cảnh (để Claude trên máy chủ hiểu VÌ SAO, không chỉ làm theo lệnh mù)
 
-`pms.lastella.com.vn` hiện thiếu ~32 commit gần nhất trên `phase-3`, trong đó quan trọng nhất:
+`pms.lastella.com.vn` hiện thiếu ~34 commit gần nhất trên `phase-3`, trong đó quan trọng nhất:
 
 - **Unified Services & Requests** (4 commit `ca188f0`…`9e984b6`): thêm danh mục Dịch vụ/Yêu cầu quản lý qua DB (4 bảng mới), thay cho danh sách 24 loại "Yêu cầu đặc biệt" đang hardcode trong `app/Http/Requests/Booking/StoreBookingSpecialRequestRequest.php::ALLOWED_REQUEST_TYPES` (và bản tương ứng ở frontend) — đây chính là lý do màn "Dịch vụ & Yêu cầu" ở menu bị thiếu và các "yêu cầu" hiện tại vẫn nằm cứng trong code.
 - **Room Map hợp nhất** (~7 commit): Sơ đồ thao tác/Sơ đồ chọn phòng/Sơ đồ Check phòng/Sơ đồ Kiểm đồ dùng chung 1 kiểu hiển thị, xem lại được phòng đã trả trên Sơ đồ kiểm tra phòng.
@@ -25,6 +25,7 @@
 - **Chưa kiểm đồ thì không thể trả phòng — khóa thật, không còn chỉ là cảnh báo** (1 commit `6a523a0`) — trước đây hộp thoại "Chưa kiểm đồ" có nút "Vẫn tiếp tục"/"Vẫn trả phòng" mà AI CŨNG bấm được, không cần quyền, không cần lý do — nên thực chất chưa kiểm đồ vẫn trả phòng bình thường. Đã bỏ nút đó ở CẢ 2 nơi có luồng trả phòng (Sơ đồ thao tác và trang chi tiết booking). Giờ chỉ còn 2 cách qua được cảnh báo: kiểm đồ xong, HOẶC bấm "Bỏ qua và tiếp tục/trả phòng" (yêu cầu quyền `checkout_inspection.override` + bắt buộc nhập lý do — được ghi lại đầy đủ ai/khi nào/lý do).
   **⚠️ Ảnh hưởng vận hành:** RECEPTION **không có** quyền `checkout_inspection.override` theo phân quyền mặc định (chỉ ADMIN/MANAGER có) — nghĩa là sau khi cập nhật, lễ tân **sẽ bị chặn hoàn toàn** nếu cố trả phòng khi chưa kiểm đồ, phải tự kiểm đồ trước hoặc nhờ MANAGER/ADMIN. Đây là thay đổi có chủ đích theo yêu cầu Product Owner, không phải lỗi — nhưng cần báo trước cho lễ tân biết để tránh bất ngờ khi thao tác thực tế. Không có migration/quyền mới (đã có sẵn từ trước), thuần đổi hành vi frontend.
 - **Kiểm đồ hàng loạt "Không phát sinh"** (1 commit `6e7d676`) — chọn nhiều phòng trên Sơ đồ thao tác, bấm 1 nút "Không phát sinh (N)" là ghi "Xác nhận không phát sinh" cho tất cả, không cần mở từng phiếu kiểm đồ. Dùng lại đúng API/nghiệp vụ kiểm đồ đơn lẻ có sẵn — thuần frontend, không route/quyền/migration mới.
+- **Sửa lỗi JS chặn hoàn toàn Nhận phòng/Trả phòng trên Sơ đồ thao tác** (2 commit `2209748`, `12474d2`) — bấm "Trả phòng"/"Nhận phòng" không phản ứng gì, lỗi Console `ReferenceError: can is not defined`. Nguyên nhân: 3 chỗ trong `Index.vue` (từ commit `8ec0340`, tính năng ADMIN sửa giờ nhận/trả phòng) gọi biến `can` thiếu tiền tố `props.` — throw lỗi ngay khi bấm nút, không có thông báo gì cho người dùng biết. Đã kiểm tra toàn bộ các file liên quan khác, không còn lỗi tương tự ở đâu khác. **Đây là lỗi nghiêm trọng — chặn hẳn chức năng nhận/trả phòng trên Sơ đồ thao tác** kể từ khi tính năng ADMIN sửa giờ ra đời; bắt buộc phải có trong đợt deploy này. Thuần frontend, không migration/quyền.
 - 1 commit hạ tầng (`bootstrap/app.php` trust Cloudflare Tunnel proxy — **có thể máy chủ đã tự vá tay phần này rồi, kiểm tra kỹ để tránh conflict khi pull**).
 
 **4 migration mới** (additive — tạo bảng mới, KHÔNG đụng bảng cũ): `service_categories`, `services`, `service_prices`, `booking_services`. Commit `fe67b3a` (quyền mới), `69961bb` (sửa icon giường phụ), `a461ae7` (thiết kế lại ô phòng), `739fd70` (zoom/tên đậm/hủy dịch vụ/popup) và `d0662a2`/`67391ed` (đậm/đen ô ghi chú) **không có migration nào** — `fe67b3a` chỉ thêm dòng dữ liệu vào bảng `permissions`/`role_has_permissions` có sẵn của Spatie (làm bằng tinker ở Bước 4); các commit còn lại chỉ đổi cách đọc/hiển thị/logic-chuyển-trạng-thái trên dữ liệu hiện có, không ghi schema mới.
@@ -37,9 +38,9 @@
 
 ```
 Cập nhật Lastella PMS (pms.lastella.com.vn) lên ngang bằng origin/phase-3
-(commit mới nhất hiện tại: 6e7d676 — "feat(room-operations): bulk-confirm-
-no-charge inspection for multiple rooms"). Đây là một đợt cập nhật LỚN
-(~32 commit), làm tuần tự từng bước, DỪNG LẠI hỏi tôi ngay khi có bất kỳ
+(commit mới nhất hiện tại: 12474d2 — "fix(room-operations): ReferenceError
+'can is not defined' blocked check-in/out"). Đây là một đợt cập nhật LỚN
+(~34 commit), làm tuần tự từng bước, DỪNG LẠI hỏi tôi ngay khi có bất kỳ
 điều gì bất thường — không tự suy đoán hoặc tự sửa nếu không chắc chắn.
 
 ═══════════════════════════════════════════════════════════════
@@ -270,6 +271,11 @@ tác lên dữ liệu thật ngoài những gì liệt kê)
       thấy nút "Không phát sinh (N)" trên thanh công cụ dưới → bấm → cả N
       phòng chuyển sang trạng thái "Đã kiểm out" (đã kiểm đồ, không phát
       sinh phí) mà không cần mở từng phiếu.
+- [ ] **Quan trọng nhất đợt này:** mở Console (F12), trên Sơ đồ thao tác
+      chọn 1 phòng đang có khách đã kiểm đồ xong → bấm "Trả phòng" → PHẢI
+      hiện hộp thoại xác nhận (không được im lặng không phản ứng); Console
+      KHÔNG được có dòng `ReferenceError: can is not defined`. Thử tương tự
+      với "Nhận phòng" cho 1 phòng đang chờ nhận.
 - [ ] Console trình duyệt không có lỗi mới sau khi load lại các trang trên.
 - [ ] KHÔNG tự chạy Night Audit để test — nếu cần xác nhận Night Audit vẫn
       hoạt động, chỉ mở trang xem trạng thái, không tự bấm chạy.
