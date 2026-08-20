@@ -79,7 +79,7 @@ const cleanCount = computed(() => props.selectedRooms.filter((r) => r.actions?.c
             :title="inspectCount === 0 ? 'Không có phòng nào cần kiểm đồ.' : 'Ghi \'Xác nhận không phát sinh\' cho tất cả phòng đã chọn, không cần mở từng phiếu.'"
             @click="emit('confirm-no-charge')"
         >
-            <CheckCircle2 class="h-3.5 w-3.5" /> Không phát sinh ({{ inspectCount }})
+            <CheckCircle2 class="h-3.5 w-3.5" /> Kiểm đồ nhanh: Xác nhận tất cả không phát sinh ({{ inspectCount }})
         </button>
 
         <button

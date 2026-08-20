@@ -433,7 +433,24 @@ function closeOtherServices() {
 // sequence CheckoutInspectionModal.vue's "Xác nhận không phát sinh" button
 // already does — complete() is idempotent, so a room whose inspection is
 // already Completed is silently skipped (no-op), never overwritten.
+// User request (2026-08-20 chat) — a confirmation step before this fires
+// ("Bạn muốn xác nhận tất cả các phòng đã chọn đều không phát sinh phải
+// không?", Đồng ý / Không xác nhận), since it silently completes inspection
+// for every eligible selected room in one click.
+const confirmNoChargeDialog = ref(null); // { count }
+
+function openConfirmNoChargeDialog() {
+    const targets = selectedRooms.value.filter((r) => r.actions?.can_inspect && r.occupant?.stay_id);
+    if (targets.length === 0) return;
+    confirmNoChargeDialog.value = { count: targets.length };
+}
+
+function closeConfirmNoChargeDialog() {
+    confirmNoChargeDialog.value = null;
+}
+
 async function bulkConfirmNoCharge() {
+    confirmNoChargeDialog.value = null;
     const targets = selectedRooms.value.filter((r) => r.actions?.can_inspect && r.occupant?.stay_id);
     if (targets.length === 0) return;
 
@@ -634,7 +651,7 @@ function onSwapDone() {
             @check-in="bulkCheckIn"
             @check-out="requestCheckOut"
             @inspect="openInspectFromToolbar"
-            @confirm-no-charge="bulkConfirmNoCharge"
+            @confirm-no-charge="openConfirmNoChargeDialog"
             @clean="bulkClean"
             @clear="clearSelection"
         />
@@ -735,6 +752,25 @@ function onSwapDone() {
                         </button>
                     </div>
                 </form>
+            </div>
+        </div>
+
+        <!-- "Kiểm đồ nhanh: Xác nhận tất cả không phát sinh" confirmation
+             (User request, 2026-08-20 chat) -->
+        <div v-if="confirmNoChargeDialog" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <div class="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-5 shadow-xl">
+                <h2 class="text-base font-semibold text-gray-900">Xác nhận không phát sinh</h2>
+                <p class="mt-2 text-sm text-gray-600">
+                    Bạn muốn xác nhận tất cả các phòng đã chọn ({{ confirmNoChargeDialog.count }} phòng) đều không phát sinh phải không?
+                </p>
+                <div class="mt-5 flex justify-end gap-2">
+                    <button type="button" class="rounded border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-600 hover:text-gray-900" @click="closeConfirmNoChargeDialog">
+                        Không xác nhận
+                    </button>
+                    <button type="button" class="rounded border border-indigo-600 bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700" @click="bulkConfirmNoCharge">
+                        Đồng ý
+                    </button>
+                </div>
             </div>
         </div>
 
