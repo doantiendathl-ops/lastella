@@ -12,11 +12,31 @@ const props = defineProps({
     // on the booking-detail page: lets the actual check-in/check-out time be
     // corrected without leaving the board.
     canAdjustActualTime: { type: Boolean, default: false },
+    // User request (2026-08-20 chat) — "Đổi phòng" picked directly on the
+    // board: ordered room-id arrays, empty when not currently picking.
+    swapSourceRoomIds: { type: Array, default: () => [] },
+    swapTargetRoomIds: { type: Array, default: () => [] },
 });
 
 const emit = defineEmits(['toggle-select', 'view-booking', 'save-note', 'select-booking-rooms', 'edit-check-in', 'edit-check-out', 'view-other-services']);
 
 const occupant = computed(() => props.room.occupant);
+
+// User request (2026-08-20 chat) — swap pairing badge: this room's index in
+// whichever list it's in (source or already-picked replacement) becomes its
+// visible pairing number (1-based). isSwapPicking is true the moment ANY
+// source room has been picked (Index.vue clears the normal selectedIds set
+// at that point), so it also gates the checkbox's disabled state below.
+const isSwapPicking = computed(() => props.swapSourceRoomIds.length > 0);
+const swapSourceIndex = computed(() => props.swapSourceRoomIds.indexOf(props.room.id));
+const swapTargetIndex = computed(() => props.swapTargetRoomIds.indexOf(props.room.id));
+const isSwapSource = computed(() => swapSourceIndex.value !== -1);
+const isSwapTarget = computed(() => swapTargetIndex.value !== -1);
+const swapBadgeNumber = computed(() => (isSwapSource.value ? swapSourceIndex.value : swapTargetIndex.value) + 1);
+// Effective checkbox state during picking — selectedIds is empty at that
+// point (Index.vue's openSwapDialog() clears it), so the tile's own
+// source/target membership drives the checkbox/ring instead of `selected`.
+const effectiveSelected = computed(() => props.selected || isSwapSource.value || isSwapTarget.value);
 
 const editingNote = computed(() => noteDraft.value !== null);
 const noteDraft = ref(null);
@@ -154,7 +174,7 @@ function handleCheckoutDateClick() {
         :room-type-label="room.room_type"
         :booking-color="bookingColor"
         :vacant-class="vacantClass"
-        :selected="selected"
+        :selected="effectiveSelected"
         :conflict="room.has_room_conflict"
         :conflict-label="conflictLabel"
     >
@@ -162,11 +182,27 @@ function handleCheckoutDateClick() {
             <AlertTriangle :title="conflictTooltip" :aria-label="conflictTooltip" class="h-3 w-3 shrink-0" />
         </template>
 
+        <!-- User request (2026-08-20 chat) — "Đổi phòng": while picking,
+             shows this tile's pairing number (blue = source, green =
+             already-picked replacement); a source room's own checkbox is
+             disabled — it cannot be picked as its own replacement. -->
+        <template v-if="isSwapSource || isSwapTarget" #swap-badge>
+            <div
+                class="absolute -left-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold text-white shadow"
+                :class="isSwapSource ? 'bg-blue-600' : 'bg-emerald-600'"
+                :title="isSwapSource ? `Phòng nguồn thứ ${swapBadgeNumber}` : `Phòng thay thế thứ ${swapBadgeNumber}`"
+            >
+                {{ swapBadgeNumber }}
+            </div>
+        </template>
+
         <template #checkbox>
             <input
                 type="checkbox"
-                class="h-3.5 w-3.5 shrink-0 rounded border-gray-300"
-                :checked="selected"
+                class="h-3.5 w-3.5 shrink-0 rounded border-gray-300 disabled:cursor-not-allowed disabled:opacity-40"
+                :checked="effectiveSelected"
+                :disabled="isSwapPicking && isSwapSource"
+                :title="isSwapPicking && isSwapSource ? 'Phòng nguồn — không thể chọn làm phòng thay thế' : ''"
                 @change="emit('toggle-select', room.id)"
             />
         </template>

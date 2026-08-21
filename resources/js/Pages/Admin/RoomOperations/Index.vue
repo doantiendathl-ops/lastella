@@ -72,6 +72,13 @@ const conflictedRooms = computed(() => allRoomsFlat.value.filter((r) => r.has_ro
 const selectedIds = ref(new Set());
 
 function toggleSelect(roomId) {
+    // User request (2026-08-20 chat) — while picking swap replacement rooms,
+    // every checkbox click on the board means "pick this as a replacement",
+    // not the normal multi-select toggle. See swapFlow below.
+    if (swapFlow.value) {
+        toggleSwapTarget(roomId);
+        return;
+    }
     const next = new Set(selectedIds.value);
     if (next.has(roomId)) next.delete(roomId);
     else next.add(roomId);
@@ -546,16 +553,89 @@ function viewBooking(bookingId) {
     router.visit(route('admin.bookings.show', bookingId));
 }
 
-// ---- Swap dialog (Mục IX-XXI) -----------------------------------------------
-const swapDialogOpen = ref(false);
+// ---- Swap ("Đổi phòng") — Mục IX-XXI, redesigned (User request, 2026-08-20
+// chat): pick source rooms via checkbox exactly as before (still the same
+// selectedIds mechanism, still gated on actions.can_swap), then pick
+// replacement rooms ALSO on the board instead of via a dropdown inside
+// SwapRoomDialog.vue. Pairing is by SELECTION ORDER — 1st source picked <->
+// 1st replacement picked, 2nd <-> 2nd... numbered badges on the tiles (see
+// RoomOperationsCell.vue) make the pairing visible before confirming. Lock
+// condition: replacement count must equal source count (checked in
+// toggleSwapTarget() and swapTargetsReady below) — room TYPE is never
+// checked here, matching the existing backend (a type mismatch is only ever
+// a warning, never a blocker — see RoomSwapService::analyzePair()).
+//
+// The preview/warnings/confirm flow inside SwapRoomDialog.vue is completely
+// UNCHANGED — only how its `pairs` input gets built changed (now pre-paired
+// from board clicks instead of built from per-row dropdowns).
+const swapFlow = ref(null); // { sourceRoomIds: [...], targetRoomIds: [...] } while picking, else null
+const swapDialogPairs = ref(null); // set once ready, opens SwapRoomDialog
 
 function openSwapDialog() {
-    if (selectedRooms.value.filter((r) => r.actions?.can_swap).length === 0) return;
-    swapDialogOpen.value = true;
+    // Array.from(selectedIds) preserves insertion order (Set iteration order
+    // === insertion order in JS) — this IS the "order picked" the pairing
+    // needs; selectedRooms (filtered from allRoomsFlat) would give board
+    // order instead, which is why this doesn't just reuse that computed.
+    const sourceRoomIds = Array.from(selectedIds.value)
+        .map((id) => allRoomsFlat.value.find((r) => r.id === id))
+        .filter((r) => r?.actions?.can_swap)
+        .map((r) => r.id);
+    if (sourceRoomIds.length === 0) return;
+
+    swapFlow.value = { sourceRoomIds, targetRoomIds: [] };
+    selectedIds.value = new Set();
+}
+
+function toggleSwapTarget(roomId) {
+    if (!swapFlow.value) return;
+    // Same exclusion the old dropdown enforced (targetOptions filtered out
+    // every sourceRoom) — a replacement room can never be one of this same
+    // batch's own source rooms.
+    if (swapFlow.value.sourceRoomIds.includes(roomId)) return;
+
+    const targetRoomIds = [...swapFlow.value.targetRoomIds];
+    const idx = targetRoomIds.indexOf(roomId);
+    if (idx !== -1) {
+        targetRoomIds.splice(idx, 1);
+    } else {
+        // Lock condition (User request) — never more replacements than sources.
+        if (targetRoomIds.length >= swapFlow.value.sourceRoomIds.length) return;
+        targetRoomIds.push(roomId);
+    }
+    swapFlow.value = { ...swapFlow.value, targetRoomIds };
+}
+
+const swapTargetsReady = computed(() => swapFlow.value !== null
+    && swapFlow.value.sourceRoomIds.length > 0
+    && swapFlow.value.targetRoomIds.length === swapFlow.value.sourceRoomIds.length);
+
+function cancelSwapPicking() {
+    swapFlow.value = null;
+}
+
+function proceedToSwapPreview() {
+    if (!swapTargetsReady.value) return;
+
+    swapDialogPairs.value = swapFlow.value.sourceRoomIds.map((sourceRoomId, i) => {
+        const sourceRoom = allRoomsFlat.value.find((r) => r.id === sourceRoomId);
+        const targetRoomId = swapFlow.value.targetRoomIds[i];
+        const targetRoom = allRoomsFlat.value.find((r) => r.id === targetRoomId);
+        return {
+            source_assignment_id: sourceRoom.occupant.assignment_id,
+            target_room_id: targetRoomId,
+            source_room_number: sourceRoom.room_number,
+            target_room_number: targetRoom?.room_number,
+        };
+    });
+}
+
+function closeSwapDialog() {
+    swapDialogPairs.value = null;
 }
 
 function onSwapDone() {
-    swapDialogOpen.value = false;
+    swapDialogPairs.value = null;
+    swapFlow.value = null;
     clearSelection();
     pushToast('Đã đổi phòng thành công.');
     refresh();
@@ -629,6 +709,8 @@ function onSwapDone() {
                 :selected-ids="selectedIds"
                 :can-edit-note="can.swap"
                 :can-adjust-actual-time="can.adjustActualTime"
+                :swap-source-room-ids="swapFlow?.sourceRoomIds ?? []"
+                :swap-target-room-ids="swapFlow?.targetRoomIds ?? []"
                 @toggle-select="toggleSelect"
                 @view-booking="viewBooking"
                 @save-note="saveNote"
@@ -645,6 +727,7 @@ function onSwapDone() {
         </div>
 
         <RoomOperationsToolbar
+            v-if="!swapFlow"
             :selected-rooms="selectedRooms"
             :can="can"
             @swap="openSwapDialog"
@@ -656,11 +739,41 @@ function onSwapDone() {
             @clear="clearSelection"
         />
 
+        <!-- User request (2026-08-20 chat) — replaces the toolbar while picking
+             swap replacement rooms directly on the board. Hidden while the
+             preview dialog is open (swapDialogPairs set) so the two never
+             stack; closing the dialog via its own X button only clears
+             swapDialogPairs, so this reappears with the picks still intact,
+             letting the user adjust before re-opening the preview. -->
+        <div
+            v-if="swapFlow && !swapDialogPairs"
+            class="sticky bottom-0 z-10 flex flex-wrap items-center gap-3 rounded-t-lg border border-indigo-300 bg-indigo-50 p-3 shadow-lg"
+        >
+            <span class="text-sm font-medium text-indigo-900">
+                Đang chọn phòng thay thế: {{ swapFlow.targetRoomIds.length }}/{{ swapFlow.sourceRoomIds.length }} —
+                bấm vào ô phòng trên sơ đồ theo đúng thứ tự ghép cặp (không được trùng phòng nguồn).
+            </span>
+            <button
+                type="button"
+                class="ml-auto inline-flex items-center gap-1 rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                @click="cancelSwapPicking"
+            >
+                Hủy
+            </button>
+            <button
+                type="button"
+                class="inline-flex items-center gap-1 rounded border border-indigo-600 bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
+                :disabled="!swapTargetsReady"
+                @click="proceedToSwapPreview"
+            >
+                Xem trước &amp; xác nhận
+            </button>
+        </div>
+
         <SwapRoomDialog
-            v-if="swapDialogOpen"
-            :source-rooms="selectedRooms.filter((r) => r.actions?.can_swap)"
-            :all-rooms="allRoomsFlat"
-            @close="swapDialogOpen = false"
+            v-if="swapDialogPairs"
+            :pairs="swapDialogPairs"
+            @close="closeSwapDialog"
             @done="onSwapDone"
         />
 

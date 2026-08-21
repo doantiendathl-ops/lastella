@@ -51,6 +51,12 @@ const ringClass = computed(() => {
             <slot name="selected-icon">✓</slot>
         </div>
 
+        <!-- User request (2026-08-20 chat) — numbered pairing badge for the
+             board-based "Đổi phòng" flow (source room N <-> replacement room
+             N); top-LEFT so it never collides with the top-right selected
+             checkmark above. Only RoomOperationsCell.vue populates this. -->
+        <slot name="swap-badge" />
+
         <div v-if="conflict" class="flex items-center gap-1 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
             <slot name="conflict-icon" />
             <span class="truncate">{{ conflictLabel }}</span>

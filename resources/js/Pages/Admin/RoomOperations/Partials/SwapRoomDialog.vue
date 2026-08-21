@@ -5,25 +5,17 @@ import axios from 'axios';
 import { AlertTriangle, X } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
 
+// User request (2026-08-20 chat) — pairs now arrive PRE-BUILT (source and
+// replacement room both picked directly on the board, paired by selection
+// order — see Index.vue's swapFlow) instead of being built here from a
+// per-row dropdown. This dialog now owns ONLY the preview/warnings/confirm
+// step, unchanged from before.
 const props = defineProps({
-    sourceRooms: { type: Array, default: () => [] }, // [{ id, room_number, occupant }]
-    allRooms: { type: Array, default: () => [] }, // flat list for target picker
+    // [{ source_assignment_id, target_room_id, source_room_number, target_room_number }]
+    pairs: { type: Array, required: true },
 });
 
 const emit = defineEmits(['close', 'done']);
-
-// pairs: { source_assignment_id, target_room_id, source_room_number }
-const pairs = ref(
-    props.sourceRooms.map((room) => ({
-        source_assignment_id: room.occupant.assignment_id,
-        source_room_number: room.room_number,
-        target_room_id: null,
-    })),
-);
-
-const targetOptions = computed(() => props.allRooms
-    .filter((r) => !props.sourceRooms.some((s) => s.id === r.id))
-    .sort((a, b) => a.room_number.localeCompare(b.room_number)));
 
 const previewResult = ref(null);
 const previewing = ref(false);
@@ -31,17 +23,15 @@ const previewError = ref('');
 const acknowledged = ref(false);
 const submitting = ref(false);
 
-const readyToPreview = computed(() => pairs.value.every((p) => p.target_room_id !== null));
-
 async function runPreview() {
-    if (!readyToPreview.value) return;
+    if (props.pairs.length === 0) return;
     previewing.value = true;
     previewError.value = '';
     acknowledged.value = false;
 
     try {
         const { data } = await axios.post(route('admin.room-operations.swap.preview'), {
-            pairs: pairs.value.map((p) => ({ source_assignment_id: p.source_assignment_id, target_room_id: p.target_room_id })),
+            pairs: props.pairs.map((p) => ({ source_assignment_id: p.source_assignment_id, target_room_id: p.target_room_id })),
         });
         previewResult.value = data;
     } catch (error) {
@@ -63,7 +53,7 @@ function confirmSwap() {
     router.post(
         route('admin.room-operations.swap.execute'),
         {
-            pairs: pairs.value.map((p) => ({ source_assignment_id: p.source_assignment_id, target_room_id: p.target_room_id })),
+            pairs: props.pairs.map((p) => ({ source_assignment_id: p.source_assignment_id, target_room_id: p.target_room_id })),
             warnings_acknowledged: acknowledged.value,
         },
         {
@@ -95,21 +85,19 @@ function confirmSwap() {
             </div>
 
             <div class="space-y-4 p-4">
+                <!-- User request (2026-08-20 chat) — pairs were picked on the
+                     board (source checkbox, then replacement room, in order);
+                     this is now a read-only recap, not an editable dropdown. -->
                 <div v-for="pair in pairs" :key="pair.source_assignment_id" class="flex items-center gap-2 text-sm">
                     <span class="w-24 shrink-0 font-medium text-gray-700">Phòng {{ pair.source_room_number }}</span>
                     <span class="text-gray-400">→</span>
-                    <select v-model="pair.target_room_id" class="flex-1 rounded border border-gray-300 p-1.5 text-sm">
-                        <option :value="null" disabled>-- Chọn phòng đích --</option>
-                        <option v-for="opt in targetOptions" :key="opt.id" :value="opt.id">
-                            {{ opt.room_number }} ({{ opt.room_type }}){{ opt.occupant ? ' — đang có booking khác' : '' }}
-                        </option>
-                    </select>
+                    <span class="font-medium text-gray-900">Phòng {{ pair.target_room_number }}</span>
                 </div>
 
                 <button
                     type="button"
                     class="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
-                    :disabled="!readyToPreview || previewing"
+                    :disabled="pairs.length === 0 || previewing"
                     @click="runPreview"
                 >
                     {{ previewing ? 'Đang xem trước…' : 'Xem trước' }}
