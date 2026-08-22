@@ -7,6 +7,7 @@ import CheckoutInspectionModal from '@/Pages/Admin/CheckoutInspections/Partials/
 import CheckoutFlowDialogs from './Partials/CheckoutFlowDialogs.vue';
 import DailyBookingSummary from './Partials/DailyBookingSummary.vue';
 import RoomOperationsBoard from './Partials/RoomOperationsBoard.vue';
+import RoomOperationsPrintView from './Partials/RoomOperationsPrintView.vue';
 import RoomOperationsToolbar from './Partials/RoomOperationsToolbar.vue';
 import SwapRoomDialog from './Partials/SwapRoomDialog.vue';
 
@@ -33,6 +34,15 @@ function shiftDay(delta) {
     const d = new Date(`${selectedDate.value}T00:00:00`);
     d.setDate(d.getDate() + delta);
     selectedDate.value = d.toISOString().slice(0, 10);
+}
+
+// User request (2026-08-22 chat) — "in sơ đồ thao tác trên trang A4... để
+// buồng có thể căn cứ vào đấy làm việc". window.print() triggers the
+// browser's native print dialog; the @media print rules in this file's
+// <style> block swap what's visible so ONLY RoomOperationsPrintView.vue's
+// table renders (never a screenshot of the colored interactive board).
+function printBoard() {
+    window.print();
 }
 
 // ---- Filters (Mục XXXVII) ----------------------------------------------
@@ -643,7 +653,7 @@ function onSwapDone() {
 </script>
 
 <template>
-    <AppLayout>
+    <AppLayout class="no-print">
         <div class="space-y-4 p-4">
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <h1 class="text-lg font-semibold text-gray-900">Sơ đồ thao tác</h1>
@@ -651,6 +661,16 @@ function onSwapDone() {
                     <button type="button" class="rounded border border-gray-300 px-2 py-1 text-sm" @click="shiftDay(-1)">‹</button>
                     <input v-model="selectedDate" type="date" class="rounded border border-gray-300 p-1.5 text-sm" />
                     <button type="button" class="rounded border border-gray-300 px-2 py-1 text-sm" @click="shiftDay(1)">›</button>
+                    <!-- User request (2026-08-22 chat) — "in sơ đồ thao tác trên
+                         trang A4... để buồng có thể căn cứ vào đấy làm việc". -->
+                    <button
+                        type="button"
+                        class="ml-2 rounded border border-gray-300 px-2 py-1 text-sm hover:bg-gray-50"
+                        title="In sơ đồ hiện tại ra khổ A4"
+                        @click="printBoard"
+                    >
+                        🖨 In sơ đồ (A4)
+                    </button>
                 </div>
             </div>
 
@@ -942,4 +962,37 @@ function onSwapDone() {
             </div>
         </div>
     </AppLayout>
+
+    <!-- User request (2026-08-22 chat) — the ONLY thing visible when the
+         browser prints (see the plain, non-scoped <style> block below for
+         how AppLayout above gets hidden). Fed the SAME filteredFloors the
+         screen shows, so print always matches whatever search/status
+         filters are currently applied. -->
+    <div class="print-only">
+        <RoomOperationsPrintView :floors="filteredFloors" :date="selectedDate" />
+    </div>
 </template>
+
+<style>
+/* User request (2026-08-22 chat) — plain (not scoped) because @media print
+   and the body-wide hide rule below must reach outside this component's
+   own markup to hide AppLayout's nav/sidebar chrome too. Scoped entirely to
+   this page via the .no-print class on <AppLayout> above + .print-only
+   here — does not affect printing on any other page in the app. */
+.print-only {
+    display: none;
+}
+
+@media print {
+    .no-print {
+        display: none !important;
+    }
+    .print-only {
+        display: block !important;
+    }
+    @page {
+        size: A4 landscape;
+        margin: 10mm;
+    }
+}
+</style>
