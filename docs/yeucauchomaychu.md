@@ -1,6 +1,6 @@
 # Hướng dẫn cập nhật pms.lastella.com.vn — đưa lên ngang bằng `phase-3`
 
-**Ngày soạn:** 2026-08-19 (cập nhật lần 12) · **Nhánh nguồn:** `origin/phase-3` @ `c6d673e` · **Người soạn:** Claude (máy dev), theo yêu cầu Product Owner sau khi phát hiện `pms.lastella.com.vn` đang chạy code cũ (thiếu menu "Dịch vụ & Yêu cầu", vẫn còn danh sách "Yêu cầu đặc biệt" hardcode trong PHP).
+**Ngày soạn:** 2026-08-19 (cập nhật lần 13) · **Nhánh nguồn:** `origin/phase-3` @ `313f15b` · **Người soạn:** Claude (máy dev), theo yêu cầu Product Owner sau khi phát hiện `pms.lastella.com.vn` đang chạy code cũ (thiếu menu "Dịch vụ & Yêu cầu", vẫn còn danh sách "Yêu cầu đặc biệt" hardcode trong PHP).
 
 **Cách dùng file này:** dán nguyên văn phần "LỆNH CHO CLAUDE TRÊN MÁY CHỦ" bên dưới cho Claude đang chạy trực tiếp trên máy chủ production. Claude ở máy dev (soạn file này) **không có quyền truy cập trực tiếp vào máy chủ đó** — mọi thao tác thực tế do Claude trên máy chủ tự thực hiện.
 
@@ -8,7 +8,7 @@
 
 ## Bối cảnh (để Claude trên máy chủ hiểu VÌ SAO, không chỉ làm theo lệnh mù)
 
-`pms.lastella.com.vn` hiện thiếu ~36 commit gần nhất trên `phase-3`, trong đó quan trọng nhất:
+`pms.lastella.com.vn` hiện thiếu ~38 commit gần nhất trên `phase-3`, trong đó quan trọng nhất:
 
 - **Unified Services & Requests** (4 commit `ca188f0`…`9e984b6`): thêm danh mục Dịch vụ/Yêu cầu quản lý qua DB (4 bảng mới), thay cho danh sách 24 loại "Yêu cầu đặc biệt" đang hardcode trong `app/Http/Requests/Booking/StoreBookingSpecialRequestRequest.php::ALLOWED_REQUEST_TYPES` (và bản tương ứng ở frontend) — đây chính là lý do màn "Dịch vụ & Yêu cầu" ở menu bị thiếu và các "yêu cầu" hiện tại vẫn nằm cứng trong code.
 - **Room Map hợp nhất** (~7 commit): Sơ đồ thao tác/Sơ đồ chọn phòng/Sơ đồ Check phòng/Sơ đồ Kiểm đồ dùng chung 1 kiểu hiển thị, xem lại được phòng đã trả trên Sơ đồ kiểm tra phòng.
@@ -28,6 +28,8 @@
 - **Sửa lỗi JS chặn hoàn toàn Nhận phòng/Trả phòng trên Sơ đồ thao tác** (2 commit `2209748`, `12474d2`) — bấm "Trả phòng"/"Nhận phòng" không phản ứng gì, lỗi Console `ReferenceError: can is not defined`. Nguyên nhân: 3 chỗ trong `Index.vue` (từ commit `8ec0340`, tính năng ADMIN sửa giờ nhận/trả phòng) gọi biến `can` thiếu tiền tố `props.` — throw lỗi ngay khi bấm nút, không có thông báo gì cho người dùng biết. Đã kiểm tra toàn bộ các file liên quan khác, không còn lỗi tương tự ở đâu khác. **Đây là lỗi nghiêm trọng — chặn hẳn chức năng nhận/trả phòng trên Sơ đồ thao tác** kể từ khi tính năng ADMIN sửa giờ ra đời; bắt buộc phải có trong đợt deploy này. Thuần frontend, không migration/quyền.
 - **Đổi phòng: chọn phòng thay thế trực tiếp trên sơ đồ, không còn popup dropdown** (1 commit `41f3507`) — chọn phòng cần đổi bằng checkbox như cũ → bấm "Đổi phòng" → sơ đồ chuyển sang chế độ chọn phòng thay thế, bấm trực tiếp vào ô phòng (ghép cặp theo thứ tự bấm, có huy hiệu số xanh dương/xanh lá trên ô phòng để kiểm tra). Khóa: số phòng thay thế phải khớp đúng số phòng nguồn. Bước "Xem trước/cảnh báo/Xác nhận" và toàn bộ logic giá/dữ liệu chuyển theo booking (ghi chú nhanh, giường phụ...) **giữ nguyên y hệt** — thuần đổi giao diện chọn phòng, không đụng gì ở backend PHP.
 - **In sơ đồ thao tác ra khổ A4** (1 commit `c6d673e`) — nút "🖨 In sơ đồ (A4)" cạnh bộ chọn ngày; in ra bảng gọn (không phải ảnh chụp ô màu), nhóm theo tầng, có cột "Đã dọn ☐" để buồng phòng tự tay tích khi làm việc trên giấy — phục vụ trường hợp không có máy tính/điện thoại. Thuần frontend, không route/quyền/migration mới.
+- **Khóa: đã thanh toán đủ thì không sửa được giờ nhận/trả phòng thực tế** (1 commit `313f15b`) — áp dụng cho cả sửa giờ nhận và giờ trả (trang chi tiết booking + Sơ đồ thao tác), tính theo đúng công thức "số dư còn lại" đang dùng ở Đối soát. Thuần logic backend, không migration/quyền mới.
+- **⚠️ Báo cáo rà soát doanh thu quan trọng** (`docs/reports/revenue-audit-night-audit-never-run-2026-08-22.md`, đã lên git, không phải code) — phát hiện Night Audit **chưa từng chạy một lần nào trên production**, khiến rất nhiều booking chỉ được ghi đúng 1 đêm phí phòng (đêm check-in) thay vì đủ số đêm thực ở; các booking đã trả phòng bị thiếu đêm **không thể khôi phục được nữa**. Đây là vấn đề vận hành/dữ liệu, không phải thiếu code — khuyến nghị đọc kỹ báo cáo và cân nhắc chạy Night Audit thủ công sớm cho các booking còn đang lưu trú (nằm ngoài phạm vi việc cập nhật code này).
 - 1 commit hạ tầng (`bootstrap/app.php` trust Cloudflare Tunnel proxy — **có thể máy chủ đã tự vá tay phần này rồi, kiểm tra kỹ để tránh conflict khi pull**).
 
 **4 migration mới** (additive — tạo bảng mới, KHÔNG đụng bảng cũ): `service_categories`, `services`, `service_prices`, `booking_services`. Commit `fe67b3a` (quyền mới), `69961bb` (sửa icon giường phụ), `a461ae7` (thiết kế lại ô phòng), `739fd70` (zoom/tên đậm/hủy dịch vụ/popup) và `d0662a2`/`67391ed` (đậm/đen ô ghi chú) **không có migration nào** — `fe67b3a` chỉ thêm dòng dữ liệu vào bảng `permissions`/`role_has_permissions` có sẵn của Spatie (làm bằng tinker ở Bước 4); các commit còn lại chỉ đổi cách đọc/hiển thị/logic-chuyển-trạng-thái trên dữ liệu hiện có, không ghi schema mới.
@@ -40,10 +42,10 @@
 
 ```
 Cập nhật Lastella PMS (pms.lastella.com.vn) lên ngang bằng origin/phase-3
-(commit mới nhất hiện tại: c6d673e — "feat(room-operations): print-friendly
-A4 view of the daily board"). Đây là một đợt cập nhật LỚN (~36 commit), làm
-tuần tự từng bước, DỪNG LẠI hỏi tôi ngay khi có bất kỳ điều gì bất thường —
-không tự suy đoán hoặc tự sửa nếu không chắc chắn.
+(commit mới nhất hiện tại: 313f15b — "feat(stays): lock actual check-in/
+check-out time edits once fully paid"). Đây là một đợt cập nhật LỚN (~38
+commit), làm tuần tự từng bước, DỪNG LẠI hỏi tôi ngay khi có bất kỳ điều gì
+bất thường — không tự suy đoán hoặc tự sửa nếu không chắc chắn.
 
 ═══════════════════════════════════════════════════════════════
 BƯỚC 0 — PREFLIGHT (bắt buộc, không bỏ qua bước nào)
@@ -289,6 +291,10 @@ tác lên dữ liệu thật ngoài những gì liệt kê)
 - [ ] Trên Sơ đồ thao tác, bấm "🖨 In sơ đồ (A4)" → hộp thoại in của trình
       duyệt hiện ra, bản xem trước là BẢNG (không phải ảnh chụp ô màu), khổ
       A4 ngang, nhóm theo tầng, có cột "Đã dọn ☐" trống ở cuối mỗi dòng.
+- [ ] Mở 1 booking test đã thanh toán đủ (số dư = 0), thử sửa giờ nhận/trả
+      phòng thực tế (trang chi tiết booking hoặc Sơ đồ thao tác) — phải bị
+      chặn với thông báo lỗi rõ ràng. Thử với booking CHƯA trả đủ — vẫn sửa
+      được bình thường.
 - [ ] Console trình duyệt không có lỗi mới sau khi load lại các trang trên.
 - [ ] KHÔNG tự chạy Night Audit để test — nếu cần xác nhận Night Audit vẫn
       hoạt động, chỉ mở trang xem trạng thái, không tự bấm chạy.
