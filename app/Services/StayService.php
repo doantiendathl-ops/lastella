@@ -495,6 +495,8 @@ class StayService
                 ]);
             }
 
+            $this->guardNotFullyPaid($lockedStay, 'actual_checkin_at');
+
             $oldActualCheckinAt = $lockedStay->actual_checkin_at;
 
             $lockedStay->update(['actual_checkin_at' => $newActualCheckinAt]);
@@ -544,6 +546,8 @@ class StayService
                 ]);
             }
 
+            $this->guardNotFullyPaid($lockedStay, 'actual_checkout_at');
+
             $oldActualCheckoutAt = $lockedStay->actual_checkout_at;
 
             $lockedStay->update(['actual_checkout_at' => $newActualCheckoutAt]);
@@ -556,6 +560,36 @@ class StayService
 
             return $lockedStay->refresh();
         });
+    }
+
+    /**
+     * User request (2026-08-22 chat) — "nếu đã hoàn thành thanh toán rồi
+     * không được phép sửa thời gian nhận, trả phòng". "Đã hoàn thành thanh
+     * toán" = balance_due <= 0 (đủ hoặc thừa), tính từ
+     * BookingService::paymentSummary() — CÙNG công thức đang dùng ở Đối
+     * soát và cảnh báo trả phòng cuối cùng (tổng phí ĐÃ GHI SỔ trừ đã thu),
+     * không dùng số "Dự kiến" để tránh vòng phụ thuộc vào chính
+     * actual_checkin_at/actual_checkout_at đang được sửa. Áp dụng cho cả
+     * updateActualCheckIn() và updateActualCheckOut().
+     *
+     * Epsilon 0.005 khớp với ngưỡng ReconciliationService::outstandingBalances()
+     * đang dùng, tránh false-positive do sai số làm tròn số thực.
+     */
+    private function guardNotFullyPaid(Stay $stay, string $field): void
+    {
+        $booking = $stay->booking;
+
+        if ($booking === null) {
+            return;
+        }
+
+        $balanceDue = $this->bookings->paymentSummary($booking)['balance_due'];
+
+        if ($balanceDue <= 0.005) {
+            throw ValidationException::withMessages([
+                $field => 'Booking đã hoàn thành thanh toán — không thể sửa thời gian nhận/trả phòng thực tế.',
+            ]);
+        }
     }
 
     public function checkInMany(iterable $stays): array

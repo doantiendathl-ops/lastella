@@ -10,6 +10,7 @@ use App\Enums\StayStatus;
 use App\Models\Booking;
 use App\Models\BookingRequirement;
 use App\Models\Folio;
+use App\Models\FolioEntry;
 use App\Models\Room;
 use App\Models\RoomAssignment;
 use App\Models\RoomType;
@@ -80,6 +81,16 @@ class RoomOperationsActualTimeOverrideTest extends TestCase
         [$booking, $stay, $assignment] = $this->makeReservedStay();
         $stay->update(['status' => StayStatus::CheckedIn, 'actual_checkin_at' => now()->subMinutes(30)]);
         $assignment->update(['status' => AssignmentStatus::CheckedIn]);
+
+        // User request (2026-08-22 chat, payment-lock guard) — this fixture
+        // deliberately bypasses StayService::checkIn() (direct model update,
+        // for speed across this file's many tests), so RoomChargePostingJob
+        // never runs and no FolioEntry ever exists here. Posted by hand so
+        // total_charges > 0 — otherwise guardNotFullyPaid() sees balance_due
+        // = 0 and (correctly, per its own logic) blocks every actual-time
+        // correction test in this file, mistaking "nothing was ever charged"
+        // for "already fully paid".
+        FolioEntry::factory()->create(['folio_id' => $booking->folio->id, 'amount' => 500000]);
 
         return [$booking, $stay, $assignment];
     }

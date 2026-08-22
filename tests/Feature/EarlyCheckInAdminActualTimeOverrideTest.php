@@ -6,9 +6,11 @@ namespace Tests\Feature;
 
 use App\Enums\AssignmentStatus;
 use App\Enums\FolioStatus;
+use App\Enums\PaymentType;
 use App\Enums\StayStatus;
 use App\Exceptions\FinalCheckoutConfirmationRequiredException;
 use App\Models\Booking;
+use App\Models\BookingPayment;
 use App\Models\BookingRequirement;
 use App\Models\Folio;
 use App\Models\Room;
@@ -70,9 +72,22 @@ class EarlyCheckInAdminActualTimeOverrideTest extends TestCase
         $plannedCheckin ??= now()->addHours(3);
 
         $assignment = RoomAssignment::factory()->for($booking)->for($room)->create([
-            'status'   => AssignmentStatus::Assigned,
-            'start_at' => $plannedCheckin,
-            'end_at'   => $plannedCheckin->copy()->addDay(),
+            'status'       => AssignmentStatus::Assigned,
+            // User request (2026-08-22 chat, payment-lock guard) — explicit,
+            // matching the BookingRequirement above by room_type_id.
+            // RoomAssignmentFactory's own default resolves room_type_id from
+            // an unrelated throwaway Room it creates internally, NOT from the
+            // $room passed via ->for() — a pre-existing factory quirk nothing
+            // exercised until now. Without this override, RoomChargePostingJob
+            // ::resolveUnitPrice() can never match a BookingRequirement, so
+            // checkIn()'s room-charge posting silently skips ("Zero unit price
+            // for stay") and total_charges stays 0 for the whole fixture —
+            // exactly the false "already fully paid" state guardNotFullyPaid()
+            // is meant to catch for a REAL zero-balance booking, not an
+            // artifact of a broken fixture.
+            'room_type_id' => $roomType->id,
+            'start_at'     => $plannedCheckin,
+            'end_at'       => $plannedCheckin->copy()->addDay(),
         ]);
 
         $stay = Stay::factory()->for($booking)->for($room)->create([
@@ -228,6 +243,35 @@ class EarlyCheckInAdminActualTimeOverrideTest extends TestCase
             'event_type' => 'CHECK_IN_TIME_ADJUSTED',
             'actor_id'   => $this->admin->id,
         ]);
+    }
+
+    /**
+     * User request (2026-08-22 chat) — "nếu đã hoàn thành thanh toán rồi
+     * không được phép sửa thời gian nhận, trả phòng". "Đã hoàn thành thanh
+     * toán" = balance_due <= 0, cùng công thức BookingService::paymentSummary()
+     * dùng ở Đối soát — never the "Dự kiến" figure (see
+     * StayService::guardNotFullyPaid()'s docblock for why).
+     */
+    public function test_admin_cannot_edit_actual_check_in_when_booking_fully_paid(): void
+    {
+        [$booking, $stay] = $this->makeCheckedInStay(now()->subHours(2));
+        $charged = $booking->folio->folioEntries()->whereNull('voided_at')->sum('amount');
+        $this->assertGreaterThan(0, $charged, 'Fixture sanity check — the room charge must have posted.');
+
+        BookingPayment::factory()->create([
+            'booking_id'   => $booking->id,
+            'payment_type' => PaymentType::RoomPayment,
+            'amount'       => $charged,
+        ]);
+        $oldActual = $stay->actual_checkin_at->format('Y-m-d H:i');
+
+        $this->actingAs($this->admin)
+            ->patch("/admin/bookings/{$booking->id}/stays/{$stay->id}/actual-check-in", [
+                'actual_checkin_at' => now()->subMinutes(30)->format('Y-m-d H:i:s'),
+            ])
+            ->assertSessionHasErrors('actual_checkin_at');
+
+        $this->assertSame($oldActual, $stay->refresh()->actual_checkin_at->format('Y-m-d H:i'));
     }
 
     public function test_non_admin_cannot_edit_actual_check_in(): void
@@ -418,6 +462,32 @@ class EarlyCheckInAdminActualTimeOverrideTest extends TestCase
             'event_type' => 'CHECK_OUT_TIME_ADJUSTED',
             'actor_id'   => $this->admin->id,
         ]);
+    }
+
+    /** Same lock, other direction — see the check-in counterpart's docblock above. */
+    public function test_admin_cannot_edit_actual_checkout_when_booking_fully_paid(): void
+    {
+        [$booking, $stay] = $this->makeCheckedInStay(now()->subHours(3));
+        app(StayService::class)->checkOut($stay, now()->subHour(), true);
+        $stay->refresh();
+
+        $charged = $booking->folio->folioEntries()->whereNull('voided_at')->sum('amount');
+        $this->assertGreaterThan(0, $charged, 'Fixture sanity check — the room charge must have posted.');
+
+        BookingPayment::factory()->create([
+            'booking_id'   => $booking->id,
+            'payment_type' => PaymentType::RoomPayment,
+            'amount'       => $charged,
+        ]);
+        $oldActual = $stay->actual_checkout_at->format('Y-m-d H:i');
+
+        $this->actingAs($this->admin)
+            ->patch("/admin/bookings/{$booking->id}/stays/{$stay->id}/actual-check-out", [
+                'actual_checkout_at' => $stay->actual_checkout_at->copy()->subMinutes(15)->format('Y-m-d H:i:s'),
+            ])
+            ->assertSessionHasErrors('actual_checkout_at');
+
+        $this->assertSame($oldActual, $stay->refresh()->actual_checkout_at->format('Y-m-d H:i'));
     }
 
     public function test_non_admin_cannot_edit_actual_checkout(): void
