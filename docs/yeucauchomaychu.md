@@ -197,35 +197,38 @@ Kết quả phải in ra đúng số 6. Nếu khác 6 — DỪNG LẠI, báo tô
 lại nhiều lần hay đoán nguyên nhân.
 
 ═══════════════════════════════════════════════════════════════
-BƯỚC 4c — BẮT BUỘC: XÁC NHẬN CRON GỌI LARAVEL SCHEDULER (Night Audit tự
-động 00:00 hàng ngày — không làm bước này thì tính năng vô tác dụng)
+BƯỚC 4c — BẮT BUỘC: XÁC NHẬN CƠ CHẾ GỌI LARAVEL SCHEDULER MỖI PHÚT (Night
+Audit tự động 00:00 hàng ngày — không làm bước này thì tính năng vô tác
+dụng)
 ═══════════════════════════════════════════════════════════════
 
-Commit `03eb62c` thêm lịch `audit:night-audit` chạy 00:00 hàng ngày vào
-`routes/console.php`. Bản thân Laravel Scheduler KHÔNG tự chạy nền — nó
-CHỈ hoạt động nếu có 1 cron hệ điều hành gọi `php artisan schedule:run`
-MỖI PHÚT. Kiểm tra xem cron này đã tồn tại chưa:
+**⚠️ Máy chủ production này chạy WINDOWS, không phải Linux** (xác nhận
+2026-08-22) — dùng **Windows Task Scheduler**, KHÔNG dùng cú pháp
+`crontab`/cron. Nếu đây là lần đầu deploy tính năng này, xem báo cáo
+`docs/reports/night-audit-auto-schedule-deployment-6ef58d7.md` — Claude
+trên máy chủ đã tạo sẵn task tên **"LastellaPMS-LaravelScheduler"** chạy
+`php artisan schedule:run` mỗi phút dưới quyền SYSTEM, đã xác nhận chạy
+lặp tự động thành công (không chỉ tạo xong là coi như xong).
 
-crontab -l
+Từ lần deploy sau, chỉ cần XÁC NHẬN LẠI task này vẫn còn và đang chạy
+(PowerShell):
 
-Tìm dòng dạng:
+Get-ScheduledTask -TaskName "LastellaPMS-LaravelScheduler" | Get-ScheduledTaskInfo
 
-* * * * * cd /path/to/lastella && php artisan schedule:run >> /dev/null 2>&1
+- Nếu `LastTaskResult = 0` và `NextRunTime` đang tự động tiến lên theo
+  từng phút — task vẫn hoạt động bình thường, không cần làm gì thêm.
+- Nếu task KHÔNG tồn tại (bị xóa/server dựng lại) hoặc `LastTaskResult`
+  khác 0 — DỪNG LẠI, báo tôi trước khi tạo lại, đừng tự ý sửa Task
+  Scheduler mà không xác nhận (đây là thay đổi cấu hình hệ điều hành,
+  ngoài phạm vi ứng dụng Laravel).
 
-- Nếu ĐÃ CÓ dòng này (trỏ đúng thư mục dự án) — không cần làm gì thêm,
-  báo tôi xác nhận đã có sẵn.
-- Nếu CHƯA CÓ — DỪNG LẠI, báo tôi chính xác nội dung `crontab -l` hiện
-  tại (kể cả khi trống), đừng tự ý thêm dòng cron mới — việc sửa crontab
-  hệ điều hành cần xác nhận trước vì ảnh hưởng ngoài phạm vi ứng dụng
-  Laravel.
-
-Sau khi cron đã xác nhận tồn tại đúng, kiểm tra lịch đã đăng ký đúng phía
+Sau khi xác nhận task hệ điều hành ổn, kiểm tra lịch đã đăng ký đúng phía
 ứng dụng:
 
 php artisan schedule:list
 
 Phải thấy đúng 1 dòng `0 0 * * *  php artisan audit:night-audit`. Log của
-mỗi lần chạy tự động sẽ ghi vào `storage/logs/night-audit-schedule.log` —
+mỗi lần chạy tự động ghi vào `storage/logs/night-audit-schedule.log` —
 kiểm tra lại sau 00:00 đêm đầu tiên để xác nhận nó thực sự đã chạy.
 
 ═══════════════════════════════════════════════════════════════
@@ -329,9 +332,10 @@ tác lên dữ liệu thật ngoài những gì liệt kê)
       chặn với thông báo lỗi rõ ràng. Thử với booking CHƯA trả đủ — vẫn sửa
       được bình thường.
 - [ ] `php artisan schedule:list` hiện đúng dòng `audit:night-audit` chạy
-      `0 0 * * *`; cron hệ điều hành gọi `schedule:run` mỗi phút đã xác
-      nhận tồn tại (Bước 4c). Đêm đầu tiên sau khi deploy, kiểm tra lại
-      `/admin/night-audit` xem đã có dòng chạy mới lúc 00:00 chưa.
+      `0 0 * * *`; Windows Task Scheduler "LastellaPMS-LaravelScheduler"
+      vẫn tồn tại và chạy đúng (Bước 4c). Đêm đầu tiên sau khi deploy,
+      kiểm tra lại `/admin/night-audit` xem đã có dòng chạy mới lúc 00:00
+      chưa.
 - [ ] Console trình duyệt không có lỗi mới sau khi load lại các trang trên.
 - [ ] KHÔNG tự chạy Night Audit để test — nếu cần xác nhận Night Audit vẫn
       hoạt động, chỉ mở trang xem trạng thái, không tự bấm chạy.
