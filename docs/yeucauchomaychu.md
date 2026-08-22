@@ -1,6 +1,6 @@
 # Hướng dẫn cập nhật pms.lastella.com.vn — đưa lên ngang bằng `phase-3`
 
-**Ngày soạn:** 2026-08-19 (cập nhật lần 13) · **Nhánh nguồn:** `origin/phase-3` @ `313f15b` · **Người soạn:** Claude (máy dev), theo yêu cầu Product Owner sau khi phát hiện `pms.lastella.com.vn` đang chạy code cũ (thiếu menu "Dịch vụ & Yêu cầu", vẫn còn danh sách "Yêu cầu đặc biệt" hardcode trong PHP).
+**Ngày soạn:** 2026-08-19 (cập nhật lần 14) · **Nhánh nguồn:** `origin/phase-3` @ `03eb62c` · **Người soạn:** Claude (máy dev), theo yêu cầu Product Owner sau khi phát hiện `pms.lastella.com.vn` đang chạy code cũ (thiếu menu "Dịch vụ & Yêu cầu", vẫn còn danh sách "Yêu cầu đặc biệt" hardcode trong PHP).
 
 **Cách dùng file này:** dán nguyên văn phần "LỆNH CHO CLAUDE TRÊN MÁY CHỦ" bên dưới cho Claude đang chạy trực tiếp trên máy chủ production. Claude ở máy dev (soạn file này) **không có quyền truy cập trực tiếp vào máy chủ đó** — mọi thao tác thực tế do Claude trên máy chủ tự thực hiện.
 
@@ -8,7 +8,7 @@
 
 ## Bối cảnh (để Claude trên máy chủ hiểu VÌ SAO, không chỉ làm theo lệnh mù)
 
-`pms.lastella.com.vn` hiện thiếu ~38 commit gần nhất trên `phase-3`, trong đó quan trọng nhất:
+`pms.lastella.com.vn` hiện thiếu ~39 commit gần nhất trên `phase-3`, trong đó quan trọng nhất:
 
 - **Unified Services & Requests** (4 commit `ca188f0`…`9e984b6`): thêm danh mục Dịch vụ/Yêu cầu quản lý qua DB (4 bảng mới), thay cho danh sách 24 loại "Yêu cầu đặc biệt" đang hardcode trong `app/Http/Requests/Booking/StoreBookingSpecialRequestRequest.php::ALLOWED_REQUEST_TYPES` (và bản tương ứng ở frontend) — đây chính là lý do màn "Dịch vụ & Yêu cầu" ở menu bị thiếu và các "yêu cầu" hiện tại vẫn nằm cứng trong code.
 - **Room Map hợp nhất** (~7 commit): Sơ đồ thao tác/Sơ đồ chọn phòng/Sơ đồ Check phòng/Sơ đồ Kiểm đồ dùng chung 1 kiểu hiển thị, xem lại được phòng đã trả trên Sơ đồ kiểm tra phòng.
@@ -30,6 +30,7 @@
 - **In sơ đồ thao tác ra khổ A4** (1 commit `c6d673e`) — nút "🖨 In sơ đồ (A4)" cạnh bộ chọn ngày; in ra bảng gọn (không phải ảnh chụp ô màu), nhóm theo tầng, có cột "Đã dọn ☐" để buồng phòng tự tay tích khi làm việc trên giấy — phục vụ trường hợp không có máy tính/điện thoại. Thuần frontend, không route/quyền/migration mới.
 - **Khóa: đã thanh toán đủ thì không sửa được giờ nhận/trả phòng thực tế** (1 commit `313f15b`) — áp dụng cho cả sửa giờ nhận và giờ trả (trang chi tiết booking + Sơ đồ thao tác), tính theo đúng công thức "số dư còn lại" đang dùng ở Đối soát. Thuần logic backend, không migration/quyền mới.
 - **⚠️ Báo cáo rà soát doanh thu quan trọng** (`docs/reports/revenue-audit-night-audit-never-run-2026-08-22.md`, đã lên git, không phải code) — phát hiện Night Audit **chưa từng chạy một lần nào trên production**, khiến rất nhiều booking chỉ được ghi đúng 1 đêm phí phòng (đêm check-in) thay vì đủ số đêm thực ở; các booking đã trả phòng bị thiếu đêm **không thể khôi phục được nữa**. Đây là vấn đề vận hành/dữ liệu, không phải thiếu code — khuyến nghị đọc kỹ báo cáo và cân nhắc chạy Night Audit thủ công sớm cho các booking còn đang lưu trú (nằm ngoài phạm vi việc cập nhật code này).
+- **⚠️ Lên lịch Night Audit tự động chạy 00:00 hàng ngày** (1 commit `03eb62c`) — Phần 1 trong kế hoạch khắc phục lỗi Night Audit chưa từng chạy (xem báo cáo doanh thu ở trên). Thêm `Schedule::command('audit:night-audit')->dailyAt('00:00')` vào `routes/console.php`, chỉ chạy trên môi trường `production`. **Đoạn code này CHỈ có tác dụng nếu máy chủ có cron hệ điều hành gọi `php artisan schedule:run` mỗi phút — bản thân Laravel Scheduler không tự chạy nền.** Xem **Bước 4c** bên dưới — bắt buộc kiểm tra/thiết lập, không được bỏ qua, nếu không đợt cập nhật này coi như vô tác dụng.
 - 1 commit hạ tầng (`bootstrap/app.php` trust Cloudflare Tunnel proxy — **có thể máy chủ đã tự vá tay phần này rồi, kiểm tra kỹ để tránh conflict khi pull**).
 
 **4 migration mới** (additive — tạo bảng mới, KHÔNG đụng bảng cũ): `service_categories`, `services`, `service_prices`, `booking_services`. Commit `fe67b3a` (quyền mới), `69961bb` (sửa icon giường phụ), `a461ae7` (thiết kế lại ô phòng), `739fd70` (zoom/tên đậm/hủy dịch vụ/popup) và `d0662a2`/`67391ed` (đậm/đen ô ghi chú) **không có migration nào** — `fe67b3a` chỉ thêm dòng dữ liệu vào bảng `permissions`/`role_has_permissions` có sẵn của Spatie (làm bằng tinker ở Bước 4); các commit còn lại chỉ đổi cách đọc/hiển thị/logic-chuyển-trạng-thái trên dữ liệu hiện có, không ghi schema mới.
@@ -42,10 +43,10 @@
 
 ```
 Cập nhật Lastella PMS (pms.lastella.com.vn) lên ngang bằng origin/phase-3
-(commit mới nhất hiện tại: 313f15b — "feat(stays): lock actual check-in/
-check-out time edits once fully paid"). Đây là một đợt cập nhật LỚN (~38
-commit), làm tuần tự từng bước, DỪNG LẠI hỏi tôi ngay khi có bất kỳ điều gì
-bất thường — không tự suy đoán hoặc tự sửa nếu không chắc chắn.
+(commit mới nhất hiện tại: 03eb62c — "feat(night-audit): schedule automatic
+daily run at midnight"). Đây là một đợt cập nhật LỚN (~39 commit), làm
+tuần tự từng bước, DỪNG LẠI hỏi tôi ngay khi có bất kỳ điều gì bất thường —
+không tự suy đoán hoặc tự sửa nếu không chắc chắn.
 
 ═══════════════════════════════════════════════════════════════
 BƯỚC 0 — PREFLIGHT (bắt buộc, không bỏ qua bước nào)
@@ -196,6 +197,38 @@ Kết quả phải in ra đúng số 6. Nếu khác 6 — DỪNG LẠI, báo tô
 lại nhiều lần hay đoán nguyên nhân.
 
 ═══════════════════════════════════════════════════════════════
+BƯỚC 4c — BẮT BUỘC: XÁC NHẬN CRON GỌI LARAVEL SCHEDULER (Night Audit tự
+động 00:00 hàng ngày — không làm bước này thì tính năng vô tác dụng)
+═══════════════════════════════════════════════════════════════
+
+Commit `03eb62c` thêm lịch `audit:night-audit` chạy 00:00 hàng ngày vào
+`routes/console.php`. Bản thân Laravel Scheduler KHÔNG tự chạy nền — nó
+CHỈ hoạt động nếu có 1 cron hệ điều hành gọi `php artisan schedule:run`
+MỖI PHÚT. Kiểm tra xem cron này đã tồn tại chưa:
+
+crontab -l
+
+Tìm dòng dạng:
+
+* * * * * cd /path/to/lastella && php artisan schedule:run >> /dev/null 2>&1
+
+- Nếu ĐÃ CÓ dòng này (trỏ đúng thư mục dự án) — không cần làm gì thêm,
+  báo tôi xác nhận đã có sẵn.
+- Nếu CHƯA CÓ — DỪNG LẠI, báo tôi chính xác nội dung `crontab -l` hiện
+  tại (kể cả khi trống), đừng tự ý thêm dòng cron mới — việc sửa crontab
+  hệ điều hành cần xác nhận trước vì ảnh hưởng ngoài phạm vi ứng dụng
+  Laravel.
+
+Sau khi cron đã xác nhận tồn tại đúng, kiểm tra lịch đã đăng ký đúng phía
+ứng dụng:
+
+php artisan schedule:list
+
+Phải thấy đúng 1 dòng `0 0 * * *  php artisan audit:night-audit`. Log của
+mỗi lần chạy tự động sẽ ghi vào `storage/logs/night-audit-schedule.log` —
+kiểm tra lại sau 00:00 đêm đầu tiên để xác nhận nó thực sự đã chạy.
+
+═══════════════════════════════════════════════════════════════
 BƯỚC 5 — RESTART SERVICE (nếu môi trường yêu cầu)
 ═══════════════════════════════════════════════════════════════
 
@@ -295,6 +328,10 @@ tác lên dữ liệu thật ngoài những gì liệt kê)
       phòng thực tế (trang chi tiết booking hoặc Sơ đồ thao tác) — phải bị
       chặn với thông báo lỗi rõ ràng. Thử với booking CHƯA trả đủ — vẫn sửa
       được bình thường.
+- [ ] `php artisan schedule:list` hiện đúng dòng `audit:night-audit` chạy
+      `0 0 * * *`; cron hệ điều hành gọi `schedule:run` mỗi phút đã xác
+      nhận tồn tại (Bước 4c). Đêm đầu tiên sau khi deploy, kiểm tra lại
+      `/admin/night-audit` xem đã có dòng chạy mới lúc 00:00 chưa.
 - [ ] Console trình duyệt không có lỗi mới sau khi load lại các trang trên.
 - [ ] KHÔNG tự chạy Night Audit để test — nếu cần xác nhận Night Audit vẫn
       hoạt động, chỉ mở trang xem trạng thái, không tự bấm chạy.
