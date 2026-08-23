@@ -176,8 +176,15 @@ class UnifiedServicePostingJob implements PostingJob
                 return null;
             }
 
+            // whereNull('voided_at') — see RoomChargePostingJob's identical
+            // fix for the reasoning (posting_key is no longer DB-unique).
+            // This site posts at enrollment time, outside any Night Audit
+            // run, so night_audit_run_id is never set here — unaffected by
+            // the pending-confirmation window itself, but needs the same
+            // "don't mistake a voided row for still-posted" fix.
             if (FolioEntry::where('folio_id', $lockedFolio->id)
                 ->where('posting_key', $postingKey)
+                ->whereNull('voided_at')
                 ->lockForUpdate()
                 ->exists()) {
                 return null;
@@ -218,8 +225,11 @@ class UnifiedServicePostingJob implements PostingJob
                 return PostingResult::skipped('Folio not open');
             }
 
+            // whereNull('voided_at') — see RoomChargePostingJob's identical fix
+            // for the reasoning (posting_key is no longer DB-unique).
             if (FolioEntry::where('folio_id', $folio->id)
                 ->where('posting_key', $postingKey)
+                ->whereNull('voided_at')
                 ->lockForUpdate()
                 ->exists()) {
                 return PostingResult::alreadyPosted();
@@ -227,6 +237,7 @@ class UnifiedServicePostingJob implements PostingJob
 
             $entry = FolioEntry::create([
                 'folio_id' => $folio->id,
+                'night_audit_run_id' => $context->nightAuditRun?->id,
                 'stay_id' => $context->stay->id,
                 'posting_key' => $postingKey,
                 'posting_source' => 'NIGHT_AUDIT',

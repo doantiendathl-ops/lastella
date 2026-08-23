@@ -204,28 +204,32 @@ class ServicePackagePostingJob implements PostingJob
                 return PostingResult::skipped('Folio not open');
             }
 
+            // whereNull('voided_at') — see RoomChargePostingJob's identical fix
+            // for the reasoning (posting_key is no longer DB-unique).
             if (FolioEntry::where('folio_id', $folio->id)
                 ->where('posting_key', $postingKey)
+                ->whereNull('voided_at')
                 ->lockForUpdate()
                 ->exists()) {
                 return PostingResult::alreadyPosted();
             }
 
             $entry = FolioEntry::create([
-                'folio_id'       => $folio->id,
-                'stay_id'        => $stay->id,
-                'posting_key'    => $postingKey,
-                'posting_source' => 'NIGHT_AUDIT',
-                'charge_type'    => ChargeType::Other,
+                'folio_id'           => $folio->id,
+                'night_audit_run_id' => $context->nightAuditRun?->id,
+                'stay_id'            => $stay->id,
+                'posting_key'        => $postingKey,
+                'posting_source'     => 'NIGHT_AUDIT',
+                'charge_type'        => ChargeType::Other,
                 // Package name + code both present for traceability, per
                 // Active Pilot decision — no dedicated reference column
                 // exists on folio_entries, so identity travels in description.
-                'description'    => "{$package->name} ({$package->code}) đêm {$dateLabel}",
-                'quantity'       => number_format($quantity, 2, '.', ''),
-                'unit_price'     => $unitPrice,
-                'amount'         => $amount,
-                'entry_date'     => $context->businessDate->toDateString(),
-                'posted_by'      => $context->postedBy?->id ?? Auth::id(),
+                'description'        => "{$package->name} ({$package->code}) đêm {$dateLabel}",
+                'quantity'           => number_format($quantity, 2, '.', ''),
+                'unit_price'         => $unitPrice,
+                'amount'             => $amount,
+                'entry_date'         => $context->businessDate->toDateString(),
+                'posted_by'          => $context->postedBy?->id ?? Auth::id(),
             ]);
 
             return PostingResult::posted($entry);

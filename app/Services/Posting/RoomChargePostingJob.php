@@ -42,26 +42,33 @@ class RoomChargePostingJob implements PostingJob
                 return PostingResult::skipped('Folio not open');
             }
 
-            // Idempotency inside lock
+            // Idempotency inside lock — whereNull('voided_at') matches
+            // isAlreadyPosted() above (User request 2026-08-22/23 chat,
+            // "cửa sổ chờ xác nhận 24h": posting_key is no longer globally
+            // UNIQUE at the DB level — see the pending-confirmation
+            // migration's docblock — so re-posting after a void must not be
+            // blocked by a stale, already-voided row sharing the same key).
             if (FolioEntry::where('folio_id', $folio->id)
                 ->where('posting_key', $postingKey)
+                ->whereNull('voided_at')
                 ->lockForUpdate()
                 ->exists()) {
                 return PostingResult::alreadyPosted();
             }
 
             $entry = FolioEntry::create([
-                'folio_id'       => $folio->id,
-                'stay_id'        => $stay->id,
-                'posting_key'    => $postingKey,
-                'posting_source' => 'NIGHT_AUDIT',
-                'charge_type'    => ChargeType::Room,
-                'description'    => "Tiền phòng đêm {$dateLabel} - P.{$stay->room_id}",
-                'quantity'       => '1.00',
-                'unit_price'     => $unitPrice,
-                'amount'         => $unitPrice,
-                'entry_date'     => $context->businessDate->toDateString(),
-                'posted_by'      => $context->postedBy?->id ?? Auth::id(),
+                'folio_id'            => $folio->id,
+                'night_audit_run_id'  => $context->nightAuditRun?->id,
+                'stay_id'             => $stay->id,
+                'posting_key'         => $postingKey,
+                'posting_source'      => 'NIGHT_AUDIT',
+                'charge_type'         => ChargeType::Room,
+                'description'         => "Tiền phòng đêm {$dateLabel} - P.{$stay->room_id}",
+                'quantity'            => '1.00',
+                'unit_price'          => $unitPrice,
+                'amount'              => $unitPrice,
+                'entry_date'          => $context->businessDate->toDateString(),
+                'posted_by'           => $context->postedBy?->id ?? Auth::id(),
             ]);
 
             return PostingResult::posted($entry);

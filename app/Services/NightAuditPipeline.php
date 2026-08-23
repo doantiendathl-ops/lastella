@@ -22,9 +22,18 @@ class NightAuditPipeline
         private readonly BusinessDateService $businessDate,
     ) {}
 
+    /**
+     * Keyed by class name (not appended to a plain list): NightAuditService
+     * calls this to (re-)register the same fixed set of jobs on every
+     * runForDate()/recalculate() call, and the underlying pipeline instance
+     * can be reused across more than one such call within the same request
+     * or test (the container does not guarantee a fresh instance per call).
+     * Keying prevents each re-registration from silently duplicating every
+     * job in the run loop below.
+     */
     public function register(PostingJob $job): static
     {
-        $this->jobs[] = $job;
+        $this->jobs[get_class($job)] = $job;
 
         return $this;
     }
@@ -59,10 +68,11 @@ class NightAuditPipeline
                 $staysProcessed++;
 
                 $context = new PostingContext(
-                    booking:      $booking,
-                    folio:        $folio,
-                    businessDate: $businessDate,
-                    stay:         $stay,
+                    booking:       $booking,
+                    folio:         $folio,
+                    businessDate:  $businessDate,
+                    stay:          $stay,
+                    nightAuditRun: $auditRun,
                 );
 
                 foreach ($this->jobs as $job) {

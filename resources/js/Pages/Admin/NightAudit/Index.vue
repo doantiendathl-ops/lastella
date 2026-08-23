@@ -14,6 +14,8 @@ interface AuditRun {
     run_by_name: string | null
     started_at: string | null
     completed_at: string | null
+    confirmed_at: string | null
+    is_awaiting_confirmation: boolean
 }
 
 const props = defineProps<{
@@ -136,6 +138,13 @@ const statusLabel = (status: string) => ({
                             <td class="px-4 py-3">
                                 <span :class="statusClass(run.status)" class="text-xs font-semibold">
                                     {{ statusLabel(run.status) }}
+                                </span>
+                                <span
+                                    v-if="run.is_awaiting_confirmation"
+                                    class="ml-1.5 inline-block rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700"
+                                    title="Vẫn có thể Tính lại — cửa sổ chỉnh sửa chưa đóng"
+                                >
+                                    Chờ xác nhận
                                 </span>
                             </td>
                             <td class="px-4 py-3 text-right">{{ run.stays_processed }}</td>

@@ -25,15 +25,17 @@ class NightAuditController extends Controller
             ->limit(30)
             ->get()
             ->map(fn (NightAuditRun $run): array => [
-                'id'               => $run->id,
-                'business_date'    => $run->business_date->toDateString(),
-                'status'           => $run->status,
-                'stays_processed'  => $run->stays_processed,
-                'entries_posted'   => $run->entries_posted,
-                'entries_skipped'  => $run->entries_skipped,
-                'run_by_name'      => $run->runBy?->name,
-                'started_at'       => $run->started_at?->format('Y-m-d H:i'),
-                'completed_at'     => $run->completed_at?->format('Y-m-d H:i'),
+                'id'                       => $run->id,
+                'business_date'            => $run->business_date->toDateString(),
+                'status'                   => $run->status,
+                'stays_processed'          => $run->stays_processed,
+                'entries_posted'           => $run->entries_posted,
+                'entries_skipped'          => $run->entries_skipped,
+                'run_by_name'              => $run->runBy?->name,
+                'started_at'               => $run->started_at?->format('Y-m-d H:i'),
+                'completed_at'             => $run->completed_at?->format('Y-m-d H:i'),
+                'confirmed_at'             => $run->confirmed_at?->format('Y-m-d H:i'),
+                'is_awaiting_confirmation' => $run->isAwaitingConfirmation(),
             ]);
 
         return Inertia::render('Admin/NightAudit/Index', [
@@ -65,17 +67,20 @@ class NightAuditController extends Controller
 
         return Inertia::render('Admin/NightAudit/Show', [
             'run' => [
-                'id'               => $nightAuditRun->id,
-                'business_date'    => $nightAuditRun->business_date->toDateString(),
-                'status'           => $nightAuditRun->status,
-                'stays_processed'  => $nightAuditRun->stays_processed,
-                'entries_posted'   => $nightAuditRun->entries_posted,
-                'entries_skipped'  => $nightAuditRun->entries_skipped,
-                'run_by_name'      => $nightAuditRun->runBy?->name,
-                'started_at'       => $nightAuditRun->started_at?->format('Y-m-d H:i'),
-                'completed_at'     => $nightAuditRun->completed_at?->format('Y-m-d H:i'),
-                'error_message'    => $nightAuditRun->error_message,
-                'can_retry'        => $nightAuditRun->isFailed() && request()->user()?->can('night_audit.run'),
+                'id'                       => $nightAuditRun->id,
+                'business_date'            => $nightAuditRun->business_date->toDateString(),
+                'status'                   => $nightAuditRun->status,
+                'stays_processed'          => $nightAuditRun->stays_processed,
+                'entries_posted'           => $nightAuditRun->entries_posted,
+                'entries_skipped'          => $nightAuditRun->entries_skipped,
+                'run_by_name'              => $nightAuditRun->runBy?->name,
+                'started_at'               => $nightAuditRun->started_at?->format('Y-m-d H:i'),
+                'completed_at'             => $nightAuditRun->completed_at?->format('Y-m-d H:i'),
+                'confirmed_at'             => $nightAuditRun->confirmed_at?->format('Y-m-d H:i'),
+                'is_awaiting_confirmation' => $nightAuditRun->isAwaitingConfirmation(),
+                'error_message'            => $nightAuditRun->error_message,
+                'can_retry'                => $nightAuditRun->isFailed() && request()->user()?->can('night_audit.run'),
+                'can_recalculate'          => $nightAuditRun->isAwaitingConfirmation() && request()->user()?->can('night_audit.run'),
             ],
             'summary'     => $summary,
             'job_summary' => $jobSummary,
@@ -125,5 +130,16 @@ class NightAuditController extends Controller
         return redirect()
             ->route('admin.night-audit.show', $run->id)
             ->with('success', "Night Audit ngày {$run->business_date->toDateString()} đã được thử lại.");
+    }
+
+    public function recalculate(NightAuditRun $nightAuditRun, NightAuditService $nightAudit): RedirectResponse
+    {
+        $this->authorize('recalculate', $nightAuditRun);
+
+        $run = $nightAudit->recalculate($nightAuditRun, request()->user());
+
+        return redirect()
+            ->route('admin.night-audit.show', $run->id)
+            ->with('success', "Night Audit ngày {$run->business_date->toDateString()} đã được tính lại.");
     }
 }

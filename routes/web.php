@@ -97,6 +97,7 @@ Route::middleware('auth')->group(function (): void {
         Route::post('night-audit/run', [NightAuditController::class, 'run'])->name('night-audit.run');
         Route::post('night-audit/trigger', [NightAuditController::class, 'trigger'])->name('night-audit.trigger');
         Route::post('night-audit/{nightAuditRun}/retry', [NightAuditController::class, 'retry'])->name('night-audit.retry');
+        Route::post('night-audit/{nightAuditRun}/recalculate', [NightAuditController::class, 'recalculate'])->name('night-audit.recalculate');
 
         Route::get('room-availability', [RoomAvailabilityController::class, 'index'])->name('room-availability.index');
 

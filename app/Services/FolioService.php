@@ -68,9 +68,23 @@ class FolioService
 
     public function voidEntry(FolioEntry $entry, string $reason, User $voidedBy): void
     {
-        // ADR-50: system entries are a domain invariant — never voidable by anyone.
-        // posting_key is immutable after creation — safe to read without a lock.
-        if ($entry->posting_key !== null) {
+        // ADR-50 (relaxed by the Night Audit pending-confirmation window — see
+        // finalized_at below): system entries are a domain invariant — never
+        // voidable by anyone — UNLESS the entry is a Night-Audit-sweep posting
+        // (night_audit_run_id set) still inside its correction window
+        // (finalized_at still null). Manual charges (posting_key === null) were
+        // already always voidable and are untouched by this change. Any other
+        // system entry (late-checkout fee, early-check-in fee, checkout
+        // inspection, ONE_TIME unified-service postings, ...) has
+        // night_audit_run_id === null and keeps the old, unconditional
+        // immediate-immutable behavior.
+        //
+        // posting_key and night_audit_run_id are both immutable after creation
+        // — safe to read without a lock. finalized_at is NOT immutable (it
+        // transitions null -> timestamp when a run is confirmed or a stay is
+        // finalized early), so it is re-checked below AFTER the FolioEntry row
+        // is locked — this pre-lock check is only a fast-fail optimization.
+        if ($entry->posting_key !== null && $entry->night_audit_run_id === null) {
             throw new SystemEntryVoidException();
         }
 
@@ -97,6 +111,13 @@ class FolioService
 
             if ($locked->voided_at !== null) {
                 throw new AlreadyVoidedException();
+            }
+
+            // Authoritative re-check under lock: the correction window may have
+            // closed (run confirmed, or this stay finalized early) between the
+            // pre-lock check above and acquiring this lock.
+            if ($locked->finalized_at !== null) {
+                throw new SystemEntryVoidException();
             }
 
             $locked->update([

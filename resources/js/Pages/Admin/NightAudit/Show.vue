@@ -2,7 +2,7 @@
 import AppLayout from '@/Layouts/AppLayout.vue'
 import { formatDate } from '@/Support/format'
 import { Head, Link, useForm } from '@inertiajs/vue3'
-import { ArrowLeft, RefreshCw } from 'lucide-vue-next'
+import { ArrowLeft, Calculator, RefreshCw } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 
 interface Run {
@@ -15,8 +15,11 @@ interface Run {
     run_by_name: string | null
     started_at: string | null
     completed_at: string | null
+    confirmed_at: string | null
+    is_awaiting_confirmation: boolean
     error_message: string | null
     can_retry: boolean
+    can_recalculate: boolean
 }
 
 interface Summary {
@@ -115,6 +118,21 @@ const retryForm = useForm({})
 const retryRun = () => {
     retryForm.post(route('admin.night-audit.retry', props.run.id))
 }
+
+// Night Audit pending-confirmation window (Phần 2): a COMPLETED run that has
+// not yet been auto-confirmed by the next run stays open for manual "Tính
+// lại" correction. Confirmation of "you are about to void and re-post every
+// charge this run produced" happens via the browser confirm() dialog below —
+// this is a destructive, hard-to-undo action so it is never a single click.
+const recalculateForm = useForm({})
+const recalculateRun = () => {
+    if (!window.confirm(
+        'Tính lại sẽ HỦY toàn bộ khoản thu Night Audit đã ghi trong lượt này (trừ các lưu trú đã trả phòng — đã khóa) và ghi lại từ đầu theo dữ liệu hiện tại. Tiếp tục?'
+    )) {
+        return
+    }
+    recalculateForm.post(route('admin.night-audit.recalculate', props.run.id))
+}
 </script>
 
 <template>
@@ -147,18 +165,40 @@ const retryRun = () => {
                         <span v-if="run.run_by_name">Người chạy: <strong class="text-gray-700">{{ run.run_by_name }}</strong></span>
                         <span v-if="run.started_at">Bắt đầu: {{ formatDate(run.started_at) }}</span>
                         <span v-if="run.completed_at">Hoàn tất: {{ formatDate(run.completed_at) }}</span>
+                        <span v-if="run.confirmed_at">Đã xác nhận: {{ formatDate(run.confirmed_at) }}</span>
                     </div>
                 </div>
 
-                <button
-                    v-if="run.can_retry"
-                    @click="retryRun"
-                    :disabled="retryForm.processing"
-                    class="flex items-center gap-2 rounded bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
-                >
-                    <RefreshCw :size="14" />
-                    {{ retryForm.processing ? 'Đang thử lại...' : 'Thử lại' }}
-                </button>
+                <div class="flex items-center gap-2">
+                    <button
+                        v-if="run.can_recalculate"
+                        @click="recalculateRun"
+                        :disabled="recalculateForm.processing"
+                        class="flex items-center gap-2 rounded bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-60"
+                    >
+                        <Calculator :size="14" />
+                        {{ recalculateForm.processing ? 'Đang tính lại...' : 'Tính lại' }}
+                    </button>
+
+                    <button
+                        v-if="run.can_retry"
+                        @click="retryRun"
+                        :disabled="retryForm.processing"
+                        class="flex items-center gap-2 rounded bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                    >
+                        <RefreshCw :size="14" />
+                        {{ retryForm.processing ? 'Đang thử lại...' : 'Thử lại' }}
+                    </button>
+                </div>
+            </div>
+
+            <!-- Pending-confirmation window banner -->
+            <div
+                v-if="run.is_awaiting_confirmation"
+                class="mb-4 border-l-4 border-amber-400 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+            >
+                Lượt này đang chờ xác nhận — vẫn có thể <strong>Tính lại</strong> nếu dữ liệu thay đổi. Cửa sổ chỉnh sửa
+                sẽ tự động đóng lại khi Night Audit của ngày kế tiếp chạy (các lưu trú đã trả phòng đã bị khóa ngay lập tức).
             </div>
 
             <!-- Retry error -->
@@ -167,6 +207,14 @@ const retryRun = () => {
                 class="mb-4 border-l-4 border-red-400 bg-red-50 px-4 py-3 text-sm text-red-700"
             >
                 {{ retryForm.errors.run }}
+            </div>
+
+            <!-- Recalculate error -->
+            <div
+                v-if="recalculateForm.errors.run"
+                class="mb-4 border-l-4 border-red-400 bg-red-50 px-4 py-3 text-sm text-red-700"
+            >
+                {{ recalculateForm.errors.run }}
             </div>
 
             <!-- Run-level error message -->

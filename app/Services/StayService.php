@@ -7,6 +7,7 @@ use App\Enums\StayEventType;
 use App\Enums\StayStatus;
 use App\Exceptions\FinalCheckoutConfirmationRequiredException;
 use App\Models\Booking;
+use App\Models\FolioEntry;
 use App\Models\Room;
 use App\Models\RoomAssignment;
 use App\Models\Stay;
@@ -216,6 +217,17 @@ class StayService
                 // if the inspection is still Draft, was never started, or was
                 // already posted (idempotent).
                 $this->checkoutInspections->postCompletedChargesAtCheckout($lockedStay, Auth::user());
+
+                // Night Audit pending-confirmation window (Phần 2): a checked-out
+                // stay will never again pass through NightAuditPipeline::run() (it
+                // only iterates CheckedIn stays), so there is no future "Tính lại"
+                // opportunity for its postings — finalize them immediately rather
+                // than waiting for the whole run to be confirmed at the next
+                // midnight sweep. Entries outside the sweep (this stay's own
+                // immediate room-charge post, ONE_TIME unified-service postings)
+                // have night_audit_run_id === null and were already
+                // immediate-immutable before this feature existed — untouched here.
+                $this->finalizeStayNightAuditEntries($lockedStay);
             }
 
             // ADR-49: Active stay = Reserved OR CheckedIn (own DML visible within transaction).
@@ -253,6 +265,24 @@ class StayService
 
             return $lockedStay->refresh();
         });
+    }
+
+    /**
+     * Night Audit pending-confirmation window (Phần 2): marks every not-yet-void,
+     * not-yet-finalized Night-Audit-sweep FolioEntry belonging to this stay as
+     * finalized. Called at checkout time — see checkOut() call site for why a
+     * checked-out stay must be finalized immediately instead of waiting for its
+     * run's normal confirmation. Deliberately scoped to night_audit_run_id IS NOT
+     * NULL: entries outside the sweep are unaffected (they never became
+     * conditionally voidable in the first place — see FolioService::voidEntry()).
+     */
+    private function finalizeStayNightAuditEntries(Stay $stay): void
+    {
+        FolioEntry::where('stay_id', $stay->id)
+            ->whereNotNull('night_audit_run_id')
+            ->whereNull('finalized_at')
+            ->whereNull('voided_at')
+            ->update(['finalized_at' => now()]);
     }
 
     /**
