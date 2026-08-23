@@ -990,9 +990,14 @@ function onSwapDone() {
     .print-only {
         display: block !important;
     }
+    /* User request (2026-08-23 chat) — switched from landscape to portrait
+       (in dọc) as part of the 1-page redesign; see RoomOperationsPrintView.vue's
+       top-of-file comment for the layout that makes 1 portrait page realistic.
+       Margin tightened from 10mm to 8mm to reclaim a little more usable
+       height/width for that same reason. */
     @page {
-        size: A4 landscape;
-        margin: 10mm;
+        size: A4 portrait;
+        margin: 8mm;
     }
 }
 </style>

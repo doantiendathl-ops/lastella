@@ -1,0 +1,8 @@
+1. Trạng thái phòng đang hiển thị không đúng:
+Giao lại cho Claude máy chủ thực hiện (Đang limit sáng mai nn tiếp tục lại)
+2. Sửa trang in cho buồng
+Tôi muốn sửa lại chức năng in chỉ hiển thị tối đa trong 2 trang và mỗi phòng gồm có:
+- Thông tin phòng + loại phòng (1 cột);
+- Thông tin tên khách + thời gian nhận (dự kiến, thay thế bằng thực tế (gạch chân để nhận biết) nếu đã nhận thực tế) + thời gian trả (dự kiến và thay thế bằng thực tế (gạch chân để nhận biết) nếu đã trả thực tế); ghi chú nhanh của khách;
+- Yêu cầu đặc biệt: hiển thị rõ nội dung yêu cầu (ghép giường/tách giường/giường phụ/...) 
+- Thông tin trạng thái phòng: sạch/bẩn;

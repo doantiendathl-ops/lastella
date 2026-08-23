@@ -124,6 +124,10 @@ class RoomOperationsBoardService
             ->groupBy('booking_id')
             ->map(fn (Collection $group) => $group->pluck('stay.id')->unique()->values());
         $otherServicesByStayId = $this->otherServicesByStayId($bookingIds, $bookingIdToStayIds);
+        // User request (2026-08-23 chat) — A4 print redesign needs the actual
+        // CONTENT of each stay's special requests, not just the badge count
+        // pendingRequestCounts below already provides. See its docblock.
+        $specialRequestsByStayId = $this->specialRequestsByStayId($bookingIds);
 
         $pendingRequestCounts = BookingSpecialRequest::pendingCountByRoom(
             \App\Models\Room::query()->pluck('id')->all(),
@@ -134,13 +138,13 @@ class RoomOperationsBoardService
             ->orderBy('sort_order')
             ->with(['rooms' => fn ($q) => $q->with('roomType')->orderBy('room_number')])
             ->get()
-            ->map(function (Floor $floor) use ($assignments, $bedJoinByStayId, $extraBedQuantityByStayId, $otherServicesByStayId, $user, $pendingRequestCounts): array {
+            ->map(function (Floor $floor) use ($assignments, $bedJoinByStayId, $extraBedQuantityByStayId, $otherServicesByStayId, $specialRequestsByStayId, $user, $pendingRequestCounts): array {
                 return [
                     'id' => $floor->id,
                     'code' => $floor->code,
                     'name' => $floor->name,
                     'rooms' => $floor->rooms->map(
-                        fn ($room) => $this->buildRoomCell($room, $assignments->get($room->id, collect()), $bedJoinByStayId, $extraBedQuantityByStayId, $otherServicesByStayId, $user, $pendingRequestCounts[$room->id] ?? 0),
+                        fn ($room) => $this->buildRoomCell($room, $assignments->get($room->id, collect()), $bedJoinByStayId, $extraBedQuantityByStayId, $otherServicesByStayId, $specialRequestsByStayId, $user, $pendingRequestCounts[$room->id] ?? 0),
                     )->values(),
                 ];
             })
@@ -260,7 +264,7 @@ class RoomOperationsBoardService
         })->values()->all();
     }
 
-    private function buildRoomCell($room, Collection $roomAssignments, Collection $bedJoinByStayId, Collection $extraBedQuantityByStayId, Collection $otherServicesByStayId, User $user, int $pendingRequestCount): array
+    private function buildRoomCell($room, Collection $roomAssignments, Collection $bedJoinByStayId, Collection $extraBedQuantityByStayId, Collection $otherServicesByStayId, Collection $specialRequestsByStayId, User $user, int $pendingRequestCount): array
     {
         $ordered = $roomAssignments->sortBy([
             fn ($a, $b) => ($b->status === AssignmentStatus::CheckedIn ? 1 : 0) <=> ($a->status === AssignmentStatus::CheckedIn ? 1 : 0),
@@ -338,6 +342,9 @@ class RoomOperationsBoardService
                 // above), summarized above the quick-note box, click opens a
                 // popup list + a link to the booking's own Dịch vụ & Yêu cầu page.
                 'other_services' => $stay !== null ? ($otherServicesByStayId->get($stay->id, collect())->values()->all()) : [],
+                // User request (2026-08-23 chat) — A4 print redesign's "Yêu cầu
+                // đặc biệt" field: see specialRequestsByStayId()'s docblock.
+                'special_requests' => $stay !== null ? ($specialRequestsByStayId->get($stay->id, collect())->values()->all()) : [],
                 'inspection_status' => $inspectionStatus,
                 'quick_note' => $primary->quick_note,
                 'start_at' => $primary->start_at?->format('Y-m-d H:i'),
@@ -657,6 +664,88 @@ class RoomOperationsBoardService
 
         return $byStayId;
     }
+
+    /**
+     * User request (2026-08-23 chat) — the A4 print view's "Yêu cầu đặc
+     * biệt" field must spell out the actual CONTENT of each stay's special
+     * requests ("ghép giường/tách giường/giường phụ/..."), not just the
+     * pendingRequestCounts() badge total the interactive board already uses.
+     *
+     * Legacy BookingSpecialRequest rows only — the Unified Request Catalog's
+     * equivalents are read separately via bedJoinRequestsByStayId() (bed
+     * join)/extraBedQuantityByStayId() (extra bed)/otherServicesByStayId()
+     * (everything else), each already merged into the room cell above.
+     * Excludes Cancelled (no longer relevant, same rule every other method
+     * in this file uses) and excludes the bed_config/twin_to_double pair
+     * specifically — that one is already the dedicated `bed_join` badge and
+     * would otherwise be listed twice.
+     *
+     * request_type is a free-text column, not an enum (see
+     * BookingSpecialRequest model) — requestTypeLabel() below is a
+     * best-effort Vietnamese label for every code the old "Yêu cầu đặc
+     * biệt" creation panel ever offered (mirrors RoomBoardPanel.vue's
+     * REQUEST_TYPE_EMOJI map, the one other place these codes are
+     * interpreted); any code not in that map still renders via a humanized
+     * fallback instead of silently showing nothing.
+     *
+     * @param  int[]  $bookingIds
+     * @return Collection<int, array<int, array{request_type: string, label: string, note: ?string, status: string, status_label: string}>> keyed by stay_id
+     */
+    private function specialRequestsByStayId(array $bookingIds): Collection
+    {
+        if ($bookingIds === []) {
+            return collect();
+        }
+
+        return BookingSpecialRequest::whereIn('booking_id', $bookingIds)
+            ->whereNotNull('stay_id')
+            ->where('status', '!=', RequestStatus::Cancelled->value)
+            ->where(fn ($q) => $q->where('category', '!=', 'bed_config')
+                ->orWhere('request_type', '!=', 'twin_to_double'))
+            ->get()
+            ->groupBy('stay_id')
+            ->map(fn (Collection $rows) => $rows->map(fn (BookingSpecialRequest $r): array => [
+                'request_type' => $r->request_type,
+                'label' => $this->requestTypeLabel($r->request_type),
+                'note' => $r->note,
+                'status' => $r->status->value,
+                'status_label' => $r->status->label(),
+            ])->values());
+    }
+
+    /** See specialRequestsByStayId()'s docblock. */
+    private function requestTypeLabel(string $requestType): string
+    {
+        return self::REQUEST_TYPE_LABELS[$requestType] ?? ucfirst(str_replace('_', ' ', $requestType));
+    }
+
+    /** Mirrors RoomBoardPanel.vue's REQUEST_TYPE_EMOJI key set — keep both in sync. */
+    private const REQUEST_TYPE_LABELS = [
+        'twin_keep' => 'Giữ 2 giường đơn',
+        'twin_to_double' => 'Ghép giường',
+        'separate_beds' => 'Tách giường',
+        'extra_bed' => 'Giường phụ',
+        'baby_cot' => 'Nôi em bé',
+        'extra_pillow' => 'Thêm gối',
+        'non_feather_pillow' => 'Gối không lông vũ',
+        'extra_blanket' => 'Thêm chăn',
+        'extra_towel' => 'Thêm khăn',
+        'welcome_fruit' => 'Trái cây chào mừng',
+        'welcome_amenity' => 'Quà chào mừng',
+        'anniversary' => 'Kỷ niệm ngày cưới',
+        'honeymoon' => 'Trăng mật',
+        'birthday' => 'Sinh nhật',
+        'vip_setup' => 'Setup VIP',
+        'flower_arrangement' => 'Trang trí hoa',
+        'wheelchair' => 'Hỗ trợ xe lăn',
+        'non_smoking_prep' => 'Phòng không khói thuốc',
+        'ground_floor' => 'Tầng trệt',
+        'near_elevator' => 'Gần thang máy',
+        'late_arrival' => 'Đến muộn',
+        'airport_pickup' => 'Đón sân bay',
+        'connecting_room' => 'Phòng thông nhau',
+        'other' => 'Khác',
+    ];
 
     private function boardTotals(Collection $floors): array
     {
